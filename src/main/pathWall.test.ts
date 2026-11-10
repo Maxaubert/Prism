@@ -227,4 +227,53 @@ describe('the bin grant (D12)', () => {
   it('binGranted is false for a non-string', () => {
     expect(wall().binGranted(undefined)).toBe(false)
   })
+
+  // Restore and Delete permanently act on folders too (D13, D14), but a binned
+  // folder is never opened (D10): its entry may be ACTED ON, never read.
+  describe('binned folders (acted on, never read)', () => {
+    beforeEach(() => {
+      mkdirSync(join(bin, '$R5DIRXX', 'inner'), { recursive: true })
+      writeFileSync(join(bin, '$R5DIRXX', 'inner', 'deep.txt'), 'deep')
+    })
+    it('a granted folder entry may be acted on but not read, served or touched by the file verbs', async () => {
+      const w = wall()
+      const dir = join(bin, '$R5DIRXX')
+      await w.grantBin([join(bin, '$R1ABCDE.txt')], [dir])
+      expect(w.binActs(dir)).toBe(true)
+      expect(w.binActs(join(bin, '$R1ABCDE.txt'))).toBe(true)
+      expect(w.readable(dir)).toBe(false)
+      expect(w.mediaAllowed(dir)).toBe(false)
+      expect(w.binGranted(dir)).toBe(false)
+      expect(w.editable(dir)).toBe(false)
+      expect(w.movable(dir)).toBe(false)
+      // what is inside the folder is nobody's
+      expect(w.binActs(join(dir, 'inner'))).toBe(false)
+      expect(w.readable(join(dir, 'inner', 'deep.txt'))).toBe(false)
+    })
+    it('a second listing replaces the folders too', async () => {
+      const w = wall()
+      const dir = join(bin, '$R5DIRXX')
+      await w.grantBin([], [dir])
+      expect(w.binActs(dir)).toBe(true)
+      await w.grantBin([join(bin, '$R1ABCDE.txt')], [])
+      expect(w.binActs(dir)).toBe(false)
+    })
+    it('only a $R in a bin folder, and never a link', async () => {
+      const w = wall()
+      mkdirSync(join(tmp, '$R6OUTSD'))
+      const target = join(tmp, 'elsewhere')
+      mkdirSync(target)
+      const link = join(bin, '$R7LINKD')
+      let linked = true
+      try {
+        symlinkSync(target, link, 'junction')
+      } catch {
+        linked = false
+      }
+      await w.grantBin([], [join(tmp, '$R6OUTSD'), join(bin, '$I1ABCDE.txt'), link])
+      expect(w.binActs(join(tmp, '$R6OUTSD'))).toBe(false)
+      expect(w.binActs(join(bin, '$I1ABCDE.txt'))).toBe(false)
+      if (linked) expect(w.binActs(link)).toBe(false)
+    })
+  })
 })

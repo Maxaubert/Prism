@@ -168,6 +168,30 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
         )
       break
     }
+    case 'unbin': {
+      // Restored from the bin view: back into the bin (D18), the mirror of
+      // `trash`'s redo, with Cancel between items. An item the bin refuses is
+      // counted and left out of the entry, so a redo restores what really went.
+      const binned: string[] = []
+      let done = 0
+      for (const p of entry.paths) {
+        if (ops.signal?.aborted) break
+        if (await prism.trashFile(p)) binned.push(p)
+        done += 1
+        ops.progress?.(done, entry.paths.length)
+      }
+      ops.refresh()
+      if (done < entry.paths.length) {
+        ops.stopped?.(
+          binned.length ? { kind: 'unbin', paths: binned } : null,
+          { kind: 'unbin', paths: entry.paths.slice(done) }
+        )
+        break
+      }
+      if (binned.length < entry.paths.length)
+        ops.fail(`${entry.paths.length - binned.length} of ${entry.paths.length} could not be moved back to the Recycle Bin.`)
+      return binned.length && binned.length < entry.paths.length ? { kind: 'unbin', paths: binned } : undefined
+    }
     case 'duplicate':
       if (!(await prism.trashFile(entry.path)))
         ops.fail('That copy could not be moved to the Recycle Bin.')
@@ -249,6 +273,30 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
           done ? { ...entry, paths: entry.paths.slice(0, done) } : null,
           { ...entry, paths: entry.paths.slice(done) }
         )
+      break
+    }
+    case 'unbin': {
+      // Restore them again, exactly what `trash`'s undo does (D18).
+      const emptied =
+        'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+      if (ops.restoreJob) {
+        const r = await ops.restoreJob(entry.paths)
+        ops.refresh()
+        if (r.restored.length) ops.land?.(r.restored)
+        if (r.cancelled) {
+          ops.stopped?.(
+            r.restored.length ? { kind: 'unbin', paths: r.restored } : null,
+            r.left.length ? { kind: 'unbin', paths: r.left } : null
+          )
+          break
+        }
+        if (!r.ok) ops.fail(emptied)
+        break
+      }
+      const ok = await prism.restoreFromBin(entry.paths)
+      ops.refresh()
+      if (ok) ops.land?.(entry.paths)
+      else ops.fail(emptied)
       break
     }
     case 'duplicate': {

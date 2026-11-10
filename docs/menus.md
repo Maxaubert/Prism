@@ -62,6 +62,9 @@ File Explorer may move under a "More" flyout or go.
 | Explorer list or grid: a file, a folder, several marked rows or tiles (a tile opens the same menu) | `explorerRow.tsx` `explorerRowMenu` | `App.tsx` (after `archiveActions.menu(...)`, which wins for zip rows) |
 | Explorer list: a zip, or anything inside one, or empty space inside one | `archiveMenus.ts` via `useArchiveActions.menu` | `App.tsx` |
 | The zip card in the preview pane: one picked row, several (#483) | `archiveCardMenu.ts` `archiveCardMenuRows` (a subset of `archiveMenuRows`), wired by `useArchiveActions.cardMenu` | `browse/ArchiveCard.tsx` |
+| The Recycle Bin list: a file (Open, Show in preview, Restore, Copy original path, Delete permanently), a folder (no Open), several marked (counts) | `binRow.tsx` `binRowMenu` (delete last, red) | `App.tsx` (before the zip and ordinary menus, when the listing is the bin) |
+| The Recycle Bin list: empty space (Empty Recycle Bin, off when empty) | `binRow.tsx` `binEmptySpaceMenu` | `App.tsx` |
+| Explorer left panel: the Recycle Bin row (Open, Open in new tab, Empty Recycle Bin) | `binRow.tsx` `binPlaceMenu` | `browse/BrowsePlaces.tsx` |
 | Explorer left panel: Quick access, a pinned file, a drive | `places.tsx` `placesMenu` | `browse/BrowsePlaces.tsx` |
 | Explorer address bar | `addressBar.tsx` `addressBarMenu` | `browse/BrowseToolbar.tsx` |
 | A tab; the + button | `tabStrip.tsx` `tabContextMenu`, `plusButtonMenu` | `TabStrip.tsx` |

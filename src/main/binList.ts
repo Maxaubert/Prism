@@ -143,7 +143,7 @@ export const binReader = createBinReader()
 export async function binListing(
   dirs: readonly string[],
   reader: Pick<ReturnType<typeof createBinReader>, 'read'> = binReader,
-  grant?: (paths: readonly string[]) => Promise<void>
+  grant?: (files: readonly string[], folders?: readonly string[]) => Promise<void>
 ): Promise<{ listing: DirListing; skipped: number }> {
   const { rows, skipped } = await reader.read(dirs)
   const folders: DirEntry[] = []
@@ -156,10 +156,14 @@ export async function binListing(
       files.push({ path: r.path, name: r.name, ext, kind: r.kind, size: r.size, mtimeMs: r.deleted, binned })
     }
   }
-  // THE WALL'S GRANT (D12): exactly the file entries this listing returned,
-  // replacing the last set, so it shrinks with the bin. Folders are never
-  // opened (D10), so they are not granted; an empty bin empties the grant.
-  await grant?.(files.map((f) => f.path))
+  // THE WALL'S GRANT (D12): exactly the entries this listing returned,
+  // replacing the last set, so it shrinks with the bin; an empty bin empties
+  // it. Files are granted to be read; folders are handed over apart, to be
+  // acted on (Restore, Delete permanently) and never opened (D10).
+  await grant?.(
+    files.map((f) => f.path),
+    folders.map((f) => f.path)
+  )
   return { listing: { folders: folders.sort(byName), files: files.sort(byName), bin: true }, skipped }
 }
 

@@ -297,7 +297,7 @@ describe('deleteItems', () => {
     const r = await deleteItems(env(), rs, ac.signal, (done) => {
       if (done === 1) ac.abort()
     })
-    expect(r).toMatchObject({ ok: false, cancelled: true, deleted: 1 })
+    expect(r).toMatchObject({ ok: false, cancelled: true, deleted: 1, total: 4 })
     expect(r.left).toEqual(rs.slice(1))
     expect(left(binC)).toHaveLength(6)
   })
@@ -345,6 +345,8 @@ describe('emptyBin', () => {
     expect(r.ok).toBe(false)
     expect(r.deleted).toBeGreaterThanOrEqual(24)
     expect(r.deleted).toBeLessThan(60)
+    // The stopped line says "of N", so the job knows N even when it stopped early.
+    expect(r.total).toBe(60)
     expect(left(binC).filter((n) => n.startsWith('$R'))).toHaveLength(60 - r.deleted)
   })
 

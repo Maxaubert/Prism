@@ -4,6 +4,8 @@ import type { MoveOnClash } from '@shared/ipcTypes'
 import type { Ask } from './asks'
 import { DeleteDialog } from './DeleteDialog'
 import { DeleteManyDialog } from './DeleteManyDialog'
+import { EmptyBinDialog } from './EmptyBinDialog'
+import { PermanentDeleteDialog } from './PermanentDeleteDialog'
 import { FileChangedDialog } from './FileChangedDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { folderIconOf, readFolderIcons, type FolderIconChoice } from '../lib/folderIcons'
@@ -36,6 +38,10 @@ export interface AskAnswers {
   /** "From a file..." in the folder icon picker: App picks, keeps and sets
    *  the picture, or says why not; the picker stays until then. */
   folderIconFromFile: (ask: Extract<Ask, { kind: 'folder-icon' }>) => void
+  /** The Recycle Bin's answers (Recycle Bin, D13 to D15). */
+  runBinRestore: (paths: string[], mode: MoveOnClash) => void
+  runBinDelete: (paths: string[]) => void
+  runBinEmpty: () => void
 }
 
 /**
@@ -78,6 +84,25 @@ export function AskDialogs({
           onReplace={() => a.runMove(ask.paths, ask.dest, 'replace')}
         />
       )
+    case 'bin-clash':
+      return (
+        <MoveClashDialog
+          names={ask.names}
+          onCancel={a.dismiss}
+          onKeepBoth={() => a.runBinRestore(ask.paths, 'keep-both')}
+          onReplace={() => a.runBinRestore(ask.paths, 'replace')}
+        />
+      )
+    case 'bin-delete':
+      return (
+        <PermanentDeleteDialog
+          names={ask.names}
+          onCancel={a.dismiss}
+          onDelete={() => a.runBinDelete(ask.paths)}
+        />
+      )
+    case 'bin-empty':
+      return <EmptyBinDialog count={ask.count} onCancel={a.dismiss} onEmpty={a.runBinEmpty} />
     case 'close-dirty':
       return (
         <UnsavedDialog

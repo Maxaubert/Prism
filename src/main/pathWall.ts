@@ -56,10 +56,17 @@ export interface PathWall {
    * is a `$R` entry inside a `$Recycle.Bin` folder and not a link; the `$I`
    * records, `desktop.ini` and the folder itself are never granted. Async
    * because each entry is looked at on disk (off main's thread).
+   *
+   * `folders` are the binned FOLDER entries of the same listing: Restore and
+   * Delete permanently act on them (D13, D14), but a binned folder is never
+   * opened (D10), so they are kept apart and are never readable or servable.
    */
-  grantBin(paths: readonly string[]): Promise<void>
-  /** Is this exactly an entry the last bin listing granted? */
+  grantBin(paths: readonly string[], folders?: readonly string[]): Promise<void>
+  /** Is this exactly a FILE entry the last bin listing granted (readable)? */
   binGranted(p: unknown): boolean
+  /** Is this exactly an entry (file or folder) the last bin listing returned,
+   *  which Restore, Delete permanently and Empty may act on? */
+  binActs(p: unknown): boolean
   /** A READ: inside the wall, or something main extracted itself. */
   readable(p: unknown): p is string
   /** A WRITE in place (rename, bin, save): inside the wall. */
@@ -109,8 +116,12 @@ export function createPathWall(deps: WallDeps): PathWall {
   let comics = ''
   /** The bin's granted `$R` entries (D12), replaced on every bin listing. */
   let binReads = new Set<string>()
+  /** The bin's FOLDER entries: acted on, never read (D10). */
+  let binFolders = new Set<string>()
   const keyOf = (p: string): string => resolve(p).toLowerCase()
   const binGranted = (p: unknown): boolean => typeof p === 'string' && !!p && binReads.has(keyOf(p))
+  const binActs = (p: unknown): boolean =>
+    typeof p === 'string' && !!p && (binReads.has(keyOf(p)) || binFolders.has(keyOf(p)))
 
   const extracted = (p: unknown): boolean =>
     typeof p === 'string' && (extractedPaths.has(p) || deps.memberOwns(p))
@@ -120,27 +131,33 @@ export function createPathWall(deps: WallDeps): PathWall {
   return {
     grantExtracted: (p) => void extractedPaths.add(p),
     grantServable: (p) => void servable.add(p),
-    grantBin: async (paths) => {
-      const next = new Set<string>()
-      const wanted = paths.filter(
-        (p) =>
-          typeof p === 'string' &&
-          isAbsolute(p) &&
-          inBinFolder(p) &&
-          basename(p).toLowerCase().startsWith('$r')
-      )
-      // A few at a time: a bin can hold thousands, and main's loop stays free.
-      for (let i = 0; i < wanted.length; i += 64) {
-        await Promise.all(
-          wanted.slice(i, i + 64).map(async (p) => {
-            const st = await lstat(p).catch(() => null)
-            if (st && !st.isSymbolicLink()) next.add(keyOf(p))
-          })
+    grantBin: async (paths, folders = []) => {
+      const keep = async (list: readonly string[]): Promise<Set<string>> => {
+        const next = new Set<string>()
+        const wanted = list.filter(
+          (p) =>
+            typeof p === 'string' &&
+            isAbsolute(p) &&
+            inBinFolder(p) &&
+            basename(p).toLowerCase().startsWith('$r')
         )
+        // A few at a time: a bin can hold thousands, and main's loop stays free.
+        for (let i = 0; i < wanted.length; i += 64) {
+          await Promise.all(
+            wanted.slice(i, i + 64).map(async (p) => {
+              const st = await lstat(p).catch(() => null)
+              if (st && !st.isSymbolicLink()) next.add(keyOf(p))
+            })
+          )
+        }
+        return next
       }
-      binReads = next
+      const [files, dirs] = [await keep(paths), await keep(folders)]
+      binReads = files
+      binFolders = dirs
     },
     binGranted,
+    binActs,
     setComicsDir: (dir) => {
       comics = dir
     },
