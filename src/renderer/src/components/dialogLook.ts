@@ -9,8 +9,16 @@
 export const DIALOG_SCRIM = 'fixed inset-0 z-50 grid place-items-center bg-black/55 p-6'
 // Flat surface colour: --p-title carries the window alpha on glass styles,
 // and a question box should not be see-through.
+//
+// `relative` IS FOR A MAGNIFIER (owner, 2026-11-10: "the caret dont seem to be
+// tracked in the input field"). Measured through UI Automation (e2e
+// `caretTracks`, tools/e2e/uiaCaret.ps1): a text field in a box that is not
+// positioned, itself inside the centring scrim, answers TextPattern.
+// GetSelection() with a caret that has NO rectangle, so a magnifier has
+// nothing to follow; the same field in a positioned box answers a thin bar
+// that moves with every key. Chromium's, so the box carries the fix.
 export const DIALOG_BOX =
-  'w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]'
+  'relative w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]'
 export const DIALOG_TITLE = 'text-[14.5px] font-semibold text-[var(--p-text)]'
 export const DIALOG_BODY = 'mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]'
 // A name or a path inside a question's body, a step brighter than the line.

@@ -72,6 +72,7 @@ import {
   sameQuickAccessPath
 } from './lib/quickAccess'
 import { BrowseRename } from './components/browse/BrowseRename'
+import { NEW_FOLDER_WORDS, RENAME_WORDS } from './dialogs/renameWording'
 import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
 import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
@@ -915,6 +916,9 @@ export default function App(): JSX.Element {
     return () => { cancelled = true }
   }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y, inBinList])
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
+  // The folder Ctrl+Shift+N just made and is asking the name of: its dialog
+  // says New folder, not Rename (owner, 2026-11-10). Any other entry is F2's.
+  const [newFolderPath, setNewFolderPath] = useState<string | null>(null)
   const [browseProps, setBrowseProps] = useState<(BrowseEntry & { drive?: BrowseDriveUsage }) | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
   const reportPasteError = useCallback(
@@ -1675,6 +1679,7 @@ export default function App(): JSX.Element {
                     if (!made) return
                     setRefreshKey((key) => key + 1)
                     browsing.select(made, true)
+                    setNewFolderPath(made)
                     setBrowseRename({ path: made, name: baseName(made), isFolder: true })
                   })
                 }
@@ -2139,9 +2144,19 @@ export default function App(): JSX.Element {
       {browseRename && (
         <BrowseRename
           name={browseRename.name}
-          onCancel={() => setBrowseRename(null)}
+          words={browseRename.path === newFolderPath ? NEW_FOLDER_WORDS : RENAME_WORDS}
+          onCancel={() => {
+            setNewFolderPath(null)
+            setBrowseRename(null)
+          }}
           onSave={(name) => {
-            void runRename(browseRename.path, name, 'ask')
+            const wasNew = browseRename.path === newFolderPath
+            void runRename(browseRename.path, name, 'ask').then((to) => {
+              // The folder keeps the selection under its new name, so the
+              // keyboard ends on it (owner, 2026-11-10). Quiet: a mark, not a pick.
+              if (wasNew && to) browsing.select(to, true)
+            })
+            setNewFolderPath(null)
             setBrowseRename(null)
           }}
         />

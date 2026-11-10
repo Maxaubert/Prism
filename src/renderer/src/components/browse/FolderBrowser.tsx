@@ -538,7 +538,14 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         // never while typing, and CLAIMED even where they do nothing (inside
         // a zip), so no window-wide viewer key answers them instead: F3 was
         // the PDF's find from anywhere.
-        const common = !typing && inList ? listKey(e) : null
+        // NEW FOLDER ANSWERS FROM ANYWHERE in the browser but a text field
+        // (owner, 2026-11-10: "if i click the left sidebar and click documents
+        // then ctrl shift n it doesnt open the new folder panel"): it acts on
+        // the folder shown, which the sidebar, a toolbar button and the empty
+        // list all show. The keys that act on the SELECTED rows stay the
+        // list's: from the sidebar the user is looking at a place, not a row.
+        const pressed = typing ? null : listKey(e)
+        const common = pressed && (inList || pressed === 'new-folder') ? pressed : null
         if (common && FOLDER_KEYS.has(common)) {
           e.preventDefault()
           e.stopPropagation()
