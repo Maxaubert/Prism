@@ -73,7 +73,8 @@ beforeEach(() => {
   trashed = []
   granted = null
 })
-afterEach(() => rmSync(tmp, { recursive: true, force: true }))
+// The big-bin tests leave thousands of files; a slow CI disk needs more than 10 s to remove them.
+afterEach(() => rmSync(tmp, { recursive: true, force: true }), 60_000)
 
 describe('restoreItems', () => {
   it('puts a file and a folder back where they came from, and drops their $I', async () => {
