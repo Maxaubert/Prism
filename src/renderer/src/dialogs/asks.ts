@@ -16,3 +16,10 @@ export type Ask =
   // Change icon... on folder rows or a sidebar pin (2026-10-31): one pick
   // applies to every path. `name` is the folder's, or "3 folders".
   | { kind: 'folder-icon'; paths: string[]; name: string }
+  // The Recycle Bin's own questions (Recycle Bin, D13 to D15). `paths` are bin
+  // entries and `names` their ORIGINAL names. A Restore onto taken names asks
+  // the move question (the same dialog); Delete permanently and Empty are final.
+  | { kind: 'bin-clash'; paths: string[]; names: string[] }
+  | { kind: 'bin-delete'; paths: string[]; names: string[] }
+  /** `count` is given when the bin is open and the list knows it. */
+  | { kind: 'bin-empty'; count?: number }

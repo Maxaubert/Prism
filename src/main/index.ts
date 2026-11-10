@@ -80,6 +80,8 @@ import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
+import { binListing } from './binList'
+import { binDirs } from './binRoots'
 import { watchOps, writeOp } from './opLog'
 import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
 import { documentImages } from './docImages'
@@ -385,6 +387,9 @@ async function warmIndexer(root?: string): Promise<void> {
 }
 if (process.argv.includes('--e2e')) {
   ;(globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
+  // The bin folders the app reads, for the e2e to compare with its seam list:
+  // the proof that a run never looked at the real bin (Recycle Bin, D22).
+  ;(globalThis as typeof globalThis & { __prismBinDirs?: typeof binDirs }).__prismBinDirs = binDirs
 }
 const folderSizes = new FolderSizeCache({
   directory: sizeCacheDirectory,
@@ -451,6 +456,13 @@ const explorerListings = createExplorerListings({
   send: (tabId, channel, payload) => windows.sendToTabOwner(tabId, channel, payload),
   localFixed: isLocalFixed,
   archive: archiveRead,
+  // The Recycle Bin (D5): read directly, never cached on disk. A record that
+  // could not be read is counted in one diagnostics line, never a broken row.
+  bin: async () => {
+    const { listing, skipped } = await binListing(await binDirs(), undefined, (files, folders) => wall.grantBin(files, folders))
+    if (skipped) mainCrumb('bin-skipped', { count: skipped })
+    return listing
+  },
   // E2E only: the slow-folder hint is proved by holding every names read, and
   // a details patch that lands after a select and a scroll by holding those.
   delayMs: process.argv.includes('--e2e') ? Number(process.env.PRISM_E2E_LIST_DELAY) || 0 : 0,
@@ -460,6 +472,7 @@ const explorerListings = createExplorerListings({
 const { restoreTabs, session: sessionFile } = createTabsSession({
   cachedListing: (path) => explorerListings.cachedAsync(path),
   archiveRead: (tabId, path) => archiveRead(tabId, path),
+  binRead: (tabId, path) => explorerListings.browse(tabId, path, false),
   buildPayload: (p, root) => buildPayload(p, root)
 })
 // E2E only: a first run's home folder is a fixture, never the machine's own.

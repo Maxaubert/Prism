@@ -1,5 +1,7 @@
 import type { BrowseLocation, BrowseShortcut, BrowseSort } from '@shared/browse'
+import { isBinPlace } from '@shared/binPlace'
 import { samePath } from '@shared/path'
+import { BIN_SORT } from './binView'
 
 /**
  * DOWNLOADS IS NEWEST FIRST, FILES AND FOLDERS TOGETHER, IN DATE GROUPS (#285;
@@ -30,9 +32,10 @@ export function isDownloads(path: string | null | undefined, downloads: string |
 
 /** The sort the folder is shown in. */
 export function viewSort(
-  location: Pick<BrowseLocation, 'sort' | 'sortChosen'>,
+  location: Pick<BrowseLocation, 'sort' | 'sortChosen'> & { path?: string },
   downloads: boolean
 ): BrowseSort {
+  if (isBinPlace(location.path) && !location.sortChosen) return BIN_SORT
   return downloads && !location.sortChosen ? DOWNLOADS_SORT : location.sort
 }
 
@@ -46,5 +49,6 @@ export function dateView(downloads: boolean, sort: BrowseSort, searching: boolea
  *  ascending, and a second click turns it round. */
 export function nextSort(current: BrowseSort, key: BrowseSort['key'], downloads: boolean): BrowseSort {
   if (current.key === key) return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-  return { key, direction: downloads && key === 'modified' ? 'desc' : 'asc' }
+  // Date deleted (the bin's) starts newest first for the same reason.
+  return { key, direction: (downloads && key === 'modified') || key === 'deleted' ? 'desc' : 'asc' }
 }

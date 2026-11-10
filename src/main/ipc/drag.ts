@@ -18,7 +18,7 @@ const trimEntry = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+
  * passes the root wall (`readable`), members are main's own temp copies.
  */
 export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
-  const { readable, archives, memberTemp } = ctx
+  const { archives, memberTemp } = ctx
   // The app's own icon, the fallback when a file has none: read once, async,
   // from the executable (createFromPath would read the disk on main). Read on
   // the first press, never at startup: Chromium reads icons in a helper
@@ -43,7 +43,9 @@ export function registerDragIpc(ctx: MainCtx, bodies: ArchiveBodies): DragOut {
   )
   const dragOut = createDragOut<WebContents, Electron.NativeImage>({
     e2e: E2E,
-    readable,
+    // Never a bin grant (review, 2026-11-10): a `$R` dropped elsewhere would
+    // move out of the bin and leave its `$I` (D12, D16).
+    readable: (p) => ctx.wall.copyable(p),
     kindOf: (p) =>
       stat(p).then(
         (s) => (s.isDirectory() ? 'dir' : 'file'),

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { AskDialogs, type AskAnswers } from './AskDialogs'
 import type { Ask } from './asks'
 import { DeleteDialog } from './DeleteDialog'
+import { EmptyBinDialog } from './EmptyBinDialog'
+import { MoveClashDialog } from './MoveClashDialog'
+import { PermanentDeleteDialog } from './PermanentDeleteDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
@@ -23,7 +26,10 @@ const answers = (): AskAnswers => ({
   answerReload: vi.fn(),
   runInstall: vi.fn(),
   setFolderIcon: vi.fn(),
-  folderIconFromFile: vi.fn()
+  folderIconFromFile: vi.fn(),
+  runBinRestore: vi.fn(),
+  runBinDelete: vi.fn(),
+  runBinEmpty: vi.fn()
 })
 
 interface El {
@@ -34,6 +40,8 @@ interface El {
     onClose?: () => void
     onReload?: () => void
     onKeepBoth?: () => void
+    onReplace?: () => void
+    onEmpty?: () => void
   }
 }
 const draw = (ask: Ask, layer: 'under' | 'over', a = answers()): El | null =>
@@ -71,6 +79,37 @@ describe('AskDialogs', () => {
     draw({ kind: 'file-changed', path: 'C:/n.txt', name: 'n.txt' }, 'under', a)?.props.onReload?.()
     expect(a.answerReload).toHaveBeenCalledWith('C:/n.txt', true)
     expect(a.dismiss).toHaveBeenCalled()
+  })
+
+  // THE RECYCLE BIN'S ASKS (Recycle Bin, D13 to D15).
+  it('Delete permanently asks with the names, and the answer deletes those paths', () => {
+    const a = answers()
+    const el = draw({ kind: 'bin-delete', paths: ['p1'], names: ['a.txt'] }, 'under', a)
+    expect(el?.type).toBe(PermanentDeleteDialog)
+    expect(el?.props.names).toEqual(['a.txt'])
+    el?.props.onDelete?.()
+    expect(a.runBinDelete).toHaveBeenCalledWith(['p1'])
+    expect(draw({ kind: 'bin-delete', paths: ['p1'], names: ['a'] }, 'over')).toBeNull()
+  })
+
+  it('Empty asks with the count when the bin is open, and the answer empties', () => {
+    const a = answers()
+    const el = draw({ kind: 'bin-empty', count: 12 }, 'under', a)
+    expect(el?.type).toBe(EmptyBinDialog)
+    expect(el?.props.count).toBe(12)
+    el?.props.onEmpty?.()
+    expect(a.runBinEmpty).toHaveBeenCalled()
+  })
+
+  it('a Restore clash reuses the move clash dialog: Keep both and Replace restore with that mode', () => {
+    const a = answers()
+    const el = draw({ kind: 'bin-clash', paths: ['p1', 'p2'], names: ['a', 'b'] }, 'under', a)
+    expect(el?.type).toBe(MoveClashDialog)
+    expect(el?.props.names).toEqual(['a', 'b'])
+    el?.props.onKeepBoth?.()
+    expect(a.runBinRestore).toHaveBeenCalledWith(['p1', 'p2'], 'keep-both')
+    el?.props.onReplace?.()
+    expect(a.runBinRestore).toHaveBeenCalledWith(['p1', 'p2'], 'replace')
   })
 
   it('a rename clash keeps both', () => {

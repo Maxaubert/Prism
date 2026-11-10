@@ -1,4 +1,5 @@
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
+import { BIN_NAME, isBinPlace } from '@shared/binPlace'
 import { baseName, samePath } from '@shared/path'
 
 const MAX_HISTORY = 100
@@ -133,6 +134,8 @@ export function travelBrowseState(browse: SavedBrowse, delta: number, shown?: st
 
 /** The drive or UNC share is the top, never an invalid C: or bare server name. */
 export function browseParent(path: string): string | null {
+  // The Recycle Bin has nowhere above it (D6): Up is off, Backspace goes Back.
+  if (isBinPlace(path)) return null
   const normalized = path.replace(/\//g, '\\').replace(/\\+$/, '')
   if (/^[a-z]:$/i.test(normalized) || /^\\\\[^\\]+\\[^\\]+$/.test(normalized)) return null
   const cut = normalized.lastIndexOf('\\')
@@ -148,6 +151,8 @@ export interface BrowseCrumb {
 }
 
 export function browseCrumbs(path: string): BrowseCrumb[] {
+  // One crumb, named as Windows names it (D6).
+  if (isBinPlace(path)) return [{ name: BIN_NAME, path }]
   const crumbs: BrowseCrumb[] = []
   let at: string | null = path
   while (at) {

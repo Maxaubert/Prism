@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { redoEntry, undoEntry, type UndoOps } from './undoApply'
+import type { RestoreOutcome } from '@shared/ipcTypes'
 
 // The inverse table, driven with fakes: what each undo and redo asks for, in
 // what order, and the entry it hands back corrected.
@@ -189,6 +190,97 @@ describe('what an undo or redo puts back is marked (#101)', () => {
     expect(ops.landed).toEqual([['C:\\a\\x.txt'], ['C:\\b\\x.txt']])
     // The entry still names the stuck item where it is, as before.
     expect(back && back.kind === 'move' ? back.items : null).toEqual(items)
+  })
+})
+
+// RESTORE FROM THE BIN VIEW (Recycle Bin, D18): the mirror of `trash`. Undo
+// puts what was restored back in the bin; redo restores it again.
+describe('unbin', () => {
+  const entry = { kind: 'unbin' as const, paths: ['C:\\d\\a.txt', 'C:\\d\\b.txt'] }
+  const outcome = (over: Partial<RestoreOutcome> = {}): RestoreOutcome => ({
+    ok: true,
+    restored: entry.paths,
+    left: [],
+    cancelled: false,
+    ...over
+  })
+
+  it('undo sends each restored path back to the bin, in order', async () => {
+    const ops = fakeOps()
+    await undoEntry(entry, ops)
+    expect(ops.calls).toEqual([
+      'trash ["C:\\\\d\\\\a.txt"]',
+      'trash ["C:\\\\d\\\\b.txt"]',
+      'refresh'
+    ])
+    expect(ops.fail).not.toHaveBeenCalled()
+  })
+
+  it('undo says so when an item could not go back to the bin, and counts the ones that did', async () => {
+    const ops = fakeOps({ trashFile: async (p: string) => !p.endsWith('b.txt') })
+    await undoEntry(entry, ops)
+    expect(ops.fail).toHaveBeenCalledWith('1 of 2 could not be moved back to the Recycle Bin.')
+  })
+
+  it('Cancel partway: what went back waits in the redo, the rest stays to undo', async () => {
+    const stop = new AbortController()
+    const ops = fakeOps({
+      trashFile: async () => {
+        stop.abort()
+        return true
+      }
+    })
+    ops.signal = stop.signal
+    const stopped = vi.fn()
+    ops.stopped = stopped
+    await undoEntry(entry, ops)
+    expect(stopped).toHaveBeenCalledWith(
+      { kind: 'unbin', paths: ['C:\\d\\a.txt'] },
+      { kind: 'unbin', paths: ['C:\\d\\b.txt'] }
+    )
+  })
+
+  it('redo restores the same paths as a job and marks where they land', async () => {
+    const ops = fakeOps()
+    const landed: string[][] = []
+    ops.land = (p) => void landed.push([...p])
+    const asked: string[][] = []
+    ops.restoreJob = async (paths) => {
+      asked.push(paths)
+      return outcome()
+    }
+    await redoEntry(entry, ops)
+    expect(asked).toEqual([entry.paths])
+    expect(landed).toEqual([entry.paths])
+    expect(ops.fail).not.toHaveBeenCalled()
+  })
+
+  it('redo says the existing emptied text when Windows would not give them back', async () => {
+    const ops = fakeOps()
+    ops.restoreJob = async () => outcome({ ok: false, restored: [], left: entry.paths })
+    await redoEntry(entry, ops)
+    expect(ops.fail).toHaveBeenCalledWith(
+      'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+    )
+  })
+
+  it('redo cut short by Cancel reports what came back and what did not', async () => {
+    const ops = fakeOps()
+    ops.restoreJob = async () =>
+      outcome({ ok: false, restored: [entry.paths[0]], left: [entry.paths[1]], cancelled: true })
+    const stopped = vi.fn()
+    ops.stopped = stopped
+    await redoEntry(entry, ops)
+    expect(stopped).toHaveBeenCalledWith(
+      { kind: 'unbin', paths: [entry.paths[0]] },
+      { kind: 'unbin', paths: [entry.paths[1]] }
+    )
+  })
+
+  it('redo without a job asks the plain restore', async () => {
+    const ops = fakeOps()
+    await redoEntry(entry, ops)
+    expect(ops.calls[0]).toBe('restore [["C:\\\\d\\\\a.txt","C:\\\\d\\\\b.txt"]]')
   })
 })
 

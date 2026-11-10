@@ -12,6 +12,8 @@
  * cannot know where a link points.
  */
 
+import { binPlaceOf } from './binPlace'
+
 /** Either separator. */
 const SEP = /[\\/]/
 
@@ -23,6 +25,9 @@ const SEP = /[\\/]/
  */
 export function pastedPath(text: string): string {
   const t = text.trim().replace(/^"(.*)"$/, '$1').trim()
+  // The Recycle Bin is a place of its own name, not a path (binPlace.ts).
+  const bin = binPlaceOf(t)
+  if (bin) return bin
   return /^(?:[a-zA-Z]:[\\/]|[\\/]{2})/.test(t) ? t.replace(/\//g, '\\') : t
 }
 

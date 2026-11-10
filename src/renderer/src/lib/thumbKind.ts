@@ -6,6 +6,9 @@
 // Main applies the same rule again (`thumbKindOf`), so a row that disagrees
 // only gets a null answer.
 
+import type { BinnedFrom } from '@shared/types'
+import { readOnlyFile } from './readOnlyFile'
+
 /** A bigger SVG keeps its icon: the page would parse all of it for a postage stamp. */
 export const SVG_MAX_BYTES = 2 * 1024 * 1024
 
@@ -13,7 +16,7 @@ export type ThumbSource = 'main' | 'svg'
 
 interface Candidate {
   isFolder: boolean
-  file?: { ext: string; kind: string; size?: number; mtimeMs?: number; member?: true }
+  file?: { ext: string; kind: string; size?: number; mtimeMs?: number; member?: true; binned?: BinnedFrom }
 }
 
 /**
@@ -42,7 +45,9 @@ export function visibleWants(
 
 export function thumbSource(entry: Candidate): ThumbSource | null {
   const file = entry.file
-  if (entry.isFolder || !file || file.member) return null
+  // No picture for a member, nor for a binned file (D8: the thumbnail wall is
+  // left exactly as it is, and a bin path is not a place thumbs.ts may read).
+  if (entry.isFolder || !file || readOnlyFile(file)) return null
   const ext = file.ext
   if (ext === '.svgz') return null
   if (ext === '.svg') return file.size !== undefined && file.size <= SVG_MAX_BYTES ? 'svg' : null

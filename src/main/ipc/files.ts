@@ -3,7 +3,9 @@ import { CALL, PUSH } from '@shared/channels'
 import type {
   ArchiveAddResult,
   ArchiveMoveResult,
+  BinDeleteResult,
   BinIfEmptyResult,
+  BinRestoreResult,
   MoveOnClash,
   MoveResult,
   PasteResult,
@@ -30,6 +32,10 @@ import { encodeText, fallbackShape, moveShapes } from '../textFile'
 import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
 import { binIndex, restoreIndexed } from '../binRestore'
+import { binDirs, shellBinAllowed, slowBinMs } from '../binRoots'
+import { binReader } from '../binList'
+import { deleteItems, emptyBin, restoreItems, type BinEnv } from '../binOps'
+import { trashItem as trashVia } from '../binTrash'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
@@ -52,6 +58,10 @@ export const tailOwner = (sender: { id: number }): string => `page-${sender.id}`
 
 /** At most one paste progress message this often, ms. */
 const PASTE_TICK_MS = 120
+
+/** Move to the Recycle Bin: Windows' own, or under the e2e seam the fake bin
+ *  (binTrash.ts), so no scenario can reach the real one. */
+const trashItem = (p: string): Promise<void> => trashVia(p, (t) => shell.trashItem(t))
 
 export function registerSaveCopyIpc(ctx: MainCtx): void {
   const { editable, written } = ctx
@@ -142,7 +152,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
       if (!editable(p))
         return { ok: false, reason: 'failed', message: 'Prism cannot rename that here.' }
       await holders.release([p]) // a rename is refused for the same reason a move is (#127)
-      const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
+      const r = await renameFile(p, name, onClash, trashItem)
       await written(p, r.ok ? r.path : dirname(p))
       // The file's memory follows it (#124): its place and its choices. Its
       // encoding and line endings too (2026-10-16), or a dirty buffer renamed
@@ -155,9 +165,11 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
     }
   )
   ipcMain.handle(CALL.fileTrash, async (_e, p: string): Promise<boolean> => {
-    if (!editable(p)) return false
+    // Or something the bin view put back this run: undo of a Restore sends it
+    // back to the bin from a folder no tab may have opened (pathWall `putBack`).
+    if (!editable(p) && !wall.putBack(p)) return false
     try {
-      await shell.trashItem(p)
+      await trashItem(p)
       return true
     } catch {
       return false
@@ -261,7 +273,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { movable, readable, shellVerbSetting, textShape, written } = ctx
+  const { movable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -358,7 +370,10 @@ export function registerShellIpc(ctx: MainCtx): void {
   }
   ipcMain.handle(CALL.fileCopyClip, (_e, p: string | string[], cut = false): boolean => {
     const list = Array.isArray(p) ? p : [p]
-    if (!list.length || list.some((x) => !readable(x))) {
+    // `copyable`, not `readable` (review, 2026-11-10): a binned `$R` is readable
+    // for the preview, but a Cut of it pasted in File Explorer would move it out
+    // of the bin and leave its `$I` (D12, D16).
+    if (!list.length || list.some((x) => !ctx.wall.copyable(x))) {
       const shown = list.filter((x): x is string => typeof x === 'string')
       writeOp(copyLine({ paths: shown, cut: cut === true, kinds: ['disk'], refused: true }))
       return false
@@ -690,7 +705,9 @@ export function registerShellIpc(ctx: MainCtx): void {
   // got, stops between paths on Cancel, and answers what came back.
   ipcMain.handle(CALL.fileRestore, async (e, all: string[], jobId?: unknown): Promise<boolean | RestoreOutcome> => {
     const job = typeof jobId === 'string' ? jobId : ''
-    if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p)))
+    // A path the bin view put back is restored by path too: redo of a Restore
+    // that was undone (pathWall `putBack`).
+    if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p) || ctx.wall.putBack(p)))
       return job ? { ok: false, restored: [], left: Array.isArray(all) ? all : [], cancelled: false } : false
     const stop = job ? startCopies(job) : null
     const paths: string[] = []
@@ -718,6 +735,12 @@ export function registerShellIpc(ctx: MainCtx): void {
     if (!paths.length) {
       await written(...all)
       return job ? { ok: true, restored: all, left: [], cancelled: false } : true
+    }
+    // Under the e2e seam the shell is not asked: its walk would read the owner's
+    // REAL bin. What the fake bin does not hold is simply not there.
+    if (!shellBinAllowed()) {
+      await written(...all)
+      return job ? { ok: false, restored: direct, left: paths, cancelled: false } : false
     }
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
     const script = [
@@ -747,6 +770,68 @@ export function registerShellIpc(ctx: MainCtx): void {
     if (!job) return asked
     const back = await asked
     return { ok: back, restored: back ? all : direct, left: back ? [] : paths, cancelled: false }
+  })
+
+  /* ----- the Recycle Bin view's verbs (Recycle Bin feature, D13 to D15) -----
+   * Thin: binOps.ts does the work and refuses any path the last bin listing did
+   * not grant, so these channels cannot touch an arbitrary file. Each is a
+   * counted, stoppable job like fileRestore, and clears the bin reader's warm
+   * cache after a write (D3: `$I` files never change, but a pair that left
+   * must not be listed again). */
+  const binEnv = (): BinEnv => ({
+    dirs: binDirs,
+    granted: (p) => ctx.wall.binActs(p),
+    trash: trashItem,
+    slowMs: slowBinMs()
+  })
+  const binTick = (e: Electron.IpcMainInvokeEvent, job: string) => {
+    let lastSent = 0
+    return (done: number, total: number): void => {
+      if (!job || Date.now() - lastSent <= PASTE_TICK_MS) return
+      lastSent = Date.now()
+      void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: pctOf(done, total), count: { done, total } })
+    }
+  }
+  const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string') : [])
+  ipcMain.handle(
+    CALL.binRestore,
+    async (e, paths: unknown, onClash: unknown, jobId?: unknown): Promise<BinRestoreResult> => {
+      const job = typeof jobId === 'string' ? jobId : ''
+      const mode: MoveOnClash = onClash === 'keep-both' || onClash === 'replace' ? onClash : 'ask'
+      const stop = startCopies(job)
+      try {
+        const r = await restoreItems(binEnv(), strings(paths), mode, stop.signal, binTick(e, job))
+        // Undo and redo of this Restore may bin and restore exactly these.
+        ctx.wall.grantPutBack(r.restored)
+        if (r.restored.length || r.replaced.length) binReader.clear()
+        await written(...r.restored, ...r.replaced)
+        return r
+      } finally {
+        endCopies(job)
+      }
+    }
+  )
+  ipcMain.handle(CALL.binDelete, async (e, paths: unknown, jobId?: unknown): Promise<BinDeleteResult> => {
+    const job = typeof jobId === 'string' ? jobId : ''
+    const stop = startCopies(job)
+    try {
+      const r = await deleteItems(binEnv(), strings(paths), stop.signal, binTick(e, job))
+      if (r.deleted) binReader.clear()
+      return r
+    } finally {
+      endCopies(job)
+    }
+  })
+  ipcMain.handle(CALL.binEmpty, async (e, jobId?: unknown): Promise<BinDeleteResult> => {
+    const job = typeof jobId === 'string' ? jobId : ''
+    const stop = startCopies(job)
+    try {
+      const r = await emptyBin(binEnv(), stop.signal, binTick(e, job))
+      binReader.clear()
+      return r
+    } finally {
+      endCopies(job)
+    }
   })
 }
 
@@ -813,7 +898,7 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
         wanted,
         destDir,
         onClash === 'ask' ? 'ask' : onClash,
-        (t) => shell.trashItem(t),
+        trashItem,
         {
           signal: stop.signal,
           tick: (done, total) => {
@@ -943,7 +1028,7 @@ export function registerNewFilesIpc(ctx: MainCtx): void {
     async (_e, p: string): Promise<BinIfEmptyResult> => {
       if (typeof p !== 'string' || (await container(p)) || !editable(p)) return 'failed'
       try {
-        return await binIfEmpty(p, (t) => shell.trashItem(t))
+        return await binIfEmpty(p, trashItem)
       } finally {
         await written(p)
       }

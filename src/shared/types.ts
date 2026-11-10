@@ -28,6 +28,15 @@ export interface ViewerFile {
   packed?: number
   /** Password protected inside its container. */
   encrypted?: true
+  /** A file in the RECYCLE BIN (Recycle Bin feature, D12): `path` is its `$R`
+   *  entry, `name` the original name. Read-only everywhere, like a `member`. */
+  binned?: BinnedFrom
+}
+
+/** Where a binned item came from and when it was deleted (ms since the epoch). */
+export interface BinnedFrom {
+  from: string
+  at: number
 }
 
 /** A subfolder, as the sidebar tree sees it. */
@@ -43,6 +52,8 @@ export interface DirEntry {
    *  the Size column never asks `folder:size` about a path not on disk. */
   size?: number
   items?: number
+  /** A folder in the RECYCLE BIN: `path` is its `$R` entry. Listed, never opened (D10). */
+  binned?: BinnedFrom
 }
 
 /** A sidebar search hit: enough to draw the row and open the file. */
@@ -121,6 +132,9 @@ export interface DirListing {
   /** This listing is a place INSIDE an archive (#300): what the strip, the
    *  Packed column, the crumbs' zip icon and the menus need to know. */
   archive?: ArchiveMeta
+  /** This listing is the RECYCLE BIN (Recycle Bin feature): rows are the `$R`
+   *  entries, each carrying `binned`. Always complete; never cached on disk. */
+  bin?: true
   /** Why a place inside an archive could not be shown as asked (#300): it
    *  wants its password, it is damaged, nested too deep, or the folder has
    *  gone from it (then the listing is the nearest folder that is still

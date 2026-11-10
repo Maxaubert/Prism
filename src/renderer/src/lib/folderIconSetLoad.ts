@@ -30,7 +30,9 @@ export interface FolderIconSet {
   hay: readonly Haystack[]
 }
 
-const PLACE_TAGS: Record<PlaceIconName, string[]> = {
+/** The Recycle Bin row's glyph is the sidebar's own, not a pick for a folder. */
+type PickableName = Exclude<PlaceIconName, 'bin'>
+const PLACE_TAGS: Record<PickableName, string[]> = {
   home: ['home', 'house', 'user', 'prism'],
   desktop: ['desktop', 'monitor', 'screen', 'prism'],
   downloads: ['downloads', 'arrow', 'save', 'prism'],
@@ -44,7 +46,7 @@ const PLACE_TAGS: Record<PlaceIconName, string[]> = {
 
 /** Prism's nine glyphs, in the places panel's order. */
 export const PRISM_ICONS: readonly FolderIconDef[] = (
-  Object.keys(PLACE_PATHS) as PlaceIconName[]
+  (Object.keys(PLACE_PATHS) as PlaceIconName[]).filter((n): n is PickableName => n !== 'bin')
 ).map((name) => ({ name: `prism-${name}`, d: PLACE_PATHS[name], tags: PLACE_TAGS[name], prism: true }))
 
 /** The set from the generated rows (exported for the tests). */

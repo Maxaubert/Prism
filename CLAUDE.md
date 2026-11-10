@@ -117,6 +117,9 @@ tools without an explicit decision (rules in `docs/ui-direction.md`).
   with arrow keys, search with operators, rename / delete / move, right-click on every surface.
 - **Explorer only** (owner, 2026-10-26): no terminal, dictation, project tabs or file tree.
   Record and tests: `docs/features.md`.
+- **The Recycle Bin is a place** (owner, 2026-11-10): the last Quick access row opens the bin as a read-only list
+  (original location, date deleted) with Restore, Delete permanently and Empty. Read directly from the `$I`/`$R`
+  pairs, never a test touches the real bin (`PRISM_E2E_BIN_DIRS`). Record and tests: `docs/features.md`.
 - Prism on your phone: a LAN page that browses the whole PC like the Explorer and plays what it
   finds (read-only, paired, the user's own network).
 - Resident single-instance app (the last window's close rests in a low-RAM standby, owner 2026-11-06;

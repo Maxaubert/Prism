@@ -42,7 +42,9 @@ import type {
   ArchiveAddResult,
   ArchiveMoveResult,
   ArchiveStat,
+  BinDeleteResult,
   BinIfEmptyResult,
+  BinRestoreResult,
   ComicOpenResult,
   ConvertProgress,
   ConvertResult,
@@ -506,6 +508,16 @@ const api = {
    *  and the answer names what came back and what did not. */
   restoreFromBinJob: (paths: string[], jobId: string): Promise<RestoreOutcome> =>
     ipcRenderer.invoke(CALL.fileRestore, paths, jobId),
+  /** The Recycle Bin view's Restore (D13): the listed bin entries back to their
+   *  original places. 'ask' reports clashes and moves nothing. A job: progress on
+   *  `pasteProgress`, Cancel between items. */
+  binRestore: (paths: string[], onClash: MoveOnClash, jobId?: string): Promise<BinRestoreResult> =>
+    ipcRenderer.invoke(CALL.binRestore, paths, onClash, jobId),
+  /** Delete permanently from the bin view (D14), as a job. Not undoable. */
+  binDelete: (paths: string[], jobId?: string): Promise<BinDeleteResult> =>
+    ipcRenderer.invoke(CALL.binDelete, paths, jobId),
+  /** Empty the Recycle Bin on every drive (D15), as a job. Not undoable. */
+  binEmpty: (jobId?: string): Promise<BinDeleteResult> => ipcRenderer.invoke(CALL.binEmpty, jobId),
   /** Move files and folders into another folder. 'ask' reports clashes and
    *  moves nothing, so the user answers before anything happens. */
   moveEntries: (paths: string[], destDir: string, onClash: MoveOnClash, jobId?: string): Promise<MoveResult> =>

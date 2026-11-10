@@ -142,6 +142,11 @@ export const CALL = {
   fileNewFolder: 'file:newFolder',
   fileBinIfEmpty: 'file:binIfEmpty',
   fileRestore: 'file:restore',
+  // The Recycle Bin view's own verbs (Recycle Bin feature, D13 to D15): main
+  // acts on the bin's pairs itself, and only on entries the last listing granted.
+  binRestore: 'bin:restore',
+  binDelete: 'bin:delete',
+  binEmpty: 'bin:empty',
   fileMove: 'file:move',
 
   tailStart: 'tail:start',
