@@ -324,6 +324,6 @@ export function KindIcon({
   )
 }
 
-export function FolderIcon({ color }: { color: string }): JSX.Element {
-  return <FolderFill size={ROW_ICON} color={color} />
+export function FolderIcon({ color, size = ROW_ICON }: { color: string; size?: number }): JSX.Element {
+  return <FolderFill size={size} color={color} />
 }
