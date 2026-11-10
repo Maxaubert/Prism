@@ -3,6 +3,7 @@ import { isLocalFixed } from './driveKinds'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { latestWriter } from './latestWrite'
 import { isAbsolute } from 'path'
+import { isBinPlace } from '@shared/binPlace'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 
 /**
@@ -66,6 +67,8 @@ const isPlace = (p: string): boolean => isFolder(p) || containerSync(p) !== null
  * or expanded, as one deleted mid-session is.
  */
 const mayBePlace = (p: string): boolean => !isLocalFixed(p) || isPlace(p)
+/** A saved place: an absolute path, or the Recycle Bin (D5), the one place that is no path. */
+const savedPlace = (p: string): boolean => isBinPlace(p) || (isAbsolute(p) && mayBePlace(p))
 
 /**
  * THE SAME RULE FOR A TAB'S OWN ROOT, PATH AND FILE (review, 2026-10-28: "look
@@ -83,7 +86,7 @@ const mayExist = (p: string): boolean => !isLocalFixed(p) || existsSync(p)
 export function parseBrowse(raw: unknown): SavedBrowse | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const value = raw as Partial<SavedBrowse>
-  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !mayBePlace(value.path))
+  if (typeof value.path !== 'string' || !savedPlace(value.path))
     return undefined
   const history: BrowseLocation[] = []
   let cursor = 0
@@ -93,8 +96,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
       !location ||
       typeof location !== 'object' ||
       typeof location.path !== 'string' ||
-      !isAbsolute(location.path) ||
-      !mayBePlace(location.path)
+      !savedPlace(location.path)
     )
       return
     if (index === value.cursor) cursor = history.length
@@ -107,7 +109,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
           : 0,
       query: typeof location.query === 'string' ? location.query.slice(0, 1000) : '',
       sort: {
-        key: ['name', 'path', 'type', 'size', 'modified', 'packed'].includes(location.sort?.key)
+        key: ['name', 'path', 'type', 'size', 'modified', 'packed', 'from', 'deleted'].includes(location.sort?.key)
           ? location.sort.key
           : 'name',
         direction: location.sort?.direction === 'desc' ? 'desc' : 'asc'

@@ -1,6 +1,7 @@
 import { stat } from 'fs/promises'
 import { PUSH } from '@shared/channels'
 import { isAbsolute, resolve } from 'path'
+import { BIN_PLACE, isBinPlace } from '@shared/binPlace'
 import type { BrowseDirectory } from '@shared/browse'
 import type { BrowseDetails, DirListing, ViewerFile } from '@shared/types'
 import { browseDirectory, type BrowseRead } from './browse'
@@ -59,6 +60,8 @@ export interface ExplorerListingDeps {
   /** A place INSIDE an archive (#300): its listing, or undefined when the
    *  path is not inside one (an ordinary folder, read as always). */
   archive?: (tabId: string, path: string) => Promise<BrowseRead | null | undefined>
+  /** The Recycle Bin's listing (Recycle Bin feature, D5), read directly. */
+  bin?: () => Promise<DirListing>
 }
 
 export function createExplorerListings(deps: ExplorerListingDeps) {
@@ -146,6 +149,15 @@ export function createExplorerListings(deps: ExplorerListingDeps) {
     async browse(tabId: string, path: string, withStream = true): Promise<BrowseDirectory | null> {
       prefetchQueue.cancel()
       if (delayMs > 0) await sleep(delayMs)
+      // THE RECYCLE BIN (D5): a place of its own name, answered before the
+      // archive hook. Complete at once, and NEVER written to the listing cache:
+      // no deleted file names land in %APPDATA%. No bin reader, no such place.
+      if (isBinPlace(path)) {
+        if (desktopClosed(tabId) || !deps.bin) return null
+        const listing = await deps.bin()
+        settle()
+        return desktopClosed(tabId) ? null : { path: BIN_PLACE, listing }
+      }
       const inside = await deps.archive?.(tabId, path)
       if (inside !== undefined) {
         settle()

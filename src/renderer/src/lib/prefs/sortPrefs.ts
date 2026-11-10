@@ -8,6 +8,9 @@ import { byName } from '@shared/path'
 
 export type SortField = 'name' | 'modified' | 'size' | 'type'
 export type SortDir = 'asc' | 'desc'
+/** What a list can be ordered by beyond the saved field: a zip's Packed column
+ *  (#300) and the Recycle Bin's Original location and Date deleted. */
+export type ListSortField = SortField | 'packed' | 'from' | 'deleted'
 
 export const SORT_FIELDS: Array<{ id: SortField; name: string }> = [
   { id: 'name', name: 'Name' },
@@ -37,7 +40,7 @@ export const DEFAULT_SORT = { field: 'name' as SortField, dir: 'asc' as SortDir 
  *  size yet goes last in either direction, until its patch lands. */
 export function sortFiles(
   files: ViewerFile[],
-  field: SortField | 'packed',
+  field: ListSortField,
   dir: SortDir,
   carried = false
 ): ViewerFile[] {
@@ -63,6 +66,13 @@ export function sortFiles(
       case 'modified': return newer(a.mtimeMs, b.mtimeMs)
       // Inside an archive (#300): what each member occupies in the container.
       case 'packed': return (a.packed ?? 0) - (b.packed ?? 0)
+      // The Recycle Bin (D7): where it came from, and when it was deleted.
+      case 'from':
+        return (a.binned?.from ?? '').localeCompare(b.binned?.from ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base'
+        })
+      case 'deleted': return newer(a.binned?.at, b.binned?.at)
       case 'type': return a.kind.localeCompare(b.kind)
       default: return byName(a, b)
     }
@@ -79,7 +89,7 @@ const sortedOnce = new WeakMap<readonly ViewerFile[], { field: string; dir: Sort
  * position had moved. The same list object with the same sort answers the
  * order it was given last time. A new list (the folder changed) sorts again.
  */
-export function sortFilesOnce(files: ViewerFile[], field: SortField | 'packed', dir: SortDir): ViewerFile[] {
+export function sortFilesOnce(files: ViewerFile[], field: ListSortField, dir: SortDir): ViewerFile[] {
   const hit = sortedOnce.get(files)
   if (hit && hit.field === field && hit.dir === dir) return hit.files
   const sorted = sortFiles(files, field, dir)

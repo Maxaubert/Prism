@@ -1,5 +1,6 @@
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
+import { BIN_NAME, isBinPlace } from '@shared/binPlace'
 import { isInside } from '@shared/path'
 import {
   navigateBrowseState,
@@ -406,6 +407,7 @@ export function closeTab(tabs: readonly Tab[], id: string, activeId: string | nu
 
 /** The basename of a path, with no trailing separator. Empty at a drive root. */
 function baseOf(p: string): string {
+  if (isBinPlace(p)) return BIN_NAME
   const parts = p.split(/[\\/]/).filter(Boolean)
   return parts.length > 1 ? parts[parts.length - 1] : ''
 }

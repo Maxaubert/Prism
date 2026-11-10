@@ -1,7 +1,8 @@
 import { readFile as fsReadFile, readdir } from 'fs/promises'
 import { extname, join } from 'path'
 import { fileKind } from '../shared/fileKind'
-import type { FileKind } from '../shared/types'
+import { byName } from '../shared/path'
+import type { DirEntry, DirListing, FileKind, ViewerFile } from '../shared/types'
 import { parseInfo } from './binRestore'
 
 /**
@@ -130,4 +131,30 @@ export function createBinReader(readFile: (path: string) => Promise<Buffer> = fs
 
 /** The one reader main shares, so its warm cache survives between views. */
 export const binReader = createBinReader()
+
+/**
+ * THE BIN AS A LISTING (stage 2): the rows as the Explorer's `DirListing`,
+ * flagged `bin`, with the original name as the row's name and `binned` saying
+ * where it came from and when. Complete at once (a `$I` carries the size and
+ * the date, so there is no details run); a row's Modified is its deleted time.
+ * Files and folders are split by what the `$R` is on disk. Every kind is a
+ * row, a kind Prism cannot show included: it can still be restored or deleted.
+ */
+export async function binListing(
+  dirs: readonly string[],
+  reader: Pick<ReturnType<typeof createBinReader>, 'read'> = binReader
+): Promise<{ listing: DirListing; skipped: number }> {
+  const { rows, skipped } = await reader.read(dirs)
+  const folders: DirEntry[] = []
+  const files: ViewerFile[] = []
+  for (const r of rows) {
+    const binned = { from: r.from, at: r.deleted }
+    if (r.folder) folders.push({ path: r.path, name: r.name, mtimeMs: r.deleted, size: r.size, binned })
+    else {
+      const ext = extname(r.name).toLowerCase()
+      files.push({ path: r.path, name: r.name, ext, kind: r.kind, size: r.size, mtimeMs: r.deleted, binned })
+    }
+  }
+  return { listing: { folders: folders.sort(byName), files: files.sort(byName), bin: true }, skipped }
+}
 

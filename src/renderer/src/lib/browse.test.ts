@@ -318,3 +318,30 @@ describe('places inside an archive (#300)', () => {
     expect(browseLocation(b)).toMatchObject({ path: zip, query: '' })
   })
 })
+
+describe('the Recycle Bin place (stage 2)', () => {
+  const bin = 'shell:RecycleBinFolder'
+  it('is one crumb named Recycle Bin, and has no parent', () => {
+    expect(browseParent(bin)).toBeNull()
+    expect(browseCrumbs(bin)).toEqual([{ name: 'Recycle Bin', path: bin }])
+  })
+
+  it('is an ordinary history entry: Back and Forward return to it', () => {
+    const inBin = navigateBrowseState(newBrowse('C:\\Users\\m'), bin)
+    expect(inBin.path).toBe(bin)
+    expect(browseLocation(inBin).path).toBe(bin)
+    const back = travelBrowseState(inBin, -1)
+    expect(back.path).toBe('C:\\Users\\m')
+    expect(travelBrowseState(back, 1).path).toBe(bin)
+  })
+
+  it('arriving at a folder from the bin marks nothing', () => {
+    const inBin = navigateBrowseState(newBrowse('C:\\Users\\m'), bin)
+    expect(browseLocation(navigateBrowseState(inBin, 'C:\\Users\\m')).selected).toBeNull()
+  })
+
+  it('the tab is titled Recycle Bin', () => {
+    const tabs = navigateBrowse([newTab(payload, 'a')], 'a', bin)
+    expect(tabLabels(tabs)).toEqual(['Recycle Bin'])
+  })
+})
