@@ -480,6 +480,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       }
       onOpenNewTab={props.onOpenNewTab}
       onProperties={props.onProperties}
+      onEmptyBin={props.onEmptyBin}
     />
   )
 
