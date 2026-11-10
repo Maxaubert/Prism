@@ -228,6 +228,22 @@ describe('the bin grant (D12)', () => {
     expect(wall().binGranted(undefined)).toBe(false)
   })
 
+  // Review, 2026-11-10: the clipboard (Copy, Cut) and the drag out asked only
+  // `readable`, which the bin grant answers, so a renderer could hand a `$R` to
+  // Windows as a CUT: pasted in File Explorer it moves out of the bin and
+  // leaves its `$I`. D12: never "dragged out through the existing IPC".
+  it('a granted $R can never be put on the clipboard or dragged out', async () => {
+    const w = wall()
+    const r = join(bin, '$R1ABCDE.txt')
+    await w.grantBin([r])
+    expect(w.readable(r)).toBe(true)
+    expect(w.copyable(r)).toBe(false)
+    expect(w.copyable('C:\\Root\\a.txt')).toBe(true)
+    expect(w.copyable('C:\\Temp\\members\\m.txt')).toBe(true)
+    expect(w.copyable('C:\\Elsewhere\\a.txt')).toBe(false)
+    expect(w.copyable(undefined)).toBe(false)
+  })
+
   // Restore and Delete permanently act on folders too (D13, D14), but a binned
   // folder is never opened (D10): its entry may be ACTED ON, never read.
   describe('binned folders (acted on, never read)', () => {
