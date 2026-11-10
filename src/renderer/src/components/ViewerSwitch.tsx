@@ -8,6 +8,7 @@ import { AudioView } from './AudioView'
 import { PrismMediaLook } from './PrismMediaLook'
 import { UnsupportedView } from './UnsupportedView'
 import { LoadingState } from './LoadingState'
+import { readOnlyFile } from '../lib/readOnlyFile'
 
 // Split out, all five: none of them is on the path of opening a photo or
 // playing a film, and the resident single-instance model exists so the window
@@ -115,7 +116,7 @@ export function ViewerSwitch(props: ViewerSwitchProps): JSX.Element {
         <ImageView
           url={url}
           path={mode === 'member' ? undefined : file.path}
-          dragPath={mode === 'member' || file.member ? undefined : file.path}
+          dragPath={mode === 'member' || readOnlyFile(file) ? undefined : file.path}
           name={file.name}
           onToggleFullscreen={toggle}
           onStep={props.onStep}

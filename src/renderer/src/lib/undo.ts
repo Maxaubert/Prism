@@ -31,6 +31,10 @@ export type UndoEntry =
   /** A NEW FOLDER (#330, Ctrl+Shift+N): undo bins it, and only while it is
    *  still empty; redo makes one of the same name in the same place. */
   | { kind: 'mkdir'; path: string }
+  /** RESTORED FROM THE RECYCLE BIN VIEW (Recycle Bin, D18): `paths` are the
+   *  places the items were put back TO (after any "name (2)"). The exact
+   *  mirror of `trash`: undo sends them back to the bin, redo restores them. */
+  | { kind: 'unbin'; paths: string[] }
 
 export interface UndoState {
   past: readonly UndoEntry[]
@@ -118,6 +122,7 @@ export function entrySize(entry: UndoEntry): number {
     case 'archive-move':
       return entry.items.length
     case 'trash':
+    case 'unbin':
       return entry.paths.length
     case 'archive-in':
       return entry.entries.length + entry.originals.length
@@ -135,6 +140,7 @@ export function entryPlaces(entry: UndoEntry): { dirs: string[]; under: string[]
         under: entry.items.flatMap((i) => [i.from, i.to])
       }
     case 'trash':
+    case 'unbin':
       return { dirs: [...new Set(entry.paths.map(parentDir))], under: entry.paths }
     case 'rename':
       return { dirs: [parentDir(entry.from)], under: [entry.from, entry.to] }
@@ -159,6 +165,8 @@ export function entryVerb(entry: UndoEntry, direction: 'undo' | 'redo'): string 
       return 'Renaming'
     case 'trash':
       return undoing ? 'Restoring' : 'Deleting'
+    case 'unbin':
+      return undoing ? 'Deleting' : 'Restoring'
     case 'duplicate':
       return undoing ? 'Deleting' : 'Duplicating'
     case 'mkdir':
@@ -183,6 +191,10 @@ export function describe(entry: UndoEntry): string {
       return `renaming ${baseName(entry.from)}`
     case 'trash':
       return entry.paths.length > 1 ? `deleting ${entry.paths.length} items` : `deleting ${baseName(entry.paths[0] ?? '')}`
+    case 'unbin':
+      return entry.paths.length > 1
+        ? `restoring ${entry.paths.length} items`
+        : `restoring ${baseName(entry.paths[0] ?? '')}`
     case 'duplicate':
       return `duplicating ${baseName(entry.path)}`
     case 'mkdir':

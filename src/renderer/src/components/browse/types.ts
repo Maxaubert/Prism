@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react'
-import type { ArchiveMeta, DirListing, ViewerFile } from '@shared/types'
+import type { ArchiveMeta, BinnedFrom, DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/drag/dragDrop'
 import type { DropKeys } from '../../lib/drag/dropVerb'
@@ -23,6 +23,9 @@ export interface BrowseEntry {
   folderSize?: FolderSizeResult | null
   /** Modified time: a folder's own (#285), or the file's. */
   mtimeMs?: number
+  /** A FOLDER row of the Recycle Bin: where it came from and when (a file's
+   *  is on `file.binned`). */
+  binned?: BinnedFrom
 }
 
 /** The one sort shape, main's and the Explorer's (`@shared/browse`). */
@@ -151,6 +154,15 @@ export interface FolderBrowserProps {
   /** Alt+Enter (#330): Prism's own Properties, as the menu's. A drive from
    *  the places panel brings its usage, shown instead of a walk of the disk. */
   onProperties?: (entry: BrowseEntry, drive?: BrowseDriveUsage) => void
+  /** Empty Recycle Bin from the sidebar row's menu (Recycle Bin, D19); the
+   *  row is disabled while this is absent. */
+  onEmptyBin?: () => void
+  /** The bin's strip and keys (Recycle Bin, D16 and D20): the marked rows, as
+   *  their bin paths. Absent, the buttons and the Delete key do nothing. */
+  onBinRestore?: (paths: string[]) => void
+  onBinDelete?: (paths: string[]) => void
+  /** A right press on the bin list's empty space. */
+  onBinEmptyContextMenu?: (event: MouseEvent<HTMLElement>) => void
   /** Ctrl+Shift+C (#330): these full paths as text, one per line. */
   onCopyPathText?: (paths: string[]) => void
   /** A drop (#70): `keys` are the Ctrl and Shift held at the drop, read by

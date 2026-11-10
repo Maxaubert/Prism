@@ -34,20 +34,26 @@ function world(): { dir: string; binDir: string; bin: (id: string, path: string,
 
 describe('parseInfo', () => {
   it('reads the path and the time of a version 2 record', () => {
-    expect(parseInfo(infoV2('C:\\a\\b.txt', 7n))).toEqual({ path: 'C:\\a\\b.txt', deletedAt: 7n })
+    expect(parseInfo(infoV2('C:\\a\\b.txt', 7n))).toEqual({ path: 'C:\\a\\b.txt', deletedAt: 7n, size: 5n })
   })
 
   it('reads a version 1 record (a fixed 260-char path)', () => {
     const b = Buffer.alloc(24 + 520)
     b.writeBigInt64LE(1n, 0)
+    b.writeBigInt64LE(42n, 8)
     b.writeBigInt64LE(3n, 16)
     b.write('C:\\old.txt', 24, 'utf16le')
-    expect(parseInfo(b)).toEqual({ path: 'C:\\old.txt', deletedAt: 3n })
+    expect(parseInfo(b)).toEqual({ path: 'C:\\old.txt', deletedAt: 3n, size: 42n })
   })
 
   it('answers null for anything else', () => {
     expect(parseInfo(Buffer.alloc(0))).toBeNull()
     expect(parseInfo(Buffer.alloc(40))).toBeNull()
+    // A cut-off version 2 record, and a version nobody wrote.
+    expect(parseInfo(infoV2('C:\\a\\b.txt', 7n).subarray(0, 34))).toBeNull()
+    const odd = infoV2('C:\\a\\b.txt', 7n)
+    odd.writeBigInt64LE(3n, 0)
+    expect(parseInfo(odd)).toBeNull()
   })
 })
 

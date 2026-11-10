@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { BIN_NAME, isBinPlace } from '@shared/binPlace'
 import { isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs/tabs'
 import {
   freeRect,
@@ -890,7 +891,7 @@ export function TabStrip({
               // button, truncated there. Fit: the label sizes the tab, up to
               // 14rem, as before.
               className={`min-w-0 truncate py-1 text-left ${width === 'fixed' ? 'flex-1' : 'max-w-[14rem]'}`}
-              title={t.browse.path}
+              title={isBinPlace(t.browse.path) ? BIN_NAME : t.browse.path}
               onClick={() => {
               // A press that travelled is a drag, not a pick.
               if (dragging.current) {

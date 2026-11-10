@@ -8,6 +8,7 @@ import { useFolderDrop } from './useFolderDrop'
 import { fileDragProps } from '../../lib/drag/fileDrag'
 import { KindIcon } from '../icons/FileIcons'
 import { browsableArchive } from '@shared/archivePlace'
+import { BIN_NAME, isBinPlace } from '@shared/binPlace'
 import { pastedPath } from '@shared/path'
 import type { ArchiveMeta } from '@shared/types'
 import './archive.css'
@@ -58,7 +59,9 @@ export function BrowseToolbar(props: Props): JSX.Element {
    *  Explorer"), at the pointer, for one folder: the crumb right-clicked, or
    *  the folder shown when it was the bar itself. */
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
-  const [path, setPath] = useState(props.directory)
+  // The bin is typed by its name, never by the sentinel (D5).
+  const typed = isBinPlace(props.directory) ? BIN_NAME : props.directory
+  const [path, setPath] = useState(typed)
   const crumbs = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const row = crumbs.current
@@ -80,7 +83,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
     el?.select()
   }, [])
   const begin = (): void => {
-    setPath(props.directory)
+    setPath(typed)
     setEditing(true)
   }
   return (

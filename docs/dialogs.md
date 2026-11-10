@@ -28,6 +28,9 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `DeleteDialog` | Move one file or folder to the Recycle Bin? | App (`delete`): Explorer row, tree row, Delete key |
 | `DeleteManyDialog` | Move N items to the Recycle Bin? | App (`delete-many`): marked rows |
 | `MoveClashDialog` | Names already taken where a move lands: Keep both or Replace | App (`move-clash`): drag, paste |
+| `MoveClashDialog` (again) | A Restore from the Recycle Bin onto names already taken: the same dialog, its own ask kind, Keep both lands `name (2)`, Replace sends what is there to the bin | App (`bin-clash`): the bin's Restore |
+| `PermanentDeleteDialog` | Delete items of the Recycle Bin for good: the name (or "N items"), "Windows cannot put it back". Cancel is the primary, Delete the danger | App (`bin-delete`): Delete key, the strip, the row menu |
+| `EmptyBinDialog` | Empty the whole Recycle Bin, every drive, for good; the count when the bin is open. Cancel is the primary, Empty the danger | App (`bin-empty`): the strip, the list's empty space, the sidebar row |
 | `NameTakenDialog` | A rename onto a taken name: Replace or Keep both | App (`clash`) |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |

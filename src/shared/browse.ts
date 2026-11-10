@@ -11,8 +11,10 @@ export interface BrowseSearchWindowRequest {
 
 export interface BrowseSort {
   /** `packed` exists only inside an archive (#300); anywhere else it reads as
-   *  `size` (`viewSort`), so a sort never leaks out of a zip. */
-  key: 'name' | 'path' | 'type' | 'size' | 'modified' | 'packed'
+   *  `size` (`viewSort`), so a sort never leaks out of a zip. `from` (Original
+   *  location) and `deleted` (Date deleted) exist only in the Recycle Bin and
+   *  read as `name` and `modified` anywhere else, the same way. */
+  key: 'name' | 'path' | 'type' | 'size' | 'modified' | 'packed' | 'from' | 'deleted'
   direction: 'asc' | 'desc'
 }
 

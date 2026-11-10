@@ -124,6 +124,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   inside the one-row bar, the Explorer's address bar row, the preview pane over the folder
   browser, a document's canvas (`.p-doc`), and the core Settings frame (index.css: the frame clear, the rail and pane one coat
   each). The `seeThrough` e2e composites every box under sampled points of each surface.
+- **THE PLACES PANEL'S LAST QUICK ACCESS ROW IS THE RECYCLE BIN** (owner, 2026-11-10: "add recycle bin to the bottom of the explorer page"; stage 3, held by the `binRow` e2e): one plain row after Videos, the pins' own classes (so their look, hover, mark and scale), a trash glyph, no count and no full-or-empty icon, not a pin (not draggable, no Unpin, cannot be hidden). Its menu is Open, Open in new tab, Empty Recycle Bin.
 - **THE EXPLORER'S PLACES PANEL WEARS THE SIDEBAR COLOUR; THE COLOURS ARE HEADED "Colours"** (#302;
   owner, 2026-10-06: "from your mockups i think the sidebar in explorer was supposed to be distinctly
   colored from the main bg right ... in settings the sidebar is distinctly colored correctly", and of

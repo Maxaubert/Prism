@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPathWall, underDir, type WallDeps } from './pathWall'
 
 // THE ROOT WALL (stage 9a): every guard pinned, so a refactor that loosens one
@@ -129,5 +132,182 @@ describe('the path wall', () => {
     expect(w.mediaAllowed('C:\\Data\\comics\\b\\1.jpg')).toBe(true)
     expect(w.mediaAllowed('C:\\Data\\comics')).toBe(false)
     expect(w.mediaAllowed('C:\\Data\\other.jpg')).toBe(false)
+  })
+})
+
+// D12: a binned file can be READ (preview, viewer) through a grant for exactly
+// the `$R` entries a listing returned, and never written, renamed, moved,
+// zipped or dragged out. Real temp files, since the grant checks the disk.
+describe('the bin grant (D12)', () => {
+  let tmp: string
+  let bin: string
+  beforeEach(() => {
+    tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'prism-wall-bin-')))
+    bin = join(tmp, 'C', '$Recycle.Bin', 'S-1-5-21-1-2-3-1001')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, '$R1ABCDE.txt'), 'a')
+    writeFileSync(join(bin, '$I1ABCDE.txt'), 'i')
+    writeFileSync(join(bin, '$R2FGHIJ.zip'), 'z')
+    writeFileSync(join(bin, '$R3KLMNO.cbz'), 'c')
+    writeFileSync(join(bin, 'desktop.ini'), 'd')
+  })
+  afterEach(() => rmSync(tmp, { recursive: true, force: true }))
+
+  it('a granted $R is readable and servable, and nothing that writes', async () => {
+    const w = wall()
+    const r = join(bin, '$R1ABCDE.txt')
+    expect(w.readable(r)).toBe(false)
+    await w.grantBin([r])
+    expect(w.readable(r)).toBe(true)
+    expect(w.mediaAllowed(r)).toBe(true)
+    expect(w.binGranted(r)).toBe(true)
+    expect(w.editable(r)).toBe(false)
+    expect(w.movable(r)).toBe(false)
+    expect(w.extracted(r)).toBe(false)
+    await w.grantBin([join(bin, '$R2FGHIJ.zip'), join(bin, '$R3KLMNO.cbz')])
+    expect(w.archiveOk(join(bin, '$R2FGHIJ.zip'))).toBe(false)
+    expect(w.archiveReadOk(join(bin, '$R2FGHIJ.zip'))).toBe(false)
+    expect(w.comicOk(join(bin, '$R3KLMNO.cbz'))).toBe(false)
+  })
+
+  it('is case-insensitive like the disk, and exact: the $I, desktop.ini and the folder are not readable', async () => {
+    const w = wall()
+    await w.grantBin([join(bin, '$R1ABCDE.txt')])
+    expect(w.readable(join(bin, '$R1ABCDE.txt').toUpperCase())).toBe(true)
+    expect(w.readable(join(bin, '$I1ABCDE.txt'))).toBe(false)
+    expect(w.readable(join(bin, 'desktop.ini'))).toBe(false)
+    expect(w.readable(bin)).toBe(false)
+    expect(w.mediaAllowed(join(bin, '$I1ABCDE.txt'))).toBe(false)
+    expect(w.mediaAllowed(join(bin, '$R2FGHIJ.zip'))).toBe(false)
+  })
+
+  it('a second listing REPLACES the set', async () => {
+    const w = wall()
+    await w.grantBin([join(bin, '$R1ABCDE.txt')])
+    await w.grantBin([join(bin, '$R2FGHIJ.zip')])
+    expect(w.readable(join(bin, '$R1ABCDE.txt'))).toBe(false)
+    expect(w.mediaAllowed(join(bin, '$R1ABCDE.txt'))).toBe(false)
+    expect(w.readable(join(bin, '$R2FGHIJ.zip'))).toBe(true)
+    await w.grantBin([])
+    expect(w.readable(join(bin, '$R2FGHIJ.zip'))).toBe(false)
+  })
+
+  it('grants only $R entries that sit in a $Recycle.Bin folder', async () => {
+    const w = wall()
+    writeFileSync(join(tmp, '$R9XXXXX.txt'), 'x')
+    writeFileSync(join(tmp, 'plain.txt'), 'x')
+    await w.grantBin([
+      join(bin, '$I1ABCDE.txt'),
+      join(bin, 'desktop.ini'),
+      join(tmp, '$R9XXXXX.txt'),
+      join(tmp, 'plain.txt'),
+      'rel\\$R1.txt'
+    ])
+    expect(w.readable(join(bin, '$I1ABCDE.txt'))).toBe(false)
+    expect(w.readable(join(bin, 'desktop.ini'))).toBe(false)
+    expect(w.readable(join(tmp, '$R9XXXXX.txt'))).toBe(false)
+    expect(w.readable(join(tmp, 'plain.txt'))).toBe(false)
+  })
+
+  it('a symlink in the bin is never granted', async () => {
+    const w = wall()
+    const target = join(tmp, 'secret.txt')
+    writeFileSync(target, 's')
+    const link = join(bin, '$R4LINKX.txt')
+    try {
+      symlinkSync(target, link)
+    } catch {
+      return // no symlink right on this machine: nothing to prove
+    }
+    await w.grantBin([link, join(bin, '$R1ABCDE.txt')])
+    expect(w.readable(link)).toBe(false)
+    expect(w.readable(join(bin, '$R1ABCDE.txt'))).toBe(true)
+  })
+
+  it('binGranted is false for a non-string', () => {
+    expect(wall().binGranted(undefined)).toBe(false)
+  })
+
+  // Review, 2026-11-10: undo of a Restore sends the item back to the bin, and
+  // it usually lands in a folder no tab opened. Exactly what main put back.
+  it('a path the bin view put back may be binned again, and nothing else is widened', () => {
+    const w = wall()
+    const back = 'C:\\Elsewhere\\far.txt'
+    expect(w.putBack(back)).toBe(false)
+    w.grantPutBack([back, 'relative\\x.txt'])
+    expect(w.putBack(back)).toBe(true)
+    expect(w.putBack('c:\\elsewhere\\FAR.txt')).toBe(true)
+    expect(w.putBack('C:\\Elsewhere\\other.txt')).toBe(false)
+    expect(w.putBack('C:\\Elsewhere')).toBe(false)
+    expect(w.putBack('relative\\x.txt')).toBe(false)
+    expect(w.putBack(undefined)).toBe(false)
+    expect(w.readable(back)).toBe(false)
+    expect(w.editable(back)).toBe(false)
+    expect(w.movable(back)).toBe(false)
+  })
+
+  // Review, 2026-11-10: the clipboard (Copy, Cut) and the drag out asked only
+  // `readable`, which the bin grant answers, so a renderer could hand a `$R` to
+  // Windows as a CUT: pasted in File Explorer it moves out of the bin and
+  // leaves its `$I`. D12: never "dragged out through the existing IPC".
+  it('a granted $R can never be put on the clipboard or dragged out', async () => {
+    const w = wall()
+    const r = join(bin, '$R1ABCDE.txt')
+    await w.grantBin([r])
+    expect(w.readable(r)).toBe(true)
+    expect(w.copyable(r)).toBe(false)
+    expect(w.copyable('C:\\Root\\a.txt')).toBe(true)
+    expect(w.copyable('C:\\Temp\\members\\m.txt')).toBe(true)
+    expect(w.copyable('C:\\Elsewhere\\a.txt')).toBe(false)
+    expect(w.copyable(undefined)).toBe(false)
+  })
+
+  // Restore and Delete permanently act on folders too (D13, D14), but a binned
+  // folder is never opened (D10): its entry may be ACTED ON, never read.
+  describe('binned folders (acted on, never read)', () => {
+    beforeEach(() => {
+      mkdirSync(join(bin, '$R5DIRXX', 'inner'), { recursive: true })
+      writeFileSync(join(bin, '$R5DIRXX', 'inner', 'deep.txt'), 'deep')
+    })
+    it('a granted folder entry may be acted on but not read, served or touched by the file verbs', async () => {
+      const w = wall()
+      const dir = join(bin, '$R5DIRXX')
+      await w.grantBin([join(bin, '$R1ABCDE.txt')], [dir])
+      expect(w.binActs(dir)).toBe(true)
+      expect(w.binActs(join(bin, '$R1ABCDE.txt'))).toBe(true)
+      expect(w.readable(dir)).toBe(false)
+      expect(w.mediaAllowed(dir)).toBe(false)
+      expect(w.binGranted(dir)).toBe(false)
+      expect(w.editable(dir)).toBe(false)
+      expect(w.movable(dir)).toBe(false)
+      // what is inside the folder is nobody's
+      expect(w.binActs(join(dir, 'inner'))).toBe(false)
+      expect(w.readable(join(dir, 'inner', 'deep.txt'))).toBe(false)
+    })
+    it('a second listing replaces the folders too', async () => {
+      const w = wall()
+      const dir = join(bin, '$R5DIRXX')
+      await w.grantBin([], [dir])
+      expect(w.binActs(dir)).toBe(true)
+      await w.grantBin([join(bin, '$R1ABCDE.txt')], [])
+      expect(w.binActs(dir)).toBe(false)
+    })
+    it('only a $R in a bin folder, and never a link', async () => {
+      const w = wall()
+      mkdirSync(join(tmp, '$R6OUTSD'))
+      const target = join(tmp, 'elsewhere')
+      mkdirSync(target)
+      const link = join(bin, '$R7LINKD')
+      let linked = true
+      try {
+        symlinkSync(target, link, 'junction')
+      } catch {
+        linked = false
+      }
+      await w.grantBin([], [join(tmp, '$R6OUTSD'), join(bin, '$I1ABCDE.txt'), link])
+      expect(w.binActs(join(tmp, '$R6OUTSD'))).toBe(false)
+      expect(w.binActs(join(bin, '$I1ABCDE.txt'))).toBe(false)
+      if (linked) expect(w.binActs(link)).toBe(false)
+    })
   })
 })

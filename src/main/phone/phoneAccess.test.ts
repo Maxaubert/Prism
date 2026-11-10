@@ -69,3 +69,39 @@ describe('nothing on another computer (2026-10-15)', () => {
     expect(await phoneOnThisPc('\\\\server\\share', async (p) => p)).toBe(false)
   })
 })
+
+// THE BIN IS NOT A PLAIN PATH ON THE PHONE (owner, 2026-11-10, Recycle Bin
+// feature): `<drive>\$Recycle.Bin\<SID>` holds files the owner deleted, and the
+// phone reaches the PC like the Explorer, without the Explorer's bin place. A
+// path with a `$Recycle.Bin` segment is not a local path for the phone, so it is
+// never listed, granted, read or offered, even from a folder it did list.
+describe('the phone and the Recycle Bin (2026-11-10)', () => {
+  it('a $Recycle.Bin path is not a local path, at any depth and in any case', () => {
+    expect(localPath('C:\\$Recycle.Bin')).toBe(false)
+    expect(localPath('C:\\$Recycle.Bin\\S-1-5-21-1-2-3-1001')).toBe(false)
+    expect(localPath('d:/$recycle.bin/S-1-5-21/$R1ABCDE.txt')).toBe(false)
+    expect(localPath('C:\\Users\\$RECYCLE.BIN\\x')).toBe(false)
+    // a name that merely contains it is an ordinary folder
+    expect(localPath('C:\\films\\my$Recycle.Bin stuff')).toBe(true)
+  })
+
+  it('listing the bin grants nothing, and no read of it is allowed', () => {
+    const bin = join(dir, '$Recycle.Bin', 'S-1-5-21-1-2-3-1001')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, '$R1ABCDE.txt'), 'secret')
+    phoneListed('t', bin)
+    expect(phoneMay('t', bin)).toBe(false)
+    expect(phoneMay('t', join(bin, '$R1ABCDE.txt'))).toBe(false)
+    expect(insideDesktop(join(bin, '$R1ABCDE.txt'))).toBe(false)
+  })
+
+  it('a folder the phone listed does not carry the bin inside it', () => {
+    mkdirSync(join(dir, '$Recycle.Bin', 'S-1'), { recursive: true })
+    phoneListed('t', dir)
+    expect(phoneMay('t', join(dir, '$Recycle.Bin'))).toBe(false)
+  })
+
+  it('a link that resolves into the bin is not on this PC for the phone', async () => {
+    expect(await phoneOnThisPc('C:\\films', async () => 'C:\\$Recycle.Bin\\S-1\\$RX.mp4')).toBe(false)
+  })
+})

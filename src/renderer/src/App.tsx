@@ -6,6 +6,7 @@ import { useTabOps } from './hooks/useTabOps'
 import { useTabTear } from './hooks/useTabTear'
 import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
+import { readOnlyFile } from './lib/readOnlyFile'
 import { tabCrumbs } from './lib/tabs/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import {
@@ -46,9 +47,13 @@ import { EditorLoading, Viewer } from './components/stage/Viewer'
 import { EmptyState, NoFileState } from './components/stage/EmptyState'
 import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
+import { binEmptySpaceMenu, binRowMenu } from './menus/binRow'
+import { useBinOps, type BinRowInfo } from './hooks/useBinOps'
+import { binnedPath } from './lib/binView'
 import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './hooks/useFolderBrowsing'
-import { browseParent, newBrowse } from './lib/browse'
+import { browseParent, navigateBrowseState, newBrowse } from './lib/browse'
+import { BIN_PLACE, isBinPlace } from '@shared/binPlace'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
@@ -519,6 +524,24 @@ export default function App(): JSX.Element {
         return
       }
     }
+    if (isBinPlace(path)) {
+      // THE RECYCLE BIN IN A NEW TAB (Recycle Bin, D6): the tab is rooted at
+      // Home, as a new tab is, with the bin as its first place in the history
+      // (Back leads to Home). The bin is no folder to root a tab in.
+      void (async () => {
+        const home = (await window.prism.browseLocations()).find((p) => p.name === 'Home')?.path
+        if (!home) return
+        const id = nextTabId()
+        const directory = await window.prism.browseDirectory(id, home)
+        if (!directory) return
+        visitedDirectories.remember(directory)
+        const browse = navigateBrowseState(newBrowse(home), path)
+        setTabState((s) =>
+          addExplorerTab(s.tabs, { root: home, files: directory.listing.files, index: -1, browse }, id)
+        )
+      })()
+      return
+    }
     void (async () => {
       // Places know their kind even before their directory has a desktop grant.
       // browseDirectory validates that destination and grants desktop access;
@@ -812,8 +835,12 @@ export default function App(): JSX.Element {
     endPeek()
     pinPanel()
   }, [endPeek, pinPanel])
+  // A binned file's place is the bin (D12), never the `$Recycle.Bin` folder its
+  // entry lives in: the crumbs say Recycle Bin and Back returns to its list.
   const viewerDirectory = file
-    ? (browseParent(file.path) ?? active?.browse.path)
+    ? file.binned
+      ? BIN_PLACE
+      : (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
   const returnToFolder = useCallback(() => {
     // Out of a member the zip's card opened (#483): the folder the Explorer
@@ -856,8 +883,22 @@ export default function App(): JSX.Element {
   } | null>(null)
   const browseMenuPath = browseMenu?.entry.path
   const browseMenuFolder = browseMenu?.entry.isFolder
+  // A row of the Recycle Bin asks Windows nothing: no paste state, no "open
+  // with" apps for a path that is Windows' own bin entry (Recycle Bin, D12).
+  const inBinList = browsing.listing?.bin === true
+  /** The bin's rows as the jobs need them: entry path, ORIGINAL name, origin
+   *  folder. Empty unless the bin is what the list shows. */
+  const binListing = browsing.listing
+  const binRowsOf = useCallback((): BinRowInfo[] => {
+    if (!binListing?.bin) return []
+    return [...binListing.folders, ...binListing.files].map((row) => ({
+      path: row.path,
+      name: row.name,
+      from: row.binned?.from
+    }))
+  }, [binListing])
   useEffect(() => {
-    if (!browseMenuPath) return
+    if (!browseMenuPath || inBinList) return
     let cancelled = false
     void fileClipboardReady()
       .then(() => window.prism.clipboardHasFiles())
@@ -873,7 +914,7 @@ export default function App(): JSX.Element {
         })
     }
     return () => { cancelled = true }
-  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y])
+  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y, inBinList])
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
   // The folder Ctrl+Shift+N just made and is asking the name of: its dialog
   // says New folder, not Rename (owner, 2026-11-10). Any other entry is F2's.
@@ -1165,6 +1206,14 @@ export default function App(): JSX.Element {
       copyPath: (path) => void clipboardText(path)
     }
   })
+  /** The Recycle Bin's Restore, Delete permanently and Empty (Recycle Bin,
+   *  D13 to D18): jobs of their own, asked about before they destroy. */
+  const binOps = useBinOps({
+    setAsk,
+    setRefreshKey,
+    noteUndo,
+    rows: binRowsOf
+  })
   /** The list's empty space inside an archive was right-clicked (#300). */
   const [emptyMenu, setEmptyMenu] = useState<{ x: number; y: number } | null>(null)
   const browseArchive = browsing.listing?.archive ?? null
@@ -1331,7 +1380,7 @@ export default function App(): JSX.Element {
   // Only markdown takes the pencil. Code and plain text have no rendered form
   // to leave, so they are simply editable where they sit.
   // A member of an archive is read-only (#300): no pencil.
-  const editable = file?.kind === 'text' && isMarkdown(file.name) && !file.member
+  const editable = file?.kind === 'text' && isMarkdown(file.name) && !readOnlyFile(file)
   const chip = (
     <UpdateChip
       info={update.state.info}
@@ -1397,7 +1446,10 @@ export default function App(): JSX.Element {
     answerReload: (path, reload) => setReloadAnswer({ path, reload }),
     runInstall,
     setFolderIcon,
-    folderIconFromFile: folderIconFromFileAnswer
+    folderIconFromFile: folderIconFromFileAnswer,
+    runBinRestore: (paths, mode) => void binOps.runRestore(paths, mode),
+    runBinDelete: (paths) => void binOps.runDelete(paths),
+    runBinEmpty: () => void binOps.runEmpty()
   }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
@@ -1497,7 +1549,7 @@ export default function App(): JSX.Element {
             directory={viewerDirectory}
             onDropInto={onBrowseDropInto}
             fileName={file?.name}
-            filePath={file && !file.member ? file.path : undefined}
+            filePath={file && !readOnlyFile(file) ? file.path : undefined}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
             onReturnToFolder={returnToFolder}
@@ -1658,6 +1710,12 @@ export default function App(): JSX.Element {
                 }
                 archiveDone={archiveActions.done}
                 onEmptyContextMenu={(event) => setEmptyMenu({ x: event.clientX, y: event.clientY })}
+                // The Recycle Bin's strip, keys and sidebar row (Recycle Bin,
+                // D13 to D15 and D19): each asks before it destroys.
+                onBinRestore={binOps.restore}
+                onBinDelete={binOps.askDelete}
+                onEmptyBin={binOps.askEmpty}
+                onBinEmptyContextMenu={(event) => setEmptyMenu({ x: event.clientX, y: event.clientY })}
                 onRefresh={() => {
                   void window.prism
                     .refreshFolderSizes(active.browse.path)
@@ -1974,7 +2032,25 @@ export default function App(): JSX.Element {
           x={browseMenu.x}
           y={browseMenu.y}
           onClose={() => setBrowseMenu(null)}
-          items={archiveActions.menu(
+          items={(inBinList
+            ? binRowMenu({
+                entry: browseMenu.entry,
+                paths: browseMenu.paths,
+                openFile: (f) => void browsing.openDeliberately(f),
+                showInPreview: (f) => openBrowseSplit(f),
+                restore: binOps.restore,
+                askDelete: binOps.askDelete,
+                copyOriginalPaths: (paths) => {
+                  // The ORIGINAL full paths, one per line (D16), from the listing's rows.
+                  const rows = [...(browsing.listing?.folders ?? []), ...(browsing.listing?.files ?? [])]
+                  const lines = paths.map((p) => {
+                    const row = rows.find((r) => r.path === p)
+                    return row?.binned ? binnedPath(row.binned.from, row.name) : p
+                  })
+                  void clipboardText(lines.join('\n'))
+                }
+              })
+            : null) ?? archiveActions.menu(
             {
               entry: browseMenu.entry,
               paths: browseMenu.paths,
@@ -2028,7 +2104,19 @@ export default function App(): JSX.Element {
           items={archiveActions.menu({ entry: null }, browseArchive, active.browse.path) ?? []}
         />
       )}
-      {emptyMenu && !browseArchive && active && (
+      {emptyMenu && inBinList && active && (
+        // The Recycle Bin's blank space: Empty Recycle Bin, and nothing that writes.
+        <ContextMenu
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          items={binEmptySpaceMenu({
+            count: (browsing.listing?.folders.length ?? 0) + (browsing.listing?.files.length ?? 0),
+            onEmpty: binOps.askEmpty
+          })}
+        />
+      )}
+      {emptyMenu && !inBinList && !browseArchive && active && (
         // A plain folder's blank space: Show as grid / Show as list (Stage 6).
         <ContextMenu
           x={emptyMenu.x}

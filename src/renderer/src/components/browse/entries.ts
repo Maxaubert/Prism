@@ -106,9 +106,27 @@ export function browseEntries(
   // Packed exists only inside an archive (#300): anywhere else it is Size,
   // so a sort carried out of a zip still means something.
   if (sort.key === 'packed' && !listing.archive) sort = { ...sort, key: 'size' }
+  // Likewise the bin's own columns (Original location, Date deleted) outside it.
+  if (!listing.bin && (sort.key === 'from' || sort.key === 'deleted'))
+    sort = { ...sort, key: sort.key === 'from' ? 'name' : 'modified' }
   const terms = parseQuery(query)
   const matches = (entry: { name: string }): boolean =>
     !query.trim() || matchesQuery(entry.name, terms)
+  // The bin by Date deleted mixes files and folders, as Downloads' date view
+  // does (D7): what was deleted just now is on top, whatever it was.
+  if (listing.bin && sort.key === 'deleted') {
+    const flip = sort.direction === 'desc' ? -1 : 1
+    const rows: BrowseEntry[] = [
+      ...listing.folders
+        .filter(matches)
+        .map((folder) => ({ ...folder, isFolder: true, folderSize: sizes[folder.path] })),
+      ...listing.files
+        .filter(matches)
+        .map((file) => ({ path: file.path, name: file.name, isFolder: false, file, mtimeMs: file.mtimeMs }))
+    ]
+    const at = (e: BrowseEntry): number | undefined => (e.file ? e.file.binned?.at : e.binned?.at)
+    return rows.sort((a, b) => flip * newer(at(a), at(b)) || naturalCompare(a.name, b.name))
+  }
   if (mixed && sort.key === 'modified' && datesUsable(listing)) {
     const flip = sort.direction === 'desc' ? -1 : 1
     const rows: BrowseEntry[] = [
@@ -151,6 +169,15 @@ export function browseEntries(
       if (right === undefined && left !== undefined) return -1
       if (left !== undefined && right !== undefined && left !== right)
         return (sort.direction === 'asc' ? 1 : -1) * (left - right)
+    }
+    // The Recycle Bin's columns (D7): folders order inside the folders-first
+    // block, the name breaking a tie.
+    if (sort.key === 'from' || sort.key === 'deleted') {
+      const by =
+        sort.key === 'from'
+          ? naturalCompare(a.binned?.from ?? '', b.binned?.from ?? '')
+          : newer(a.binned?.at, b.binned?.at)
+      return by ? (sort.direction === 'desc' ? -1 : 1) * by : naturalCompare(a.name, b.name)
     }
     return direction * naturalCompare(a.name, b.name)
   })

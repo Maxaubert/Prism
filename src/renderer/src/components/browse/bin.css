@@ -1,0 +1,92 @@
+/* THE RECYCLE BIN'S LIST (Recycle Bin feature, D7). Its own sheet, as the
+   archive's is, so browse.css takes nothing for it. The columns are Name,
+   Original location, Date deleted, Size, Type; the row's cells are in that
+   order in the DOM, so the grid is all this has to say. The strip above them
+   is the zip strip's (archive.css) with its own three buttons. */
+
+.browse-list-area[data-in-bin] :is(.browse-columns, .browse-row) {
+  grid-template-columns:
+    minmax(140px, var(--browse-name-max))
+    minmax(110px, 300px)
+    144px
+    76px
+    128px;
+}
+.browse-list-area[data-row-size='large'][data-in-bin] :is(.browse-columns, .browse-row) {
+  grid-template-columns:
+    minmax(160px, var(--browse-name-max))
+    minmax(120px, 340px)
+    164px
+    90px
+    150px;
+}
+.browse-row .browse-column-from,
+.browse-row .browse-column-deleted {
+  color: var(--p-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.browse-row .browse-column-deleted {
+  font-variant-numeric: tabular-nums;
+}
+.browse-list-area[data-row-size='large'] .browse-row :is(.browse-column-from, .browse-column-deleted) {
+  font-size: 13px;
+}
+.browse-row[data-menu] :is(.browse-column-from, .browse-column-deleted) {
+  color: inherit;
+}
+/* Disabled strip buttons (nothing marked, an empty bin): present, quiet. */
+.browse-bin-strip .browse-archive-button:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Narrower lists lose Type first, then Size, then Date deleted; Name and
+   Original location stay. The header's last visible cell reaches the edge. */
+@container (max-width: 860px) {
+  .browse-list-area[data-in-bin] .browse-column-type {
+    display: none !important;
+  }
+  .browse-list-area[data-in-bin] :is(.browse-columns, .browse-row),
+  .browse-list-area[data-row-size='large'][data-in-bin] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(130px, var(--browse-name-max)) minmax(110px, 280px) 140px 76px;
+  }
+  .browse-list-area[data-in-bin] .browse-columns .browse-column-size {
+    --browse-col-edge-r: var(--browse-col-edge-end);
+  }
+}
+@container (max-width: 700px) {
+  .browse-list-area[data-in-bin] .browse-column-size {
+    display: none !important;
+  }
+  .browse-list-area[data-in-bin] :is(.browse-columns, .browse-row),
+  .browse-list-area[data-row-size='large'][data-in-bin] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(120px, var(--browse-name-max)) minmax(100px, 260px) 140px;
+  }
+  .browse-list-area[data-in-bin] .browse-columns .browse-column-deleted {
+    --browse-col-edge-r: var(--browse-col-edge-end);
+  }
+}
+@container (max-width: 520px) {
+  .browse-list-area[data-in-bin] .browse-column-deleted {
+    display: none !important;
+  }
+  .browse-list-area[data-in-bin] :is(.browse-columns, .browse-row),
+  .browse-list-area[data-row-size='large'][data-in-bin] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(110px, var(--browse-name-max)) minmax(90px, 220px);
+  }
+  .browse-list-area[data-in-bin] .browse-columns .browse-column-from {
+    --browse-col-edge-r: var(--browse-col-edge-end);
+  }
+}
+@container (max-width: 300px) {
+  .browse-list-area[data-in-bin] .browse-column-from {
+    display: none !important;
+  }
+  .browse-list-area[data-in-bin] :is(.browse-columns, .browse-row),
+  .browse-list-area[data-row-size='large'][data-in-bin] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(0, var(--browse-name-max));
+  }
+}

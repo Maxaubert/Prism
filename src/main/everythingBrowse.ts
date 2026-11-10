@@ -157,7 +157,11 @@ export async function searchEverythingBrowseWindow(
     path: 'path',
     type: 'extension',
     size: 'size',
-    modified: 'date-modified'
+    modified: 'date-modified',
+    // The Recycle Bin's columns read as Name and Date modified anywhere else
+    // (a sort carried out of the bin), as `packed` reads as size.
+    from: 'name',
+    deleted: 'date-modified'
   }
   for await (const { exe, instance: name } of queryEndpoints(root, signal)) {
     const instance = name ? ['-instance', name] : []

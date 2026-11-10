@@ -3,6 +3,96 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## The Recycle Bin in the Explorer (owner, 2026-11-10)
+
+The owner: "add recycle bin to the bottom of the explorer page". Two choices: a plain "Recycle Bin" row, the LAST
+row of Quick access after Videos, looking like the rows above it (trash glyph, no count, no extra chrome); and a
+click opens the bin "In Prism": its items listed like a folder, each with its original location and date deleted,
+plus Restore, Delete permanently and Empty. Spec and plan: `docs/superpowers/specs/2026-11-10-recycle-bin.md`
+(D1 to D22). Built in stages 0 to 5, one commit each. Owner's answers on the spec: approved as written, newest
+deleted first by default, and the phone is blocked from `<drive>\$Recycle.Bin` as a plain path.
+
+- **The bin is read directly, in main, with async fs only; no Shell namespace, no process** (D1 to D3,
+  `binList.ts`, `binRoots.ts`, `binRestore.ts` `parseInfo`). For each fixed drive, `<drive>\$Recycle.Bin\<own
+  SID>` is read with one `readdir`, the `$I` files are read 64 at a time and paired with their `$R`. Only this
+  user's folder, never another account's. A symlink is skipped, an orphan half is not listed, an unreadable or
+  unknown `$I` is skipped and counted (diag line `bin-skipped`). The size is the one Windows wrote in the `$I`
+  (a folder's total), never a walk. A warm cache keeps parsed `$I` files (they never change) and is cleared
+  after any Restore, Delete or Empty Prism did. Why not the shell: a process start per read and 1 to 60 s for a
+  big bin with no progress (measured in `binRestore.ts`'s comment). **Measured, 10,000 pairs on a temp folder
+  (`binList.test.ts`, 2026-11-10): cold read 1,163 to 1,544 ms, warm read about 58 ms.** The cold figure is above
+  the spec's 1.0 s aim on this PC; the warm one is well inside 150 ms. The test asserts only a loose 5 s so CI is
+  stable. The list itself is virtual, so painting 10,000 rows is not the cost.
+- **The bin is a location of its own, `BIN_PLACE = 'shell:RecycleBinFolder'`** (D5, D6, `shared/binPlace.ts`).
+  Typing `Recycle Bin` or that string in the address field goes there. It is deliberately NOT absolute, so every
+  `isAbsolute` guard (walls, file ops, search, drag-out, the listing cache) refuses it by default; the places
+  that accept it were changed on purpose (listing, watch, tabs, the session, the crumbs). One crumb "Recycle Bin",
+  Up is off, Back and Forward treat it as any history entry, the tab is titled "Recycle Bin" and comes back after a
+  restart. The listing is never written to the listing cache on disk, so no deleted file names land in `%APPDATA%`.
+  Held by `binPlace.test.ts`, `explorerListing.test.ts`, the `binRow` e2e.
+- **Live**: `binWatch.ts` watches each existing bin folder (250 ms debounce) and the open list re-reads within
+  about 2 s of an item being binned or removed, from Prism, File Explorer or any program (`binLive` e2e).
+- **The sidebar row** (D19): the pins' own classes (so look, hover, mark and 225% metrics are theirs), `PlaceIcon
+  bin`, no count and no full-or-empty icon (that would need a bin read at every start; none happens until the
+  row is clicked), not a pin (not draggable, no Unpin, cannot be hidden: `appOptions.ts` is a closed list). Its
+  menu is Open, Open in new tab, Empty Recycle Bin. Open in new tab roots a tab at Home with the bin as its
+  second place. Not on the phone (D21). Held by `binRow.test.ts` (menus), `BrowsePlaces.bin.test.ts`, the
+  `binRow` e2e.
+- **The list** (D7, D8): columns Name, Original location (the folder; the full original path is the cell's
+  title), Date deleted, Size, Type. **Default sort: newest deleted first** (owner); the first click on Date
+  deleted is newest first too. By Date deleted, files and folders mix; Name and Original location keep folders
+  first. The sort keys `from` and `deleted` read as `name` and `modified` outside the bin, so a sort never leaks.
+  Icons are the original extension's, no thumbnails. A strip holds Restore, Delete permanently and Empty Recycle
+  Bin, with counts ("Restore 3 items"). An empty bin says "The Recycle Bin is empty." Held by `binView.test.ts`,
+  `BinStrip.test.ts`, the `binList` and `binView` e2e.
+- **Read-only list** (D10, D11, D16): no search (Ctrl+F does nothing), no drag-out, no drops, no Cut, Copy,
+  Paste, Duplicate, F2, New folder, Pin, Properties, Show in File Explorer. Copy path copies the ORIGINAL
+  path(s). A binned folder is listed and can be marked, restored and deleted, but never opened (opening it
+  would put the contents of `$R<id>\` behind the wall, a bigger decision than this feature).
+- **A binned file can be previewed and opened, read-only** (D12, `pathWall.ts` `grantBin`, `readOnlyFile()`).
+  Each bin listing REPLACES a wall set holding exactly the `$R` entries it returned: readable and servable, never
+  editable, movable, zippable or draggable. Binned folders are in a second set (`binActs`) that allows acting on
+  them (Restore, Delete) but never reading. The bin folder itself is never granted: `desktopAccess` refuses any
+  `$Recycle.Bin` folder. The viewer shows the original name; a kind Prism cannot show gets the "cannot show"
+  card, never an "Open in default app" with a bin path. `readOnlyFile(file)` replaced the seven `member` checks
+  so the next kind cannot be forgotten. Held by `pathWall.test.ts`, `desktopAccess.test.ts`, the `binView` e2e.
+- **THE PHONE CANNOT BROWSE A BIN AS A PLAIN PATH** (owner, 2026-11-10): the phone's local-path check refuses any
+  path with a `$Recycle.Bin` segment, at any depth and in any case. Before this the phone could list
+  `C:\$Recycle.Bin\<own SID>` like any folder. Held by `phoneAccess.test.ts` (it failed first on the old code).
+- **Restore** (D13, `binOps.ts`): `rename` of the `$R` to its original path (same drive, O(1) even for a folder
+  of a million files), then the `$I` goes. A missing original folder is made. A taken name reuses
+  `MoveClashDialog` unchanged (own ask kind `bin-clash`): Keep both lands `name (2)`, Replace sends what is there
+  to the bin first, Cancel leaves it all. A failed item stays in the bin and the end line says "N of M could not
+  be put back." Restore asks nothing without a clash; the restored items are marked where they land.
+- **Delete permanently** (D14): `PermanentDeleteDialog`, plain and final, **Cancel is the primary so Enter keeps
+  the item**. `rm` of the `$R` then the `$I`, one item at a time. Not on the undo stack.
+- **Empty** (D15): `EmptyBinDialog` (Cancel primary), from the strip, the list's empty space or the sidebar row.
+  Main removes every pair of this user's bin on every fixed drive itself, 24 at a time, with progress and Cancel,
+  rather than calling Windows' empty (a PowerShell process, no progress, no Cancel). `desktop.ini` is never
+  touched. Known cost, TO CHECK BY HAND once: Explorer's own desktop bin icon may keep showing "full" until its
+  next refresh. If it does, the fallback is one `Clear-RecycleBin -Force` through `spawnWorker` after the pairs
+  are gone.
+- **Jobs** (D17): all three run through `withFileJob` (`Restoring`, `Deleting`, `Emptying`), so the 1-second bar
+  threshold, the hold on the list, Cancel between items ("Stopped. Restored 120 of 500.") and the `finally` that
+  ends the bar are the existing ones. Every handler accepts only `$R` paths the last listing granted whose parent
+  is a bin folder, so the renderer can never use these channels on an arbitrary file. Held by `binOps.test.ts`,
+  `binActions.test.ts`, the `binRestore`, `binClash`, `binDelete`, `binEmpty` and `binBig` e2e.
+- **Undo** (D18): a restore pushes `{ kind: 'unbin', paths }`, the exact mirror of `trash` (undo trashes the
+  restored paths again, redo restores). Delete permanently and Empty are never on the stack; an older `trash`
+  entry whose item was deleted for good fails with the existing "Windows would not give those back" text. Held by
+  `undo.test.ts`, `undoApply.test.ts`, the `binUndo` e2e.
+- **E2E seam and safety** (D22): `PRISM_E2E_BIN_DIRS` (`|`-separated fake bin folders, read only under `--e2e`;
+  `binRoots.test.ts` pins that it is ignored without it) stands in for each drive's `$Recycle.Bin\<SID>` folder,
+  and `PRISM_E2E_SLOW_BIN` adds a per-item delay for the Cancel scenario. With the seam on, listing, grants, watch,
+  Restore, Delete, Empty, undo and Prism's own Delete (`binTrash.ts` replaced the direct `shell.trashItem` calls)
+  stay inside the fake folders, and undo's PowerShell fallback is refused, so **no test or scenario can read,
+  restore from, delete from or empty the owner's real bin**. Scenarios: `binRow`, `binList`, `binView`,
+  `binRestore`, `binClash`, `binDelete`, `binEmpty`, `binUndo`, `binBig`, `binLive`, each with its own fixtures.
+- **Permanent deletes in Prism are now three kinds**: the zip member delete, the bin's Delete permanently and
+  its Empty. Each asks first and none is on the undo stack.
+- Not built, on purpose (spec section 5): search in the bin, opening a binned folder, dropping files on the
+  sidebar row to bin them, hiding the row, a count or a full/empty icon.
+
 ## After a delete the keyboard is back in the list (owner, 2026-11-09)
 
 The owner: "in prism if i clicka file press the delte key it deltes tehn selects the next file by
@@ -1618,7 +1708,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   Rename (handed up to App, which owns renaming), Show in Explorer. Row verbs stay on the
   right-click menu + F2/Delete: view (extracted to a temp file main
   grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
-  delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
+  delete. Member delete is one of the permanent deletes in Prism (a zip has no Recycle Bin; the Recycle Bin place's own
+  Delete permanently and Empty are the others, 2026-11-10) and
   the dialog says so. **ONE PASSWORD QUESTION PER ARCHIVE** (owner, 2026-11-09): every route
   (a locked member's preview, the verbs, the Explorer going in, the archive panel) asks through
   `lib/archiveQuestion.ts`, and the window draws the one question beside App. A second request for
@@ -1861,7 +1952,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   anywhere. Sidebar lends the whole thing to App through `onNav`, returning false when there is
   no tree to drive (panel shut, search showing, end of tree) so App pages the folder instead.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
-  Nothing is destroyed: deleting and overwriting both go via the Recycle Bin, a taken name asks
+  Nothing is destroyed here: deleting and overwriting both go via the Recycle Bin (emptying it is the Recycle Bin
+  place's own, asked action), a taken name asks
   (cancel / replace / keep both), and names are validated first. The session root itself can never
   be renamed or binned.
 - **Context-menu verbs** (2026-08-12): "Open in" (a submenu of the apps Windows registers for that

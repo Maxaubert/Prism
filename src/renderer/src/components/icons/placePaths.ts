@@ -2,7 +2,7 @@ import type { BrowseShortcut } from '@shared/browse'
 import { PATHS } from './paths'
 
 /** A Known Folder, the drive, or a removable drive. */
-export type PlaceIconName = NonNullable<BrowseShortcut['known']> | 'drive' | 'usb'
+export type PlaceIconName = NonNullable<BrowseShortcut['known']> | 'drive' | 'usb' | 'bin'
 
 /** The places panel's glyphs (PlaceIcon.tsx). Their own module so the folder
  *  icon picker can offer them first too (D12, 2026-10-31). */
@@ -17,5 +17,7 @@ export const PLACE_PATHS: Record<PlaceIconName, string> = {
   videos: 'M4 6h12v12H4zM16 10l4-2.5v9L16 14',
   drive: PATHS.drive,
   // A removable drive, the drive row mockups' stick (2026-10-06).
+  // The Recycle Bin row (2026-11-10): lucide's trash-2, the same one-stroke family.
+  bin: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6',
   usb: 'M9.5 3h5v5h-5zM7.5 8h9v11a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2zM11 5.5h.01M13 5.5h.01'
 }

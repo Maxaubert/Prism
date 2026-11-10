@@ -1,5 +1,7 @@
-import { extname, isAbsolute, relative, resolve } from 'path'
+import { lstat } from 'fs/promises'
+import { basename, extname, isAbsolute, relative, resolve } from 'path'
 import { fileKind } from '@shared/fileKind'
+import { inBinFolder } from '@shared/binPath'
 
 /**
  * THE ROOT WALL, in one place (stage 9a of the structure cleanup, 2026-10-12).
@@ -45,8 +47,42 @@ export interface PathWall {
   /** A path main unpacked itself for viewing: an extracted grant or a file
    *  under this run's member folder. Reads only. */
   extracted(p: unknown): boolean
+  /**
+   * THE BIN GRANT (Recycle Bin feature, D12). Replaces the set of binned
+   * entries that may be READ with exactly these `$R` paths, the ones a bin
+   * listing returned. Folded into `readable` and `mediaAllowed` ONLY, so a
+   * binned file can be previewed and opened but never written, renamed, moved,
+   * zipped or dragged out through the existing IPC. A path is kept only when it
+   * is a `$R` entry inside a `$Recycle.Bin` folder and not a link; the `$I`
+   * records, `desktop.ini` and the folder itself are never granted. Async
+   * because each entry is looked at on disk (off main's thread).
+   *
+   * `folders` are the binned FOLDER entries of the same listing: Restore and
+   * Delete permanently act on them (D13, D14), but a binned folder is never
+   * opened (D10), so they are kept apart and are never readable or servable.
+   */
+  grantBin(paths: readonly string[], folders?: readonly string[]): Promise<void>
+  /** Is this exactly a FILE entry the last bin listing granted (readable)? */
+  binGranted(p: unknown): boolean
+  /** Is this exactly an entry (file or folder) the last bin listing returned,
+   *  which Restore, Delete permanently and Empty may act on? */
+  binActs(p: unknown): boolean
+  /**
+   * WHAT THE BIN VIEW PUT BACK (review, 2026-11-10). Restore lands items in
+   * their original folders, usually ones no tab has opened, so undo's "back to
+   * the bin" (`file:trash`) and redo's restore (`file:restore`), which ask the
+   * wall, refused them. These exact paths, which main itself restored this
+   * run, may be sent to the bin again and restored by path; nothing else is
+   * widened (not readable, not editable, not movable).
+   */
+  grantPutBack(paths: readonly string[]): void
+  putBack(p: unknown): boolean
   /** A READ: inside the wall, or something main extracted itself. */
   readable(p: unknown): p is string
+  /** A CLIPBOARD OR DRAG-OUT source (review, 2026-11-10): `readable` without
+   *  the bin grant. A `$R` handed to Windows as a cut or a drag would move out
+   *  of the bin and leave its `$I` behind (D12). */
+  copyable(p: unknown): p is string
   /** A WRITE in place (rename, bin, save): inside the wall. */
   editable(p: string): boolean
   /** A move or zip SOURCE: inside the wall or extracted (an
@@ -92,21 +128,63 @@ export function createPathWall(deps: WallDeps): PathWall {
    *  200 entries into `extractedPaths`, a Set that never shrinks and doubles
    *  as the wall's allowlist. One directory, one rule. */
   let comics = ''
+  /** The bin's granted `$R` entries (D12), replaced on every bin listing. */
+  let binReads = new Set<string>()
+  /** The bin's FOLDER entries: acted on, never read (D10). */
+  let binFolders = new Set<string>()
+  /** Paths the bin view's Restore landed this run (`grantPutBack`). */
+  const putBackPaths = new Set<string>()
+  const keyOf = (p: string): string => resolve(p).toLowerCase()
+  const binGranted = (p: unknown): boolean => typeof p === 'string' && !!p && binReads.has(keyOf(p))
+  const binActs = (p: unknown): boolean =>
+    typeof p === 'string' && !!p && (binReads.has(keyOf(p)) || binFolders.has(keyOf(p)))
 
   const extracted = (p: unknown): boolean =>
     typeof p === 'string' && (extractedPaths.has(p) || deps.memberOwns(p))
   const readable = (p: unknown): p is string =>
-    typeof p === 'string' && (deps.insideDesktop(p) || extracted(p))
+    typeof p === 'string' && (deps.insideDesktop(p) || extracted(p) || binGranted(p))
 
   return {
     grantExtracted: (p) => void extractedPaths.add(p),
     grantServable: (p) => void servable.add(p),
+    grantBin: async (paths, folders = []) => {
+      const keep = async (list: readonly string[]): Promise<Set<string>> => {
+        const next = new Set<string>()
+        const wanted = list.filter(
+          (p) =>
+            typeof p === 'string' &&
+            isAbsolute(p) &&
+            inBinFolder(p) &&
+            basename(p).toLowerCase().startsWith('$r')
+        )
+        // A few at a time: a bin can hold thousands, and main's loop stays free.
+        for (let i = 0; i < wanted.length; i += 64) {
+          await Promise.all(
+            wanted.slice(i, i + 64).map(async (p) => {
+              const st = await lstat(p).catch(() => null)
+              if (st && !st.isSymbolicLink()) next.add(keyOf(p))
+            })
+          )
+        }
+        return next
+      }
+      const [files, dirs] = [await keep(paths), await keep(folders)]
+      binReads = files
+      binFolders = dirs
+    },
+    binGranted,
+    binActs,
+    grantPutBack: (paths) => {
+      for (const p of paths) if (typeof p === 'string' && isAbsolute(p)) putBackPaths.add(keyOf(p))
+    },
+    putBack: (p) => typeof p === 'string' && isAbsolute(p) && putBackPaths.has(keyOf(p)),
     setComicsDir: (dir) => {
       comics = dir
     },
     comicsDir: () => comics,
     extracted,
     readable,
+    copyable: (p): p is string => typeof p === 'string' && (deps.insideDesktop(p) || extracted(p)),
     editable: (p) => deps.insideDesktop(p),
     movable: (p): p is string =>
       typeof p === 'string' && (deps.insideDesktop(p) || extracted(p)),
@@ -122,6 +200,7 @@ export function createPathWall(deps: WallDeps): PathWall {
       deps.insideDesktop(p) ||
       extracted(p) ||
       servable.has(p) ||
+      binGranted(p) ||
       underDir(deps.rendererDir, p) ||
       (!!comics && underDir(comics, p))
   }
