@@ -43,6 +43,7 @@ import { anchorAt, anchorScroll, type Anchor } from '../../lib/zoomAnchor'
 import { createZoomWheel } from '../../lib/zoomWheel'
 import { GRID_GAP, GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
 import { gridHeaderColumns } from '../../lib/gridHeader'
+import { binColumns, binnedOf, binnedPath } from '../../lib/binView'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
 import { cellSpan, cellsInBox, nearestCell } from '../../lib/cellsInBox'
 import { useSweep } from '../../hooks/useSweep'
@@ -161,6 +162,9 @@ type Props = Pick<
   /** The place on screen is inside an archive (#300): the Packed column, and
    *  a row dragged out carries archive members, not files on disk. */
   archive?: ArchiveMeta | null
+  /** The place on screen is the Recycle Bin (D7): its columns, no drag out,
+   *  no drops, no pictures. */
+  bin?: boolean
   /** Drawn above the column header: the archive's strip. */
   strip?: ReactNode
   /** THE COMMON KEYS (#330), each quiet (#263): Shift+arrows mark the run
@@ -180,7 +184,9 @@ type Props = Pick<
 
 export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
-  const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto, props.archive)
+  // The bin takes no drop at all (D16): the handler is absent, so every
+  // target says "no" explicitly (useFolderDrop).
+  const folderDrop = useFolderDrop(props.loading || props.bin ? undefined : props.onDropInto, props.archive)
   /** What a press or drag on this row carries inside an archive: the row, or
    *  the whole selection when the row is in it, as members with their places. */
   const memberCargo = (
@@ -200,7 +206,8 @@ export function BrowseList(props: Props): JSX.Element {
     }
     return entries.length ? { archive: archive.container, entries, places } : null
   }
-  const searching = !!props.query.trim()
+  // There is no search in the bin (D11): a query carried in never shows as one.
+  const searching = !!props.query.trim() && !props.bin
   // The row is Settings > Style > Explorer size: Medium is the tree's own row
   // (#257), Large the Explorer's old one, Small a step under Medium.
   // Ctrl+wheel moves the zoom step (2026-11-09); steps 0 to 2 are those
@@ -390,7 +397,8 @@ export function BrowseList(props: Props): JSX.Element {
   // The picture's edge: a row step's box, or the tile's whole picture. The
   // tier follows it (tile edge x devicePixelRatio, thumbTypes.tierFor).
   const pictureEdge = gridOn ? look.edge : look.thumb
-  const thumbsOn = pictureEdge > 0 && !searching && !props.archive && !props.indexedRows
+  // The bin never wears pictures (D8): its files are Windows' entries.
+  const thumbsOn = pictureEdge > 0 && !searching && !props.archive && !props.bin && !props.indexedRows
   const thumbsActive = thumbsOn && !props.held && !props.loading && windowShown
   useEffect(() => {
     thumbFeed?.setActive(thumbsActive)
@@ -1167,7 +1175,9 @@ export function BrowseList(props: Props): JSX.Element {
    * unchanged), so the two can never disagree.
    */
   const entryHandlers = (entry: BrowseEntry, selected: boolean) => ({
-    draggable: true as const,
+    // Nothing is dragged out of the bin (D16): a bin path is not a place to
+    // copy from, and a drop elsewhere would move `$R` and leave `$I`.
+    draggable: !props.bin,
     // A FOLDER takes a drop into itself; an ARCHIVE row too
     // (#70 D6): a .zip adds what is dropped on it, a 7z or a
     // rar shows no-drop (Prism cannot write them). Any other
@@ -1298,7 +1308,13 @@ export function BrowseList(props: Props): JSX.Element {
   }
 
   /** The header's buttons: a list's columns, or a grid's packed strip. */
-  const headerColumns = searching ? searchColumns : props.archive ? archiveColumns : columns
+  const headerColumns = searching
+    ? searchColumns
+    : props.bin
+      ? binColumns
+      : props.archive
+        ? archiveColumns
+        : columns
   const stripColumns = gridOn ? gridHeaderColumns(headerColumns, width) : headerColumns
 
   return (
@@ -1307,6 +1323,7 @@ export function BrowseList(props: Props): JSX.Element {
       data-grid={gridOn || undefined}
       data-searching={searching || undefined}
       data-in-archive={(!!props.archive && !searching) || undefined}
+      data-in-bin={(!!props.bin && !searching) || undefined}
       data-row-size={sizeId}
       data-pending={props.pending && props.pending !== 'none' ? props.pending : undefined}
       data-slide-frozen={props.listSlideWidth !== undefined || undefined}
@@ -1343,8 +1360,15 @@ export function BrowseList(props: Props): JSX.Element {
           className="browse-column-viewport"
           ref={columnScroller}
           onScroll={(event) => {
-            if (scroller.current && scroller.current.scrollLeft !== event.currentTarget.scrollLeft)
-              scroller.current.scrollLeft = event.currentTarget.scrollLeft
+            const head = event.currentTarget
+            if (scroller.current && scroller.current.scrollLeft !== head.scrollLeft) {
+              scroller.current.scrollLeft = head.scrollLeft
+              // A list with nothing to scroll cannot follow: the header goes
+              // back to it, or a focused last header cell (its box runs on to
+              // the edge) leaves the labels shifted off their columns. Seen
+              // in the bin, where Type is the last cell.
+              if (scroller.current.scrollLeft !== head.scrollLeft) head.scrollLeft = scroller.current.scrollLeft
+            }
           }}
         >
           <div className="browse-columns">
@@ -1623,19 +1647,37 @@ export function BrowseList(props: Props): JSX.Element {
                             </span>
                           </span>
                         </span>
-                        <span
-                          className={
-                            searching
-                              ? 'browse-column-path browse-result-location'
-                              : 'browse-column-type'
-                          }
-                        >
-                          {searching
-                            ? (browseParent(entry.path) ?? entry.path)
-                            : props.landing?.has(entry.path.toLowerCase())
-                              ? 'Copying…'
-                              : typeLabel(entry.name, entry.isFolder)}
-                        </span>
+                        {/* THE BIN'S TWO COLUMNS (D7): where it was and when it was
+                            deleted, right after the name. The full original path
+                            is the cell's title. */}
+                        {props.bin && !searching && (
+                          <>
+                            <span
+                              className="browse-column-from"
+                              title={binnedOf(entry) ? binnedPath(binnedOf(entry)!.from, entry.name) : undefined}
+                            >
+                              {binnedOf(entry)?.from ?? ''}
+                            </span>
+                            <span className="browse-column-deleted">
+                              {binnedOf(entry) ? formatWhen(binnedOf(entry)!.at) : ''}
+                            </span>
+                          </>
+                        )}
+                        {!(props.bin && !searching) && (
+                          <span
+                            className={
+                              searching
+                                ? 'browse-column-path browse-result-location'
+                                : 'browse-column-type'
+                            }
+                          >
+                            {searching
+                              ? (browseParent(entry.path) ?? entry.path)
+                              : props.landing?.has(entry.path.toLowerCase())
+                                ? 'Copying…'
+                                : typeLabel(entry.name, entry.isFolder)}
+                          </span>
+                        )}
                         <span
                           className="browse-column-size"
                           title={
@@ -1672,7 +1714,10 @@ export function BrowseList(props: Props): JSX.Element {
                             {entry.file?.packed !== undefined ? formatBytes(entry.file.packed) : ''}
                           </span>
                         )}
-                        {!searching && (
+                        {props.bin && !searching && (
+                          <span className="browse-column-type">{typeLabel(entry.name, entry.isFolder)}</span>
+                        )}
+                        {!searching && !props.bin && (
                           <span className="browse-column-modified">
                             {/* A folder's date too, now it has one (#285). */}
                             {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}

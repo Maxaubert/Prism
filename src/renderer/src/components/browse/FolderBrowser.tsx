@@ -27,6 +27,8 @@ import { useListingPrefetch } from '../../hooks/useListingPrefetch'
 import { browsableArchive } from '@shared/archivePlace'
 import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
+import { BinStrip } from './BinStrip'
+import { BIN_EMPTY, binnedOf, binnedPath } from '../../lib/binView'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
 import { useListKeyboard } from './useListKeyboard'
@@ -35,6 +37,7 @@ import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
+import './bin.css'
 
 /** The common keys FolderBrowser answers for the list (#330). */
 const FOLDER_KEYS = new Set(['new-folder', 'bin', 'search', 'properties', 'copy-paths', 'open-new-tab'])
@@ -107,17 +110,21 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // folder's total, so nothing asks `folder:size` about a path not on disk,
   // and nothing reads ahead into a container.
   const archive = props.listing?.archive ?? null
+  // THE RECYCLE BIN (Recycle Bin, D7): a binned folder's size is the number
+  // Windows wrote in its record, so nothing is walked on disk for it either.
+  const bin = props.listing?.bin === true
+  const recorded = !!archive || bin
   const folderPaths = useMemo(
-    () => (archive ? [] : (props.listing?.folders.map((folder) => folder.path) ?? [])),
-    [props.listing, archive]
+    () => (recorded ? [] : (props.listing?.folders.map((folder) => folder.path) ?? [])),
+    [props.listing, recorded]
   )
   const measured = useFolderSizes(
     folderPaths,
-    !archive && props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
-    archive ? [] : visibleFolders
+    !recorded && props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
+    recorded ? [] : visibleFolders
   )
   const folderSizes = useMemo((): FolderSizes => {
-    if (!archive || !props.listing) return measured
+    if (!recorded || !props.listing) return measured
     const sizes: FolderSizes = {}
     for (const f of props.listing.folders)
       sizes[f.path] = {
@@ -130,7 +137,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         countsKnown: true
       }
     return sizes
-  }, [archive, props.listing, measured])
+  }, [recorded, props.listing, measured])
   // DOWNLOADS BY DATE (#285, lib/downloadsView.ts): files and folders mixed,
   // newest first, under File Explorer's date groups. Never a search.
   const dated = dateView(!!props.downloads, props.sort, !!props.query.trim() || !!props.searchState)
@@ -161,12 +168,12 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     () =>
       sortPass({
         listing,
-        query: props.searchState ? '' : props.query,
+        query: props.searchState || bin ? '' : props.query,
         sort: props.sort,
         sizes: folderSizes,
         dated
       }),
-    [sortPass, listing, props.query, props.sort, props.searchState, folderSizes, dated]
+    [sortPass, listing, props.query, props.sort, props.searchState, folderSizes, dated, bin]
   )
   const weekStart = props.weekStart
   const dividers = useMemo(
@@ -182,6 +189,12 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     [dated, props.listing, entries, weekStart]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
+  /** A bin row's ORIGINAL full path (D16): what Copy path copies there. */
+  const originalOf = (path: string): string => {
+    const row = entries.find((entry) => entry.path === path)
+    const at = row && binnedOf(row)
+    return row && at ? binnedPath(at.from, row.name) : path
+  }
   // READ AHEAD (#271): the folder under the pointer, the selected folder, the
   // parent, a small folder's subfolders and Quick access.
   const hoverFolder = useListingPrefetch({
@@ -189,7 +202,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     listing: props.listing,
     selectedFolder: selected?.isFolder ? selected.path : null,
     quickAccess: props.quickAccess,
-    ready: props.pending === 'none' && !props.searchState && !archive
+    ready: props.pending === 'none' && !props.searchState && !recorded
   })
   const searchWindow = props.searchState?.window
   const searchWindows = props.searchState?.windows
@@ -407,6 +420,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   // React's own pattern for state that follows props.
   if (searching && !searchOpen) setSearching(null)
   const activate = (entry: BrowseEntry): void => {
+    // A binned FOLDER is listed, marked, restored and deleted, never opened
+    // (D10): opening one would grant its contents to the wall.
+    if (bin && entry.isFolder) return
     // AN ARCHIVE OPENS LIKE A FOLDER (#300; owner, 2026-10-06: "they keep the
     // icon but you open them like any other folder").
     if (entry.isFolder || (entry.file?.kind === 'archive' && browsableArchive(entry.name))) {
@@ -430,7 +446,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               : props.searchState?.cancelled || props.searchState?.truncated
                 ? 'No matches found before the search stopped. Refine your search and try again.'
                 : 'No matching items in this folder or its subfolders.'
-            : 'This folder is empty.'
+            : bin
+              ? BIN_EMPTY
+              : 'This folder is empty.'
           : null)
 
   // SIDEBAR POSITION (#304; owner, 2026-10-07): on the right the places
@@ -530,10 +548,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           const focused =
             (at && (entries.find((entry) => entry.path === at) ?? [...(indexedRows?.values() ?? [])].find((entry) => entry?.path === at))) ||
             selected
-          if (common === 'search') routeFind(e)
-          else if (common === 'copy-paths') {
+          if (common === 'search') {
+            // No search in the bin (D11): the key is claimed and does nothing.
+            if (!bin) routeFind(e)
+          } else if (common === 'copy-paths') {
             const paths = many ? markedPaths() : focused ? [focused.path] : []
-            if (paths.length) props.onCopyPathText?.(paths)
+            if (paths.length) props.onCopyPathText?.(bin ? paths.map(originalOf) : paths)
+          } else if (bin) {
+            // Delete permanently is the bin's own Delete (D16); the rest of the
+            // common keys (New folder, Properties, Open in new tab) stand down.
+            if (common === 'bin') {
+              const paths = many ? markedPaths() : selected ? [selected.path] : []
+              if (paths.length) props.onBinDelete?.(paths)
+            }
           } else if (archive) return
           else if (common === 'new-folder') props.onNewFolder?.(props.directory)
           else if (common === 'bin') {
@@ -561,13 +588,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           e.key === 'Delete' &&
           !e.ctrlKey &&
           !e.shiftKey &&
-          props.onDelete
+          (props.onDelete || bin)
         ) {
           e.preventDefault()
           e.stopPropagation()
+          if (bin) {
+            props.onBinDelete?.(many ? markedPaths() : [selected.path])
+            return
+          }
           if (binning()) return
           if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
-          else props.onDelete(selected)
+          else props.onDelete?.(selected)
         } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
           e.preventDefault()
           e.stopPropagation()
@@ -584,6 +615,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ) {
           e.preventDefault()
           e.stopPropagation()
+          // No search in the bin (D11).
+          if (bin) return
           // Typing in the Explorer's own fields is its search, as it was.
           if (typing) openSearch()
           else routeFind(e)
@@ -600,7 +633,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
           if (e.key === 'ArrowRight' && props.canForward) props.onForward()
           if (e.key === 'ArrowUp') props.onUp()
-        } else if (!typing && inList && selected && !many && e.key === 'F2' && props.onRename) {
+        } else if (!typing && inList && selected && !many && !bin && e.key === 'F2' && props.onRename) {
           e.preventDefault()
           e.stopPropagation()
           props.onRename(selected)
@@ -619,6 +652,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
           // container by a cut, and a paste into one is not a route yet.
           if (archive && key !== 'c') return
+          // The bin is not a place you write to or copy from (D16): Cut, Copy
+          // and Paste do nothing here, and the clipboard keeps what it had.
+          if (bin) return
           if (key === 'v') props.onPaste?.(props.directory)
           else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
           else if (selected && key === 'x') props.onCut?.(selected)
@@ -639,7 +675,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         trailing={
           <>
             {!right && previewToggle}
-            <button
+            {/* No search in the bin (D11): its walk needs real folders. */}
+            {!bin && <button
               className="browse-icon-button browse-search-button"
               aria-label="Search this folder and subfolders"
               aria-haspopup="dialog"
@@ -654,7 +691,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
               onClick={openSearch}
             >
               <BrowseIcon name="search" />
-            </button>
+            </button>}
           </>
         }
       />
@@ -683,11 +720,22 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         {...props}
         loading={props.pending !== 'none'}
         entries={props.pending === 'slow' ? [] : entries}
-        onFolderHover={archive ? undefined : hoverFolder}
+        onFolderHover={recorded ? undefined : hoverFolder}
         archive={archive}
-        onEmptyContextMenu={props.onEmptyContextMenu}
+        bin={bin}
+        onEmptyContextMenu={bin ? props.onBinEmptyContextMenu : props.onEmptyContextMenu}
         strip={
-          archive && props.onArchiveExtract ? (
+          bin ? (
+            <BinStrip
+              marked={markedEntries.length || (selected ? 1 : 0)}
+              count={total}
+              onRestore={() =>
+                props.onBinRestore?.(many ? markedPaths() : selected ? [selected.path] : [])
+              }
+              onDelete={() => props.onBinDelete?.(many ? markedPaths() : selected ? [selected.path] : [])}
+              onEmpty={props.onEmptyBin}
+            />
+          ) : archive && props.onArchiveExtract ? (
             <ArchiveStrip
               meta={archive}
               done={!!props.archiveDone}

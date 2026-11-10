@@ -387,6 +387,9 @@ async function warmIndexer(root?: string): Promise<void> {
 }
 if (process.argv.includes('--e2e')) {
   ;(globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
+  // The bin folders the app reads, for the e2e to compare with its seam list:
+  // the proof that a run never looked at the real bin (Recycle Bin, D22).
+  ;(globalThis as typeof globalThis & { __prismBinDirs?: typeof binDirs }).__prismBinDirs = binDirs
 }
 const folderSizes = new FolderSizeCache({
   directory: sizeCacheDirectory,
@@ -456,7 +459,7 @@ const explorerListings = createExplorerListings({
   // The Recycle Bin (D5): read directly, never cached on disk. A record that
   // could not be read is counted in one diagnostics line, never a broken row.
   bin: async () => {
-    const { listing, skipped } = await binListing(await binDirs())
+    const { listing, skipped } = await binListing(await binDirs(), undefined, (paths) => wall.grantBin(paths))
     if (skipped) mainCrumb('bin-skipped', { count: skipped })
     return listing
   },

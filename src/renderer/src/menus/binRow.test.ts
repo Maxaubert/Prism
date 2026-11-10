@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { binPlaceMenu } from './binRow'
+import { binPlaceMenu, binRowMenu } from './binRow'
 
 const build = (
   over: Partial<Parameters<typeof binPlaceMenu>[0]> = {}
@@ -30,5 +30,50 @@ describe('binPlaceMenu (the sidebar Recycle Bin row, D19)', () => {
       'Open in new tab',
       'Empty Recycle Bin'
     ])
+  })
+})
+
+const viewerFile = {
+  path: 'C:\\$Recycle.Bin\\S-1\\$RAB.txt',
+  name: 'a.txt',
+  ext: '.txt',
+  kind: 'text',
+  binned: { from: 'C:\\x', at: 1 }
+}
+const file = { path: viewerFile.path, name: 'a.txt', isFolder: false, file: viewerFile } as never
+const folder = { path: 'C:\\$Recycle.Bin\\S-1\\$RCD', name: 'docs', isFolder: true } as never
+const rowCtx = (
+  over: Partial<Parameters<typeof binRowMenu>[0]> = {}
+): Parameters<typeof binRowMenu>[0] => ({
+  entry: file,
+  openFile: vi.fn(),
+  showInPreview: vi.fn(),
+  copyOriginalPaths: vi.fn(),
+  ...over
+})
+
+describe('binRowMenu (a row of the bin list, D12 and D16; the actions join in the next stage)', () => {
+  it('one file: Open, Show in preview, Copy original path', () => {
+    expect(binRowMenu(rowCtx()).map((i) => i.label)).toEqual(['Open', 'Show in preview', 'Copy original path'])
+  })
+  it('one folder: it is never opened (D10), only Copy original path', () => {
+    expect(binRowMenu(rowCtx({ entry: folder })).map((i) => i.label)).toEqual(['Copy original path'])
+  })
+  it('several marked: only what acts on all of them', () => {
+    const paths = ['a', 'b', 'c']
+    expect(binRowMenu(rowCtx({ paths })).map((i) => i.label)).toEqual(['Copy original paths'])
+  })
+  it('none of the write verbs of an ordinary row is ever there', () => {
+    const labels = [rowCtx(), rowCtx({ entry: folder }), rowCtx({ paths: ['a', 'b'] })].flatMap((c) =>
+      binRowMenu(c).map((i) => i.label)
+    )
+    expect(labels.some((l) => /cut|paste|rename|duplicate|pin|properties|file explorer|new tab|icon/i.test(l))).toBe(false)
+  })
+  it('each row calls its own action with the right thing', () => {
+    const c = rowCtx()
+    binRowMenu(c).forEach((i) => i.onPick?.())
+    expect(c.openFile).toHaveBeenCalledWith(viewerFile)
+    expect(c.showInPreview).toHaveBeenCalledWith(viewerFile)
+    expect(c.copyOriginalPaths).toHaveBeenCalledWith(['C:\\$Recycle.Bin\\S-1\\$RAB.txt'])
   })
 })

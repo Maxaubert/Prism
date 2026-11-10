@@ -6,6 +6,7 @@ import { useTabOps } from './hooks/useTabOps'
 import { useTabTear } from './hooks/useTabTear'
 import { useExplorerArrival } from './hooks/useExplorerArrival'
 import { visitedDirectories } from './lib/visitedDirectories'
+import { readOnlyFile } from './lib/readOnlyFile'
 import { tabCrumbs } from './lib/tabs/tabCrumbs'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import {
@@ -46,10 +47,12 @@ import { EditorLoading, Viewer } from './components/stage/Viewer'
 import { EmptyState, NoFileState } from './components/stage/EmptyState'
 import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
+import { binRowMenu } from './menus/binRow'
+import { binnedPath } from './lib/binView'
 import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './hooks/useFolderBrowsing'
 import { browseParent, navigateBrowseState, newBrowse } from './lib/browse'
-import { isBinPlace } from '@shared/binPlace'
+import { BIN_PLACE, isBinPlace } from '@shared/binPlace'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
@@ -830,8 +833,12 @@ export default function App(): JSX.Element {
     endPeek()
     pinPanel()
   }, [endPeek, pinPanel])
+  // A binned file's place is the bin (D12), never the `$Recycle.Bin` folder its
+  // entry lives in: the crumbs say Recycle Bin and Back returns to its list.
   const viewerDirectory = file
-    ? (browseParent(file.path) ?? active?.browse.path)
+    ? file.binned
+      ? BIN_PLACE
+      : (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
   const returnToFolder = useCallback(() => {
     // Out of a member the zip's card opened (#483): the folder the Explorer
@@ -874,8 +881,11 @@ export default function App(): JSX.Element {
   } | null>(null)
   const browseMenuPath = browseMenu?.entry.path
   const browseMenuFolder = browseMenu?.entry.isFolder
+  // A row of the Recycle Bin asks Windows nothing: no paste state, no "open
+  // with" apps for a path that is Windows' own bin entry (Recycle Bin, D12).
+  const inBinList = browsing.listing?.bin === true
   useEffect(() => {
-    if (!browseMenuPath) return
+    if (!browseMenuPath || inBinList) return
     let cancelled = false
     void fileClipboardReady()
       .then(() => window.prism.clipboardHasFiles())
@@ -891,7 +901,7 @@ export default function App(): JSX.Element {
         })
     }
     return () => { cancelled = true }
-  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y])
+  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y, inBinList])
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
   const [browseProps, setBrowseProps] = useState<(BrowseEntry & { drive?: BrowseDriveUsage }) | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
@@ -1346,7 +1356,7 @@ export default function App(): JSX.Element {
   // Only markdown takes the pencil. Code and plain text have no rendered form
   // to leave, so they are simply editable where they sit.
   // A member of an archive is read-only (#300): no pencil.
-  const editable = file?.kind === 'text' && isMarkdown(file.name) && !file.member
+  const editable = file?.kind === 'text' && isMarkdown(file.name) && !readOnlyFile(file)
   const chip = (
     <UpdateChip
       info={update.state.info}
@@ -1512,7 +1522,7 @@ export default function App(): JSX.Element {
             directory={viewerDirectory}
             onDropInto={onBrowseDropInto}
             fileName={file?.name}
-            filePath={file && !file.member ? file.path : undefined}
+            filePath={file && !readOnlyFile(file) ? file.path : undefined}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
             onReturnToFolder={returnToFolder}
@@ -1988,7 +1998,23 @@ export default function App(): JSX.Element {
           x={browseMenu.x}
           y={browseMenu.y}
           onClose={() => setBrowseMenu(null)}
-          items={archiveActions.menu(
+          items={(inBinList
+            ? binRowMenu({
+                entry: browseMenu.entry,
+                paths: browseMenu.paths,
+                openFile: (f) => void browsing.openDeliberately(f),
+                showInPreview: (f) => openBrowseSplit(f),
+                copyOriginalPaths: (paths) => {
+                  // The ORIGINAL full paths, one per line (D16), from the listing's rows.
+                  const rows = [...(browsing.listing?.folders ?? []), ...(browsing.listing?.files ?? [])]
+                  const lines = paths.map((p) => {
+                    const row = rows.find((r) => r.path === p)
+                    return row?.binned ? binnedPath(row.binned.from, row.name) : p
+                  })
+                  void clipboardText(lines.join('\n'))
+                }
+              })
+            : null) ?? archiveActions.menu(
             {
               entry: browseMenu.entry,
               paths: browseMenu.paths,

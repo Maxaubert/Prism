@@ -112,6 +112,21 @@ export function browseEntries(
   const terms = parseQuery(query)
   const matches = (entry: { name: string }): boolean =>
     !query.trim() || matchesQuery(entry.name, terms)
+  // The bin by Date deleted mixes files and folders, as Downloads' date view
+  // does (D7): what was deleted just now is on top, whatever it was.
+  if (listing.bin && sort.key === 'deleted') {
+    const flip = sort.direction === 'desc' ? -1 : 1
+    const rows: BrowseEntry[] = [
+      ...listing.folders
+        .filter(matches)
+        .map((folder) => ({ ...folder, isFolder: true, folderSize: sizes[folder.path] })),
+      ...listing.files
+        .filter(matches)
+        .map((file) => ({ path: file.path, name: file.name, isFolder: false, file, mtimeMs: file.mtimeMs }))
+    ]
+    const at = (e: BrowseEntry): number | undefined => (e.file ? e.file.binned?.at : e.binned?.at)
+    return rows.sort((a, b) => flip * newer(at(a), at(b)) || naturalCompare(a.name, b.name))
+  }
   if (mixed && sort.key === 'modified' && datesUsable(listing)) {
     const flip = sort.direction === 'desc' ? -1 : 1
     const rows: BrowseEntry[] = [

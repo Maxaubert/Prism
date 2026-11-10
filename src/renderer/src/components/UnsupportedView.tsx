@@ -74,6 +74,13 @@ export function UnsupportedView({
         {file.name}
         {size && ` · ${size}`}
       </div>
+      {/* A file in the Recycle Bin says where it was (D12): its own path is
+          Windows' entry and means nothing to read. */}
+      {file.binned && (
+        <div className="max-w-[36rem] break-words text-sm text-[var(--p-dim)]" data-bin-from>
+          Deleted from {file.binned.from}
+        </div>
+      )}
       {/* Desktop only (#106). `explorer` is the flag that means "there is a
           Windows around this window". On the phone the screen names the file
           and stops: nothing there can start a program on the PC. Not `write`,
