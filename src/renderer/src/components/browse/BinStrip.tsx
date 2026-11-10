@@ -26,7 +26,7 @@ export function BinStrip({
 }): JSX.Element {
   const label = binStripLabels(marked)
   return (
-    <div className="browse-archive-strip browse-bin-strip" data-bin-strip data-testid="bin-strip">
+    <div className="browse-archive-strip browse-bin-strip" data-bin-strip data-bin-count={count} data-testid="bin-strip">
       <span className="browse-archive-strip-name">
         <FileMenuIcon name="delete" />
         <strong>Recycle Bin</strong>
