@@ -25,7 +25,8 @@ import {
   type TabState
 } from '../lib/tabs/tabs'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf, pathKey } from '@shared/path'
+import { goesToWindows } from '../lib/unsupported'
+import { baseName, extOf, pastedPath, pathKey } from '@shared/path'
 import { applyDetails, sameRows } from '../lib/listingMerge'
 import { downloadsPath, isDownloads, viewSort } from '../lib/downloadsView'
 import { browseLocation, browseParent } from '../lib/browse'
@@ -39,6 +40,7 @@ import type { DirListing } from '@shared/types'
 import { pageDocuments } from '../lib/pageDocuments'
 import { isHeld, noteShownFolder, releaseSettled, useHeld, useSettling } from '../lib/holds'
 import { useFrozen } from '../lib/frozen'
+import { askArchivePassword, type ArchiveAsk } from '../lib/archiveQuestion'
 
 function pauseTab(tabId: string, which = 'video,audio'): void {
   // The preview window's too: the front tab's player is drawn there.
@@ -149,6 +151,16 @@ function rememberCached(path: string): BrowseDirectory | null {
   return hit && !hit.listing.unreadable ? visitedDirectories.remember(hit) : null
 }
 
+/** The file's folder, read for its grant only, and the row in it the path
+ *  names, in its own spelling (a path may be typed in any case). */
+async function fileRow(tabId: string, target: string): Promise<ViewerFile | null> {
+  const parent = browseParent(target)
+  if (!parent) return null
+  const dir = await window.prism.browseDirectory(tabId, parent, { details: false }).catch(() => null)
+  if (!dir || dir.listing.unreadable) return null
+  return dir.listing.files.find((f) => pathKey(f.path) === pathKey(target)) ?? null
+}
+
 /** Folder navigation owns only the browse cursor. It never reroots a session. */
 export function useFolderBrowsing(
   active: Tab | null,
@@ -160,23 +172,34 @@ export function useFolderBrowsing(
    *  the folder it shows meanwhile: it never blanks for a read. */
   const [waitingFor, setWaitingFor] = useState<{ tabId: string; path: string } | null>(null)
   const [errorState, setError] = useState<{ tabId: string; message: string }>()
-  /** A place inside an archive that wants its password (#300): the question,
-   *  and what to do once it is answered. */
-  const [archiveAsk, setArchiveAsk] = useState<{
-    tabId: string
-    container: string
-    name: string
-    wrong: boolean
-    retry: () => void
-  } | null>(null)
-  const tried = useRef(new Set<string>())
+  /** The password last tried on each archive this session (#300), and the
+   *  request waiting on the question, which a newer one replaces. */
+  const tried = useRef(new Map<string, string>())
+  const asking = useRef<ArchiveAsk | null>(null)
   /** The latest `navigate`, for a password's retry. */
   const navigateRef = useRef<(target: string, tabId?: string) => Promise<void>>(async () => {})
-  const askArchive = useCallback((tabId: string, container: string, retry: () => void) => {
+  /** The latest `openFile`, for a typed path that names a file. */
+  const openFileRef = useRef<(file: ViewerFile | string) => Promise<boolean | undefined>>(async () => undefined)
+  /** A place inside an archive wants its password: main remembers the answer
+   *  for the session and the place is asked for again; a wrong one asks again. */
+  const askArchive = useCallback((container: string, began: number, retry: () => void) => {
     const key = container.toLowerCase()
-    const wrong = tried.current.has(key)
-    tried.current.add(key)
-    setArchiveAsk({ tabId, container, name: baseName(container), wrong, retry })
+    const last = tried.current.get(key)
+    asking.current?.withdraw()
+    const ask = askArchivePassword({
+      archive: container,
+      name: baseName(container),
+      wrong: last !== undefined,
+      tried: last,
+      began
+    })
+    asking.current = ask
+    void ask.answer.then((password) => {
+      if (asking.current === ask) asking.current = null
+      if (password === null) return
+      tried.current.set(key, password)
+      void window.prism.archiveRememberPassword(container, password).then(() => retry())
+    })
   }, [])
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
@@ -429,7 +452,7 @@ export function useFolderBrowsing(
           setResult(null)
           const refused = next?.listing.archiveError
           if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
-            askArchive(id, refused.container, () => {
+            askArchive(refused.container, t0, () => {
               readReason.current = 'retry'
               setRevision((v) => v + 1)
             })
@@ -466,8 +489,9 @@ export function useFolderBrowsing(
   }, [settling, readApplied, path, settleKey])
 
   const navigate = useCallback(
-    async (target: string, tabId = id) => {
+    async (requested: string, tabId = id, typed = false) => {
       if (!tabId) return
+      const target = pastedPath(requested)
       pauseTab(tabId)
       const request = (serial.current.get(tabId) ?? 0) + 1
       serial.current.set(tabId, request)
@@ -511,6 +535,33 @@ export function useFolderBrowsing(
       if (!next || next.listing.unreadable) {
         visitedDirectories.forget(target)
         const refused = next?.listing.archiveError
+        // A FILE'S PATH OPENS THE FILE (owner, 2026-11-09: "cant open this path
+        // directly in prism"). What the path names is only known once the read
+        // has failed, so a folder pays nothing. Its folder is asked for as any
+        // typed folder is (browseDirectory grants it, no wall moves), and only
+        // a row there counts: a path that is nothing still says so below. It
+        // opens as a pin does (`openFile`'s string form): its folder, its row
+        // selected, the viewer in front, in one commit. Not a zip's refusal:
+        // that is a place that answered.
+        if (!refused && visibleId.current === tabId) {
+          const row = await fileRow(tabId, target)
+          if (serial.current.get(tabId) !== request) return
+          if (row) {
+            // Typing it is as deliberate as a double-click (#494). Only typing:
+            // a click on a pin, a crumb or a row said "go to this folder", and
+            // a folder that has since become a program never starts from one.
+            // It opens as a file, on its card (`openGuards` e2e).
+            if (typed && goesToWindows(row)) {
+              window.prism.openInDefault(row.path)
+              // The list stays, and the field that had the keyboard is gone:
+              // it comes back to the list, unless it went somewhere else since
+              // (`openGuards` e2e).
+              if (document.activeElement === document.body)
+                document.querySelector<HTMLElement>('.folder-browser .browse-list')?.focus({ preventScroll: true })
+            } else void openFileRef.current(row.path)
+            return
+          }
+        }
         if (visibleId.current === tabId) {
           if (cached) setResult(null)
           setError({
@@ -523,7 +574,7 @@ export function useFolderBrowsing(
         // A zip whose NAMES are locked asks before it can be entered (#300);
         // Cancel stays where you were.
         if (refused && (refused.reason === 'password' || refused.reason === 'aes'))
-          askArchive(tabId, refused.container, () => void navigateRef.current(target, tabId))
+          askArchive(refused.container, t0, () => void navigateRef.current(target, tabId))
         return
       }
       if (visibleId.current === tabId) {
@@ -693,6 +744,40 @@ export function useFolderBrowsing(
     },
     [active, id, path, setState]
   )
+  useLayoutEffect(() => {
+    openFileRef.current = openFile
+  }, [openFile])
+  /**
+   * A DELIBERATE OPEN (#494; owner, 2026-11-09): a double-click, Enter, the
+   * menu's Open, a search hit picked, a pin double-clicked. A file Prism has no
+   * viewer for leaves for Windows, so SmartScreen and UAC answer as they do in
+   * File Explorer, and the list stays where it is. THIS IS THE ONLY DOOR:
+   * `select`, the pane, the preview window, a walk in full view and an arrival
+   * from Windows all go through `openFile` and can never start a program. A
+   * pin's bare path is read in its folder first, for the grant the open route's
+   * wall asks for and for what the row really is.
+   */
+  const openDeliberately = useCallback(
+    async (file: ViewerFile | string) => {
+      if (typeof file !== 'string') {
+        if (goesToWindows(file)) window.prism.openInDefault(file.path)
+        else await openFile(file)
+        return
+      }
+      const name = baseName(file)
+      if (!id || fileKind(extOf(name), name) !== 'other') {
+        await openFile(file)
+        return
+      }
+      const request = (serial.current.get(id) ?? 0) + 1
+      serial.current.set(id, request)
+      const row = await fileRow(id, file)
+      if (serial.current.get(id) !== request) return
+      if (row && goesToWindows(row)) window.prism.openInDefault(row.path)
+      else await openFile(file)
+    },
+    [id, openFile]
+  )
   // The tab's own answer, else the shared snapshot of the same folder (#271):
   // a tab switch, or a restored tab's first frame, draws rows before any
   // read. With nothing in memory either, the cache on disk, looked at while
@@ -777,7 +862,9 @@ export function useFolderBrowsing(
     },
     [id, patch, listing, active?.browse.preview, openFile]
   )
-  const togglePreview = useCallback(() => {
+  /** `why`, for the log: who shut it when it was not the toggle itself (the
+   *  window closed, a flag nobody asked for put back off). */
+  const togglePreview = useCallback((why?: string) => {
     if (!active || !id) return
     const preview = !active.browse.preview
     if (!preview) {
@@ -785,7 +872,7 @@ export function useFolderBrowsing(
       pauseTab(id)
     }
     setState((s) => ({ ...s, tabs: setBrowsePreview(s.tabs, id, preview) }))
-    crumb('preview', { on: preview })
+    crumb('preview', why ? { on: preview, why } : { on: preview })
     const file = listing?.files.find((f) => f.path === location?.selected)
     // THE PANE OPENING OVER A FILM SHOWS IT PLAYING (#491; owner, 2026-11-08:
     // "video dont always autopaly at least not in preview"), unless you had
@@ -806,18 +893,6 @@ export function useFolderBrowsing(
     [active, id, setState, openFile]
   )
   const previewFile = useMemo(() => active?.files[active.index], [active?.files, active?.index])
-  /** The password question's answer (#300): main remembers it for the
-   *  session and the place is asked for again; a wrong one asks again. */
-  const answerArchive = useCallback(
-    (password: string | null) => {
-      const ask = archiveAsk
-      setArchiveAsk(null)
-      if (!ask || password === null) return
-      void window.prism.archiveRememberPassword(ask.container, password).then(() => ask.retry())
-    },
-    [archiveAsk]
-  )
-  const askHere = archiveAsk && archiveAsk.tabId === id ? archiveAsk : null
   const shownError = error ?? search.error
   const searchState = search.state
   const cancelSearch = search.cancel
@@ -831,8 +906,6 @@ export function useFolderBrowsing(
       folder,
       location,
       /** A place inside an archive asks for its password (#300). */
-      archiveAsk: askHere,
-      answerArchive,
       /** The sort the folder is shown in (Downloads' own until picked, #285). */
       sort,
       downloads,
@@ -854,6 +927,7 @@ export function useFolderBrowsing(
       searchFor,
       showFolder,
       openFile,
+      openDeliberately,
       openSplit,
       select,
       togglePreview,
@@ -862,8 +936,6 @@ export function useFolderBrowsing(
     [
       folder,
       location,
-      askHere,
-      answerArchive,
       sort,
       downloads,
       weekStart,
@@ -882,6 +954,7 @@ export function useFolderBrowsing(
       searchFor,
       showFolder,
       openFile,
+      openDeliberately,
       openSplit,
       select,
       togglePreview,

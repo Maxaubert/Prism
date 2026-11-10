@@ -16899,8 +16899,363 @@ async function unsupportedScenario(fixtures) {
     )
     await win.screenshot({ path: join(SHOTS, 'unsupported.png') })
     ok(!win.isClosed(), 'window survives an unopenable file')
+    // WINDOWS HANDED IT TO US (#494): handing it straight back would be a loop.
+    // The card stays, and only its own button sends it out.
+    const opened = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+    await sleep(800)
+    ok((await opened()).length === 0, `a file Windows handed over is not handed back (${JSON.stringify(await opened())})`)
+    const open = win.getByRole('button', { name: 'Open', exact: true })
+    ok((await open.count()) === 1, 'the card offers Open')
+    ok((await win.getByRole('button', { name: 'Show the bytes', exact: true }).count()) === 1, 'beside Show the bytes')
+    if (await open.count()) await open.click()
+    ok(await until(async () => (await opened()).length === 1, 5000), `Open on the card reaches the open route once (${JSON.stringify(await opened())})`)
+    ok(/program\.exe$/i.test((await opened())[0] ?? ''), 'and it is that file')
   } finally {
     await app.close()
+  }
+}
+
+/** ONLY A DELIBERATE OPEN STARTS A PROGRAM, AND ONCE (#494; review, 2026-11-09).
+ *  The opens `opensInWindows` holds are the ones a person means. These are the
+ *  ones nobody means: a held key, a press that landed on a row the watcher
+ *  moved, a focus the card kept, a folder pin that is a file now. Nothing is
+ *  ever started: under --e2e the open route records the path and stops. */
+async function openGuardsScenario(fixtures) {
+  console.log('a held key, a moved row, a kept focus and a stale pin start nothing (#494)')
+  const dir = join(fixtures, 'openguards')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const setup = join(dir, 'e-setup.exe')
+  const gone = join(dir, 'gone.exe')
+  writeFileSync(setup, 'not really a program\n')
+  writeFileSync(join(dir, 'n.txt'), 'n\n')
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  mkdirSync(gone)
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let held = 0
+  const calls = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+  const nothing = async (what) => {
+    await sleep(500)
+    const got = await calls()
+    ok(got.length === held, `${what}: nothing is handed to Windows (${JSON.stringify(got.slice(held))})`)
+    held = got.length
+  }
+  const once = async (what, path = setup) => {
+    ok(await until(async () => (await calls()).length > held, 5000), `${what}: the file goes to Windows`)
+    await sleep(500)
+    const got = (await calls()).slice(held)
+    ok(got.length === 1 && sameDir(got[0] ?? '', path), `${what}: one call, for that file (${JSON.stringify(got)})`)
+    held += got.length
+  }
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const hold = async (key) => {
+    for (let i = 0; i < 4; i++) {
+      await win.keyboard.down(key)
+      await sleep(150)
+    }
+    await win.keyboard.up(key)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  const pane = (on) => until(async () => {
+    if ((await pressed()) !== on) await toggleBtn().click()
+    await sleep(150)
+    return (await pressed()) === on
+  }, 3000)
+  const paneOpen = () => win.locator('[data-browse-preview]').getByRole('button', { name: 'Open', exact: true })
+  try {
+    await explorerAt(win, dir)
+    await pane(false)
+
+    /* ---------- a double-click whose rows moved under it ---------- */
+    const box = await listRow(win, 'n.txt').boundingBox()
+    const x = box.x + 30
+    const y = box.y + box.height / 2
+    await win.mouse.move(x, y)
+    await win.mouse.down({ clickCount: 1 })
+    await win.mouse.up({ clickCount: 1 })
+    await sleep(200)
+    // The watcher brings a new row above: setup slides under the pointer.
+    writeFileSync(join(dir, 'a-new.txt'), 'arrived\n')
+    const under = () =>
+      win.evaluate(
+        ([px, py]) =>
+          document.elementFromPoint(px, py)?.closest('[data-browse-path]')?.getAttribute('data-browse-path') ?? '',
+        [x, y]
+      )
+    ok(await until(async () => /e-setup\.exe$/i.test(await under()), 8000), `the row under the pointer moved (${await under()})`)
+    await win.mouse.down({ clickCount: 2 })
+    await win.mouse.up({ clickCount: 2 })
+    await nothing('a double-click whose second press found another row')
+    rmSync(join(dir, 'a-new.txt'))
+    await until(async () => (await listRow(win, 'a-new.txt').count()) === 0, 8000)
+    await sleep(300)
+    // And a double-click on a row that stayed is still an open.
+    await listRow(win, 'e-setup.exe').dblclick()
+    await once('a double-click on a row that stayed')
+
+    /* ---------- a held key ---------- */
+    await pick('e-setup.exe')
+    await listRow(win, 'e-setup.exe').focus()
+    await hold('Enter')
+    await once('Enter held on the row')
+
+    await listRow(win, 'e-setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\e-setup.exe" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the file is pinned')
+    await pin.focus()
+    await hold('Enter')
+    await once('Enter held on the pin')
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    await until(async () => (await pin.count()) === 0, 5000)
+    await toList(win)
+
+    /* ---------- the card's Open keeps no hold on the keyboard ---------- */
+    await pane(true)
+    await pick('e-setup.exe')
+    ok(await until(async () => (await paneOpen().count()) === 1, 8000), 'the card in the pane has Open')
+    await paneOpen().focus()
+    await hold('Enter')
+    await once('Enter held on Open')
+    await paneOpen().click()
+    await once('a click on Open')
+    await win.keyboard.press('Space')
+    await nothing('Space after a click on Open')
+    await pane(false)
+
+    /* ---------- a typed path leaves the keyboard on the list ---------- */
+    await pick('n.txt')
+    await typePath(win, setup)
+    await once('the path in the address field')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('.browse-list')), 3000),
+      `after a typed program the keyboard is on the list (${await win.evaluate(() => document.activeElement?.tagName)})`
+    )
+    ok(
+      await until(async () => (await listRow(win, 'n.txt').getAttribute('aria-selected')) === 'true', 3000),
+      'and the row that was selected still is'
+    )
+
+    /* ---------- a folder pin that is a file now ---------- */
+    await listRow(win, 'gone.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const stale = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\gone.exe" i]')
+    ok(await until(async () => (await stale.count()) === 1, 5000), 'the folder is pinned')
+    rmSync(gone, { recursive: true, force: true })
+    writeFileSync(gone, 'a program where the folder was\n')
+    await sleep(1500)
+    await stale.click()
+    await nothing('one click on a folder pin that is a file now')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** A FILE PRISM CANNOT SHOW OPENS THE WAY WINDOWS WOULD (#494; owner,
+ *  2026-11-09: "it shoudl be possible to opena exe instalelr"). The rule worth
+ *  the most here: only a deliberate open starts anything. Nothing is ever
+ *  started: under --e2e the open route records the path and stops. */
+async function opensInWindowsScenario(fixtures) {
+  console.log('a file Prism cannot show opens the way Windows would (#494)')
+  const AdmZip = (await import('adm-zip')).default
+  const dir = join(fixtures, 'opensinwindows')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const setup = join(dir, 'setup.exe')
+  // Not a program: nothing here could run even if the route were reached.
+  writeFileSync(setup, 'not really a program\n')
+  copyFileSync(join(fixtures, 'two.png'), join(dir, 'a-one.png'))
+  copyFileSync(join(fixtures, 'two.png'), join(dir, 'z-two.png'))
+  const zip = new AdmZip()
+  zip.addFile('inner.exe', Buffer.from('a member, not a program\n'))
+  zip.addFile('other.txt', Buffer.from('beside it\n'))
+  // Sorts after the photos, so the walk below goes from photo to photo.
+  zip.writeZip(join(dir, 'zz-members.zip'))
+  // The first file is out of the way in a folder of its own: a text file in
+  // the walk would take Down for its caret.
+  mkdirSync(join(dir, 'start'), { recursive: true })
+  writeFileSync(join(dir, 'start', 'notes.txt'), 'the notes\n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'start', 'notes.txt'))
+  let windowMode = false
+  let held = 0
+  const calls = () => app.evaluate(() => globalThis.__e2eOpenedFiles ?? [])
+  /** Nothing new reached the open route, given a moment to. */
+  const nothing = async (what) => {
+    await sleep(500)
+    const got = await calls()
+    ok(got.length === held, `${what}: nothing is handed to Windows (${JSON.stringify(got.slice(held))})`)
+    held = got.length
+  }
+  /** Exactly one more call, for that file. */
+  const handed = async (what, path = setup) => {
+    ok(await until(async () => (await calls()).length > held, 5000), `${what}: the file goes to Windows (${(await calls()).length - held} call(s))`)
+    await sleep(300)
+    const got = (await calls()).slice(held)
+    ok(got.length === 1 && sameDir(got[0] ?? '', path), `${what}: one call, for that file (${JSON.stringify(got)})`)
+    held += got.length
+  }
+  const inList = async () => (await win.locator(FOLDER_LIST).count()) > 0 && (await win.locator('.browse-viewer-toolbar').count()) === 0
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  const pane = (on) => until(async () => {
+    if ((await pressed()) !== on) await toggleBtn().click()
+    await sleep(150)
+    return (await pressed()) === on
+  }, 3000)
+  const CARD = /can.t show EXE files/
+  const paneText = () => win.evaluate(() => document.querySelector('[data-browse-preview]')?.innerText ?? '')
+  const paneOpen = () => win.locator('[data-browse-preview]').getByRole('button', { name: 'Open', exact: true })
+  try {
+    await explorerAt(win, dir)
+    await pane(false)
+    ok(await app.evaluate(() => Array.isArray(globalThis.__e2eOpenedFiles)), 'under --e2e the open route records instead of opening')
+
+    /* ---------- NEVER: selecting, arrowing, previewing, walking ---------- */
+    await pick('setup.exe')
+    await nothing('a click on the row')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowUp')
+    await nothing('arrowing past it')
+
+    await pane(true)
+    await pick('setup.exe')
+    ok(await until(async () => CARD.test(await paneText()), 8000), `the pane shows the card (${JSON.stringify((await paneText()).slice(0, 120))})`)
+    await nothing('the preview pane on it')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('ArrowUp')
+    await sleep(200)
+    await win.keyboard.press('ArrowDown')
+    await sleep(200)
+    await nothing('arrowing past it with the pane open')
+    ok(await until(async () => (await paneOpen().count()) === 1, 5000), 'the card in the pane has Open')
+    await pane(false)
+
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await pick('setup.exe')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Space')
+    const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+    const inWindow = () =>
+      win.evaluate(() => {
+        const w = window.__prismPreviewWindow
+        return !w || w.closed ? '' : (w.document.querySelector('[data-preview-window-body]')?.textContent ?? '')
+      })
+    ok(await until(async () => (await wins()).length === 1, 5000), 'Space on the row opens the preview window')
+    ok(await until(async () => CARD.test(await inWindow()), 8000), `the preview window shows the card (${JSON.stringify((await inWindow()).slice(0, 120))})`)
+    await nothing('the preview window on it')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Space')
+    await until(async () => (await wins()).length === 0, 3000)
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await pane(false)
+
+    // Full view: a walk through the folder from the photo beside it.
+    await listRow(win, 'a-one.png').dblclick()
+    ok(await until(async () => (await win.locator('.browse-viewer-toolbar').count()) > 0, 8000), 'a photo opens in full view')
+    const cdp = await win.context().newCDPSession(win)
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+    ok(await until(async () => (await viewing(win)) === 'a-one.png', 8000), `the walk starts on the photo (${await viewing(win)})`)
+    await sleep(300)
+    // Down walks the folder here, and setup.exe sorts before the last photo.
+    const seen = []
+    for (let i = 0; i < 8 && (await viewing(win)) !== 'z-two.png'; i++) {
+      await win.keyboard.press('ArrowDown')
+      await sleep(450)
+      seen.push(await viewing(win))
+    }
+    ok((await viewing(win)) === 'z-two.png', `Down walks the folder past the file Prism cannot show (${JSON.stringify(seen)})`)
+    await nothing('walking the folder in full view')
+    await toList(win)
+
+    /* ---------- ONE EACH: every deliberate open ---------- */
+    await listRow(win, 'setup.exe').dblclick()
+    await handed('a double-click')
+    ok(await inList(), 'and the list stays where it is')
+    ok(!CARD.test(await win.evaluate(() => document.body.innerText)), 'no card says Prism cannot show it')
+
+    await pick('setup.exe')
+    await listRow(win, 'setup.exe').focus()
+    await win.keyboard.press('Enter')
+    await handed('Enter')
+    ok(await inList(), 'Enter: the list stays where it is')
+
+    await listRow(win, 'setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: /^Open\s*Enter$/ }).click()
+    await handed("the menu's Open")
+
+    await typePath(win, setup)
+    await handed('the path in the address field')
+    ok(await inList(), 'the address field: the list stays where it is')
+    ok(!(await win.evaluate(() => document.body.innerText)).includes('This folder cannot be opened'), 'and it reports no error')
+
+    await pane(true)
+    await pick('setup.exe')
+    await until(async () => (await paneOpen().count()) === 1, 8000)
+    await nothing('the pane again')
+    if (await paneOpen().count()) await paneOpen().click()
+    await handed('Open on the card')
+    await pane(false)
+
+    /* ---------- a pin: a click is not an open, a double-click is ---------- */
+    await listRow(win, 'setup.exe').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const pin = win.locator('.browse-places .quick-access-pin[data-quick-access-path$="\\\\setup.exe" i]')
+    ok(await until(async () => (await pin.count()) === 1, 5000), 'the file is pinned')
+    await pin.click()
+    await nothing('one click on the pin')
+    ok(await inList(), 'one click on the pin stays in the list')
+    await pin.dblclick()
+    await handed('a double-click on the pin')
+    await pin.click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    await until(async () => (await pin.count()) === 0, 5000)
+    await explorerAt(win, dir)
+
+    /* ---------- search results are rows ---------- */
+    const search = win.locator('[data-testid="browse-search-button"]')
+    const popup = win.locator('[data-testid="browse-search-popup"]')
+    const field = popup.locator('input[role="combobox"]')
+    await search.click()
+    await field.fill('setup')
+    await field.press('Control+Enter')
+    ok(await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 1 && (await listRow(win, 'setup.exe').count()) === 1, 15000), 'a search lists the file')
+    await pick('setup.exe')
+    await nothing('a click on a search result')
+    await listRow(win, 'setup.exe').dblclick()
+    await handed('a double-click on a search result')
+    await win.locator('[data-testid="browse-search-clear"]').click()
+    await until(async () => (await win.locator('[data-testid="browse-search-status"]').count()) === 0, 5000)
+
+    /* ---------- a zip's member stays as it is ---------- */
+    await inZip(win, join(dir, 'zz-members.zip'))
+    await listRow(win, 'inner.exe').dblclick()
+    ok(await until(async () => CARD.test(await win.evaluate(() => document.body.innerText)), 15000), 'a member is still the card')
+    await nothing('a double-click on a member of a zip')
+    ok((await win.getByRole('button', { name: 'Open', exact: true }).count()) === 0, 'and its card has no Open')
+    ok((await win.getByRole('button', { name: 'Show the bytes', exact: true }).count()) === 1, 'it keeps Show the bytes')
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -20061,6 +20416,15 @@ async function previewSlideListScenario(fixtures) {
  * blur leaves it; Space, Escape (the list's or its own) and its close button
  * close it, faded out; the pane never opens. Panel puts the pane back.
  */
+/** The preview window's own page, null when there is none. */
+async function previewPage(app, win) {
+  for (const p of app.windows()) {
+    if (p === win) continue
+    if (await p.evaluate(() => !!document.querySelector('[data-preview-window]')).catch(() => false)) return p
+  }
+  return null
+}
+
 async function previewWindowScenario(fixtures) {
   console.log('the preview in its own window, Quick Look style (owner, 2026-11-08)')
   const dir = join(fixtures, 'previewwindow')
@@ -20182,7 +20546,7 @@ async function previewWindowScenario(fixtures) {
     ok(await until(async () => (await inside())?.img?.ok && (await inside())?.img?.w > 20, 8000), `ArrowUp: a picture, drawn and sized in the window (${JSON.stringify((await inside())?.img)})`)
     ok((await inside())?.title === 'bravo.png', `the title follows (${(await inside())?.title})`)
     // The window as drawn (its own page; clear on the desktop, not in a capture).
-    const page = app.windows().find((p) => p.url() === 'about:blank' || p.url() === '')
+    const page = await previewPage(app, win)
     if (page) await page.screenshot({ path: join(SHOTS, 'preview-window.png') }).catch((e) => console.log(`  (no shot: ${e})`))
     else console.log(`  (no preview page among ${app.windows().map((p) => p.url()).join(', ')})`)
 
@@ -20217,6 +20581,7 @@ async function previewWindowScenario(fixtures) {
         a.click()
         a.remove()
       }
+      const startHref = w.location.href
       link('about:blank', 'prism-preview-other')
       await new Promise((r) => setTimeout(r, 500))
       link('file:///C:/')
@@ -20227,11 +20592,13 @@ async function previewWindowScenario(fixtures) {
       } catch {
         href = 'navigated away (cross-origin now)'
       }
-      return { opened: false, href }
+      return { opened: false, href, startHref }
     })
     const winsAfter = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
     ok(!walls.opened && winsAfter === winsBefore, `the preview window opens no window of its own (${JSON.stringify(walls)}, ${winsBefore} -> ${winsAfter})`)
-    ok(walls.href === 'about:blank', `and its page goes nowhere (${walls.href})`)
+    // Written, as a standards page must be, so its address is the app's page
+    // (#493); what matters is that it is the address it began with.
+    ok(walls.href === walls.startHref, `and its page goes nowhere (${walls.href}, began at ${walls.startHref})`)
     ok((await inside()) !== null, 'and it still shows the file')
 
     // ITS VIEWERS HEAR THEIR OWN WINDOW (owner, 2026-11-08: "Keys and in-page
@@ -20526,6 +20893,378 @@ async function previewWindowScenario(fixtures) {
   } finally {
     if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
     await app.close()
+  }
+}
+
+/** A FILE'S PATH IN THE ADDRESS FIELD OPENS THE FILE (owner, 2026-11-09: "cant
+ *  open this path directly in prism"), in its folder with its row selected,
+ *  as a double-click would. Pasted spellings too. */
+async function openByPathScenario(fixtures) {
+  console.log("a file's path in the address field opens the file (owner, 2026-11-09)")
+  const dir = join(fixtures, 'openbypath')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'inside folder'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(join(dir, 'guide.md'), '# The guide\n\nA paragraph of the guide.\n')
+  writeFileSync(join(dir, 'inside folder', 'deep.md'), '# Deep\n\nA paragraph from deep inside.\n')
+  writeFileSync(join(dir, 'inside folder', 'page.txt'), 'the page text\n')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const body = () => win.evaluate(() => document.body.innerText)
+  const inViewer = () => until(async () => (await win.locator(FOLDER_LIST).count()) === 0 && (await win.locator('.browse-viewer-toolbar').count()) > 0, 8000)
+  const selected = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  const opens = async (typed, file, text, how) => {
+    await typePath(win, typed)
+    ok(await inViewer(), `${how}: the file opens in the viewer (${JSON.stringify((await body()).slice(0, 120))})`)
+    ok(await until(async () => (await body()).includes(text), 8000), `${how}: it shows the file (${JSON.stringify((await body()).slice(0, 120))})`)
+    await toList(win)
+    ok(sameDir(await shownDir(win), dirname(file)), `${how}: its folder is behind it (${await shownDir(win)})`)
+    ok(await until(async () => sameDir(await selected(), file), 5000), `${how}: its row is selected (${await selected()})`)
+  }
+  try {
+    await explorerAt(win, dir)
+    await opens(join(dir, 'guide.md'), join(dir, 'guide.md'), 'A paragraph of the guide', 'a markdown file')
+    // Elsewhere than the folder on screen, and through the spellings a paste has.
+    const deep = join(dir, 'inside folder', 'deep.md')
+    await opens(deep, deep, 'A paragraph from deep inside', 'another folder')
+    await explorerAt(win, dir)
+    await opens(`"${deep}"`, deep, 'A paragraph from deep inside', "Windows' Copy as path")
+    await explorerAt(win, dir)
+    await opens(deep.replace(/\\/g, '/'), deep, 'A paragraph from deep inside', 'forward slashes')
+    await explorerAt(win, dir)
+    await opens(`  ${deep}   `, deep, 'A paragraph from deep inside', 'spaces around it')
+    await explorerAt(win, dir)
+    // A file's name in another case is the same file.
+    await opens(deep.toUpperCase(), deep, 'A paragraph from deep inside', 'another case')
+    await explorerAt(win, dir)
+    // A folder still goes there, and a path that is nothing still says so.
+    await typePath(win, join(dir, 'inside folder'))
+    ok(await landed(win, join(dir, 'inside folder')), 'a folder path still goes to the folder')
+    await explorerAt(win, dir)
+    await typePath(win, join(dir, 'nothing here.md'))
+    ok(await until(async () => (await body()).includes('This folder cannot be opened'), 5000), `a path that is nothing says so (${JSON.stringify((await body()).slice(0, 160))})`)
+    ok((await win.locator(FOLDER_LIST).count()) > 0, 'and the list stays')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** A MARKDOWN FILE PREVIEWS (owner, 2026-11-09: "it cant be previewd only viewd
+ *  normally"), in the pane and in the window, and stays open. */
+/** A workbook written by hand: the library's own writer drops every fill. */
+async function colourBook() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>')
+  add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+  add('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Colours" sheetId="1" r:id="rId1"/></sheets></workbook>')
+  add('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
+  add('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFC00000"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFC000"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>')
+  const text = (r, s, t) => `<c r="${r}" t="inlineStr"${s ? ` s="${s}"` : ''}><is><t>${t}</t></is></c>`
+  add('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">${text('A1', 0, 'plain words')}<c r="B1"><v>4242</v></c></row><row r="2">${text('A2', 1, 'dark fill')}</row><row r="3">${text('A3', 2, 'light fill')}</row></sheetData></worksheet>`)
+  return zip.toBuffer()
+}
+
+/** A one-table Word document and a one-table book, the other kinds that pour
+ *  a file's tables into the same sheet. */
+async function colourDocx() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+  add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+  add('word/document.xml', '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>word paragraph</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>word cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>')
+  return zip.toBuffer()
+}
+
+async function colourEpub() {
+  const AdmZip = (await import('adm-zip')).default
+  const zip = new AdmZip()
+  const add = (name, text) => zip.addFile(name, Buffer.from(text, 'utf8'))
+  add('mimetype', 'application/epub+zip')
+  add('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+  add('book.opf', '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata/><manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>')
+  add('c.xhtml', '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>book paragraph</p><table><tr><td>book cell</td></tr></table></body></html>')
+  return zip.toBuffer()
+}
+
+/**
+ * THE SAME FILE HAS THE SAME COLOURS ON EVERY SURFACE (owner, 2026-11-09, #493:
+ * "the amu report has black letters normally but in the preview the text is
+ * white"). Reads the computed colours in the pane, the preview window and the
+ * full view, in every theme: text with no colour of its own is the paper's
+ * dark ink, and a real dark fill keeps its light text.
+ */
+async function sheetColoursScenario(fixtures) {
+  console.log('a document has the same colours in the pane, the window and the full view (#493)')
+  const INK = 'rgb(31, 33, 38)'
+  const WHITE = 'rgb(255, 255, 255)'
+  const WANT = { 'plain words': INK, 4242: INK, 'light fill': INK, 'dark fill': WHITE }
+  const dir = join(fixtures, 'sheetcolours')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(join(dir, 'book.xlsx'), await colourBook())
+  writeFileSync(join(dir, 'letter.docx'), await colourDocx())
+  writeFileSync(join(dir, 'novel.epub'), await colourEpub())
+  writeFileSync(join(dir, 'table.md'), '# Table\n\nmark paragraph\n\n| Head |\n|---|\n| mark cell |\n')
+  copyFileSync(join(fixtures, 'sample.pdf'), join(dir, 'paper.pdf'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const startStyle = await win.evaluate(() => localStorage.getItem('prism.style'))
+  const startGround = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const groundNow = () => win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+  const storedStyle = () => win.evaluate(() => localStorage.getItem('prism.style'))
+  const setStyle = (id) =>
+    win.evaluate((v) => {
+      if (v === null) localStorage.removeItem('prism.style')
+      else localStorage.setItem('prism.style', v)
+      window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'prism.style' }))
+    }, id)
+  const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+  /** The colours a surface shows: `pane`, `window` or `full`. Null until the
+   *  document is drawn there. */
+  const read = (where) =>
+    win.evaluate((at) => {
+      const w = window.__prismPreviewWindow
+      const box =
+        at === 'window'
+          ? !w || w.closed
+            ? null
+            : w.document.querySelector('[data-preview-window-body]')
+          : at === 'pane'
+            ? document.querySelector('[data-browse-preview]')
+            : document
+      if (!box) return null
+      const view = box.ownerDocument?.defaultView ?? window
+      const colour = (el) => view.getComputedStyle(el).color
+      const cell = (text) => [...box.querySelectorAll('td')].find((el) => el.textContent.trim() === text)
+      const para = (text) => [...box.querySelectorAll('p')].find((el) => el.textContent.trim() === text)
+      const out = {}
+      for (const t of ['plain words', '4242', 'light fill', 'dark fill', 'word cell', 'book cell', 'mark cell']) {
+        const el = cell(t)
+        if (el) out[t] = colour(el)
+      }
+      for (const t of ['word paragraph', 'book paragraph', 'mark paragraph']) {
+        const el = para(t)
+        if (el) out[t] = colour(el)
+      }
+      const span = box.querySelector('.p-pdf-textlayer span')
+      if (span) out.pdfText = colour(span)
+      return out
+    }, where)
+  const drawn = async (where, key) => (await read(where))?.[key] !== undefined
+  const row = (name) => listRow(win, name)
+  const pick = async (name) => {
+    const box = await row(name).boundingBox()
+    await row(name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(250)
+  }
+  /** Back to the theme it began on, and staying there: the readings below
+   *  compare one surface with another, so they need the same theme. Forcing
+   *  18 themes in a second can leave a later write of the old one behind. */
+  const putBack = () =>
+    until(
+      async () => {
+        if ((await storedStyle()) === startStyle && (await groundNow()) === startGround) return true
+        await setStyle(startStyle)
+        return false
+      },
+      4000,
+      200
+    )
+  /** Every shipped theme, the sheet's colours read in each. */
+  const everyTheme = async (where) => {
+    const wrong = []
+    const grounds = new Set()
+    for (const id of THEME_ORDER) {
+      await setStyle(id)
+      await win.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+      grounds.add(await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg')))
+      const got = await read(where)
+      for (const [text, want] of Object.entries(WANT)) if (got?.[text] !== want) wrong.push(`${id}: "${text}" is ${got?.[text]}`)
+    }
+    ok(wrong.length === 0, `${where}: the sheet's ink and light text in all ${THEME_ORDER.length} themes (${wrong.slice(0, 6).join('; ') || 'all right'})`)
+    ok(grounds.size > 4, `${where}: the themes really changed (${grounds.size} grounds)`)
+    await putBack()
+    ok((await groundNow()) === startGround, `${where}: the theme is put back`)
+  }
+  const OTHERS = [
+    { file: 'letter.docx', keys: ['word cell', 'word paragraph'] },
+    { file: 'novel.epub', keys: ['book cell', 'book paragraph'] },
+    { file: 'table.md', keys: ['mark cell', 'mark paragraph'] },
+    { file: 'paper.pdf', keys: ['pdfText'] }
+  ]
+  try {
+    await explorerAt(win, dir)
+
+    // The pane.
+    const toggle = win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+    await pick('book.xlsx')
+    ok(await until(() => drawn('pane', 'plain words'), 15000), 'the workbook is drawn in the pane')
+    await everyTheme('pane')
+    const inPane = {}
+    for (const { file, keys } of OTHERS) {
+      await pick(file)
+      ok(await until(() => drawn('pane', keys[0]), 15000), `${file} is drawn in the pane`)
+      inPane[file] = await read('pane')
+    }
+
+    // The window.
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await sleep(300)
+    const openWindow = async (file, key) => {
+      await pick(file)
+      await row(file).focus()
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await wins()).length === 1, 5000), `Space opens ${file} in the window`)
+      ok(await until(() => drawn('window', key), 15000), `${file} is drawn in the window`)
+    }
+    const shutWindow = async () => {
+      await win.keyboard.press('Space')
+      ok(await until(async () => (await wins()).length === 0, 3000), 'Space closes the window')
+    }
+    await openWindow('book.xlsx', 'plain words')
+    const mode = await win.evaluate(() => window.__prismPreviewWindow.document.compatMode)
+    ok(mode === 'CSS1Compat', `the window's page is in standards mode, as the app's is (${mode})`)
+    // What standards mode changes, the layout that took quirks for granted.
+    const fit = await win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      const r = w.document.querySelector('[data-preview-window]').getBoundingClientRect()
+      const s = w.document.querySelector('.p-sheet').getBoundingClientRect()
+      return { h: Math.round(r.height), inner: w.innerHeight, sheetW: Math.round(s.width), sheetH: Math.round(s.height) }
+    })
+    ok(fit.h === fit.inner && fit.sheetW > 100 && fit.sheetH > 50, `the window still fills its frame and the sheet its window (${JSON.stringify(fit)})`)
+    await everyTheme('window')
+    const looked = await previewPage(app, win)
+    if (looked) await looked.screenshot({ path: join(SHOTS, 'sheet-colours-window.png') }).catch(() => {})
+    await shutWindow()
+    for (const { file, keys } of OTHERS) {
+      await putBack()
+      await openWindow(file, keys[0])
+      const got = await read('window')
+      for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the window is the pane's (${got[k]} and ${inPane[file][k]})`)
+      await shutWindow()
+    }
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+
+    // The full view.
+    await viewFile(win, 'book.xlsx')
+    ok(await until(() => drawn('full', 'plain words'), 15000), 'the workbook is drawn in the full view')
+    await everyTheme('full')
+    for (const { file, keys } of OTHERS) {
+      await viewFile(win, file)
+      ok(await until(() => drawn('full', keys[0]), 15000), `${file} is drawn in the full view`)
+      await putBack()
+      const got = await read('full')
+      for (const k of keys) ok(got[k] === inPane[file][k], `${file}: "${k}" in the full view is the pane's (${got[k]} and ${inPane[file][k]})`)
+    }
+  } finally {
+    await setStyle(startStyle).catch(() => {})
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close().catch(() => {})
+    await sleep(600)
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function markdownPreviewScenario(fixtures) {
+  console.log('a markdown file previews and stays open (owner, 2026-11-09)')
+  const dir = join(fixtures, 'mdpreview')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'the notes\n')
+  writeFileSync(
+    join(dir, 'README.md'),
+    '# Readme fixture\n\nThe readme paragraph.\n\n| | | Kode |\n|---|---|---|\n| **A** | words | [`src/`](src/) |\n\n## Changelog\n\n**0.2.3** (09.11.2026): A line.\n'
+  )
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const wins = () => app.evaluate(() => globalThis.__e2ePreviewWindows?.() ?? [])
+  const inWindow = () =>
+    win.evaluate(() => {
+      const w = window.__prismPreviewWindow
+      return !w || w.closed ? '' : (w.document.querySelector('[data-preview-window-body]')?.textContent ?? '')
+    })
+  const inPane = () =>
+    win.evaluate(() => {
+      const b = document.querySelector('[data-browse-preview]')
+      return b && b.getClientRects().length ? b.innerText : ''
+    })
+  const pick = async (name) => {
+    const box = await listRow(win, name).boundingBox()
+    await listRow(win, name).click({ position: { x: 30, y: box.height / 2 } })
+    await sleep(300)
+  }
+  const toggleBtn = () => win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+  const pressed = async () => (await toggleBtn().getAttribute('aria-pressed')) === 'true'
+  try {
+    await explorerAt(win, dir)
+    // The window, Space on the markdown row, the first opening of this window.
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    // A path that failed just before (the row selection it leaves is not the file's).
+    await typePath(win, join(dir, 'nothing here'))
+    await until(async () => (await win.evaluate(() => document.body.innerText)).includes('This folder cannot be opened'), 5000)
+    await typePath(win, dir)
+    await landed(win, dir)
+    await pick('README.md')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await wins()).length === 1, 5000), 'Space on the markdown row opens the window')
+    ok(await until(async () => (await inWindow()).includes('The readme paragraph'), 8000), `the window shows the markdown (${JSON.stringify((await inWindow()).slice(0, 120))})`)
+    await sleep(800)
+    ok((await wins()).length === 1 && (await pressed()), `and the window stays open (${(await wins()).length} window(s), toggle ${await pressed()})`)
+    ok((await inWindow()).includes('The readme paragraph'), 'still showing the markdown')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await wins()).length === 0, 3000), 'Space closes it')
+    await pickStyleSegment(win, 'preview-opens', 'Panel')
+    windowMode = false
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    // The pane first.
+    await pick('README.md')
+    if (await pressed()) {
+      await toggleBtn().click()
+      await until(async () => !(await pressed()), 3000)
+    }
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => (await inPane()).includes('The readme paragraph'), 8000), `the pane shows the markdown (${JSON.stringify((await inPane()).slice(0, 120))})`)
+    await sleep(800)
+    ok((await pressed()) && (await inPane()).includes('The readme paragraph'), 'and the pane stays open')
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => !(await pressed()), 3000), 'Space shuts the pane')
+    // A flag nobody asked for in Window mode: put back off, and no window is ever made.
+    await listRow(win, 'README.md').focus()
+    await win.keyboard.press('Space')
+    ok(await until(async () => await pressed(), 3000), 'the pane is on again')
+    const opensBefore = await app.evaluate(() => globalThis.__e2ePreviewOpens?.() ?? -1)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    ok(await until(async () => !(await pressed()), 3000), 'Window mode: the flag left on by the panel is put back off')
+    await sleep(500)
+    const opensAfter = await app.evaluate(() => globalThis.__e2ePreviewOpens?.() ?? -1)
+    ok(opensBefore >= 0 && opensAfter === opensBefore, `and no window was made for it (${opensBefore} before, ${opensAfter} after)`)
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -23244,6 +23983,111 @@ async function zipLockedScenario(fixtures) {
   ok(left.length === 0, `the run's member folder is gone after quit (${left.join(', ')})`)
 }
 
+/**
+ * ONE PASSWORD QUESTION PER ARCHIVE (owner, 2026-11-09). A locked member's
+ * preview and an extract of it, set off in the same tick so both come back
+ * wanting the password: one question, whichever answered first. Cancel drops
+ * both; a wrong password asks once more, for both; the right one serves both.
+ */
+async function archivePassOnceScenario(fixtures) {
+  console.log('one password question per archive')
+  const dir = join(fixtures, 'archive-pass-once')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(ROOT, 'src', 'main', 'fixtures', 'crypto.zip'), join(dir, 'crypto.zip'))
+  writeFileSync(join(dir, 'notes.txt'), 'beside\n')
+  const PASS = 'input[aria-label="Archive password"]'
+  const out = join(dir, 'secret.txt')
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  const asked = () => win.locator(PASS).count()
+  /** The preview and the extract, in one tick, with the most questions ever
+   *  up counted at every commit. */
+  const both = async () => {
+    await zipRow(win, 'secret.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.evaluate((sel) => {
+      const seen = (window.__pass = { most: 0, took: [] })
+      const look = () => {
+        seen.most = Math.max(seen.most, document.querySelectorAll(sel).length)
+      }
+      seen.obs = new MutationObserver(look)
+      seen.obs.observe(document.body, { childList: true, subtree: true })
+      look()
+      const item = [...document.querySelectorAll('[role="menu"] button, [role="menu"] [role="menuitem"]')].find(
+        (el) => el.textContent?.includes('Extract this file')
+      )
+      const row = document.querySelector('[data-testid="browse-list"] [data-browse-path$="secret.txt"]')
+      seen.took.push(!!item, !!row)
+      item?.click()
+      row?.click()
+    }, PASS)
+    ok((await win.evaluate(() => window.__pass.took.every(Boolean))) === true, 'the menu row and the file row were both there to press')
+    ok(await until(async () => (await asked()) >= 1, 15000), 'the password is asked for')
+    // Long enough for the slower of the two to have come back and asked.
+    await sleep(1500)
+  }
+  const most = () => win.evaluate(() => window.__pass.most)
+  try {
+    await explorerAt(win, dir)
+    await zipGo(win, join(dir, 'crypto.zip'), async () => (await win.locator('[data-archive-strip]').count()) === 1)
+    await until(async () => (await zipRow(win, 'secret.txt').count()) === 1, 10000)
+
+    await both()
+    let top = await most()
+    ok(top === 1, `the preview and the extract wanted it at once: one question (most up: ${top})`)
+    await win.locator('[role="dialog"] button:has-text("Cancel")').last().click()
+    ok(await until(async () => (await asked()) === 0, 5000), 'Cancel takes the question down')
+    await sleep(1200)
+    ok((await asked()) === 0, 'and neither of them asks again')
+    ok(!existsSync(out), 'and the extract was dropped')
+    top = await most()
+    ok(top === 1, `and no second question came up behind it (most up: ${top})`)
+
+    // Back out so the preview starts over, then the same again with answers.
+    await zipGo(win, dir)
+    await until(async () => (await win.locator('[data-member-gate]').count()) === 0, 5000)
+    await zipGo(win, join(dir, 'crypto.zip'), async () => (await win.locator('[data-archive-strip]').count()) === 1)
+    await until(async () => (await zipRow(win, 'secret.txt').count()) === 1, 10000)
+
+    await both()
+    await win.locator(PASS).first().fill('wrong-one')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /didn't open/.test((await win.textContent('body')) ?? ''), 10000), 'a wrong password asks again, saying so')
+    await sleep(1500)
+    top = await most()
+    ok(top === 1 && (await asked()) === 1, `a wrong answer still leaves one question for both (most up: ${top})`)
+    ok(!existsSync(out), 'nothing was written with the wrong one')
+    await win.locator(PASS).first().fill('letmein')
+    await win.keyboard.press('Enter')
+    const landed = await until(() => existsSync(out) && readFileSync(out, 'utf8') === 'top secret', 15000)
+    ok(landed === true, 'the one answer extracted the file')
+    ok(await until(async () => (await win.locator('[data-member-gate]').count()) === 0, 10000), 'and opened the preview, with the same answer')
+    await sleep(1200)
+    top = await most()
+    ok(top === 1 && (await asked()) === 0, `and it asked nothing more (most up: ${top}, up now: ${await asked()})`)
+
+    // The Explorer going in asks through the same question: a 7z whose NAMES
+    // are locked cannot even be listed without it.
+    const src = join(dir, 'to-pack')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'hidden.txt'), 'in a locked 7z')
+    const names = join(dir, 'names.7z')
+    execFileSync(join(ROOT, 'vendor', '7zip', '7z.exe'), ['a', '-t7z', '-pletmein', '-mhe=on', names, join(src, '*')], { windowsHide: true, stdio: 'ignore' })
+    await zipGo(win, dir)
+    await zipGo(win, names, async () => (await asked()) === 1)
+    ok((await asked()) === 1, 'going into a 7z with locked names asks')
+    await win.locator(PASS).fill('nope')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => /didn't open/.test((await win.textContent('body')) ?? ''), 15000), 'a wrong one asks again, saying so')
+    await win.locator(PASS).fill('letmein')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => (await asked()) === 0 && (await zipRow(win, 'hidden.txt').count()) === 1, 15000), 'the right one goes in')
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /* ----- the diagnostics log (#322) ----- */
 
 /** The diagnostics log of the shared profile, one object per line (a line
@@ -24677,10 +25521,14 @@ await run(zipMenusScenario)
 await run(zipWritesScenario)
 await run(zipRestoreScenario)
 await run(zipLockedScenario)
+await run(archivePassOnceScenario)
 await run(zipFolderScenario)
 await run(previewClearsScenario)
 await run(previewSlideListScenario)
 await run(previewWindowScenario)
+await run(openByPathScenario)
+await run(markdownPreviewScenario)
+await run(sheetColoursScenario)
 await run(ctrlFPreviewScenario)
 await run(docArrowsScenario)
 await run(previewSlowImageScenario)
@@ -24790,6 +25638,8 @@ await run(busyBackdropScenario)
 await run(busyCutCancelScenario)
 await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
+await run(opensInWindowsScenario)
+await run(openGuardsScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).

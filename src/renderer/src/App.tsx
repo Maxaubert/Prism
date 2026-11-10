@@ -72,7 +72,6 @@ import './components/browse/workspace.css'
 import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
 import { useExplorerSide } from './lib/prefs/explorerSidePrefs'
 import { PreviewEmpty } from './components/browse/PreviewEmpty'
-import { PasswordDialog } from './dialogs/PasswordDialog'
 import { browsableArchive, within } from '@shared/archivePlace'
 import { useArchiveActions } from './components/browse/useArchiveActions'
 import { clipboardText } from './lib/clipboardText'
@@ -889,8 +888,17 @@ export default function App(): JSX.Element {
   // the viewer is rendered into PreviewWindow, which stays mounted for its
   // fade out (`previewWindowUp`).
   const previewInWindow = usePreviewOpensIn() === 'window'
+  // The tabs whose preview window was OPENED, by a toggle, this session. In
+  // window mode the tab's preview flag is the window, and only a toggle opens
+  // it: a flag left on by the panel, a restore or a file from Windows is put
+  // back off, so the window never appears unasked. State, not a ref (owner,
+  // 2026-11-09, the log's arm, open, shut at 13:41:02 and :10): it is only ever MADE
+  // for a tab in here, so that flag no longer arms, opens and shuts one in the
+  // commit before the effect below takes it back. `markdownPreview` e2e.
+  const [windowTabs, setWindowTabs] = useState<ReadonlySet<string>>(() => new Set())
   const paneShown = showBrowsePreview && !previewInWindow
-  const windowShown = showBrowsePreview && previewInWindow && !fullscreen
+  const windowShown =
+    showBrowsePreview && previewInWindow && !fullscreen && !!activeId && windowTabs.has(activeId)
   const previewWindowUp = useLinger(windowShown, 220) && browsing.folder && !fullscreen
   // Each opening is a window of its own (review 2026-11-08): a Space that
   // reopens it while the last one still fades out (or before it was even
@@ -916,35 +924,38 @@ export default function App(): JSX.Element {
     placesVisible,
     previewSlide.widthShown
   )
-  // The tabs whose preview window was OPENED, by a toggle, this session. In
-  // window mode the tab's preview flag is the window, and only a toggle opens
-  // it: a flag left on by the panel, a restore or a file from Windows is put
-  // back off, so the window never appears unasked.
-  const windowTabs = useRef(new Set<string>())
+  const noteWindowTab = useCallback((tabId: string, opened: boolean) => {
+    setWindowTabs((s) => {
+      if (s.has(tabId) === opened) return s
+      const next = new Set(s)
+      if (opened) next.add(tabId)
+      else next.delete(tabId)
+      return next
+    })
+  }, [])
   const togglePreview = useCallback(() => {
     // Only a pane that is really on screen slides shut, and only one that is
     // really off slides open; a preview switched on over a folder shows nothing.
     if (previewInWindow) {
       // The window fades instead (PreviewWindow).
-      if (activeId && !active?.browse.preview) windowTabs.current.add(activeId)
-      else if (activeId) windowTabs.current.delete(activeId)
+      if (activeId) noteWindowTab(activeId, !active?.browse.preview)
     } else if (showBrowsePreview) previewSlide.start(true)
     else if (!active?.browse.preview) previewSlide.start(false)
     browsing.togglePreview()
-  }, [previewInWindow, activeId, showBrowsePreview, active?.browse.preview, previewSlide, browsing])
+  }, [previewInWindow, activeId, showBrowsePreview, active?.browse.preview, previewSlide, browsing, noteWindowTab])
   /** The preview window's own closes (Escape, its button, Alt+F4): off,
    *  never on again if it was off already. */
   const closePreviewWindow = useCallback(() => {
-    if (activeId) windowTabs.current.delete(activeId)
-    if (active?.browse.preview) browsing.togglePreview()
-  }, [activeId, active?.browse.preview, browsing])
+    if (activeId) noteWindowTab(activeId, false)
+    if (active?.browse.preview) browsing.togglePreview('window-closed')
+  }, [activeId, active?.browse.preview, browsing, noteWindowTab])
   const previewOn = !!active?.browse.preview
   const browsingFolder = browsing.folder
   const togglePreviewOff = browsing.togglePreview
   useEffect(() => {
     if (!previewInWindow || !previewOn || !activeId || !browsingFolder) return
-    if (!windowTabs.current.has(activeId)) togglePreviewOff()
-  }, [previewInWindow, previewOn, activeId, browsingFolder, togglePreviewOff])
+    if (!windowTabs.has(activeId)) togglePreviewOff('unasked')
+  }, [previewInWindow, previewOn, activeId, browsingFolder, togglePreviewOff, windowTabs])
   const quickAccessDefaults = useMemo(
     () =>
       browsing.locations
@@ -1480,7 +1491,7 @@ export default function App(): JSX.Element {
             onBack={() => browsing.travel(-1)}
             onForward={() => browsing.travel(1)}
             onUp={returnToFolder}
-            onNavigate={(path) => void browsing.navigate(path)}
+            onNavigate={(path, typed) => void browsing.navigate(path, undefined, typed)}
           />
           {browsing.error && (
             <div className="browse-navigation-error" role="status">
@@ -1525,7 +1536,14 @@ export default function App(): JSX.Element {
                 places={browsePlaces}
                 quickAccess={quickAccess}
                 readDrives={window.prism.browseDrives}
-                onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active.browse.preview)}
+                // Only the double-click and Enter say `full`: one click on a pin
+                // is a look, and a look never starts a program (#494). A file
+                // Prism cannot show is looked at in its row, so the second
+                // click of a double-click still finds the pin there.
+                onQuickAccessFile={(path, full) => {
+                  if (full) void browsing.openDeliberately(path)
+                  else void openBrowseFile(path, !active.browse.preview && fileKind(extOf(path), baseName(path)) !== 'other')
+                }}
                 onUnpinQuickAccess={unpinQuickAccess}
                 onMoveQuickAccess={moveQuickAccess}
                 onPinQuickAccessPaths={(paths, beforePath) =>
@@ -1551,7 +1569,7 @@ export default function App(): JSX.Element {
                 weekStart={browsing.weekStart}
                 canBack={active.browse.cursor > 0}
                 canForward={active.browse.cursor < active.browse.history.length - 1}
-                onNavigate={(path) => void browsing.navigate(path)}
+                onNavigate={(path, typed) => void browsing.navigate(path, undefined, typed)}
                 onBack={() => browsing.travel(-1)}
                 onForward={() => browsing.travel(1)}
                 onUp={() => {
@@ -1559,7 +1577,7 @@ export default function App(): JSX.Element {
                   if (parent) void browsing.navigate(parent)
                 }}
                 onSelect={browsing.select}
-                onOpen={(file) => void browsing.openFile(file)}
+                onOpen={(file) => void browsing.openDeliberately(file)}
                 onScroll={browsing.keepScroll}
                 onQueryChange={browsing.searchFor}
                 // A header click is a pick made here (#285): Downloads keeps it.
@@ -1958,7 +1976,7 @@ export default function App(): JSX.Element {
               apps: browseMenu.apps,
               pinned: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)),
               openFolder: (path) => void browsing.navigate(path),
-              openFile: (file) => void browsing.openFile(file),
+              openFile: (file) => void browsing.openDeliberately(file),
               showInPreview: (path) => openBrowseSplit(path),
               openInNewTab,
               copyFiles: (paths, cut) => void copyFilePaths(paths, cut),
@@ -1997,14 +2015,6 @@ export default function App(): JSX.Element {
         />
       )}
       {archiveActions.dialogs}
-      {browsing.archiveAsk && (
-        <PasswordDialog
-          name={browsing.archiveAsk.name}
-          wrong={browsing.archiveAsk.wrong}
-          onSubmit={(pw) => browsing.answerArchive(pw)}
-          onCancel={() => browsing.answerArchive(null)}
-        />
-      )}
       {browseProps && active && (
         <PropertiesDialog
           root={active.browse.path}

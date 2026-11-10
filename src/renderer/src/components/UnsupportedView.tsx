@@ -9,6 +9,9 @@ import { PATHS } from './icons/paths'
 // presses the button pays for it.
 const HexView = lazy(() => import('./HexView').then((m) => ({ default: m.HexView })))
 
+const BUTTON =
+  'rounded-full border border-[color:var(--p-line)] px-4 py-1.5 text-[12.5px] font-semibold text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+
 /**
  * The viewer for the 'other' kind: a file Prism was pointed at and can't show.
  *
@@ -19,12 +22,25 @@ const HexView = lazy(() => import('./HexView').then((m) => ({ default: m.HexView
  * it. So this screen is the answer, and it has to read as Prism rather than as
  * a failure: it borrows EmptyState's tile, weights and colours exactly.
  *
- * ONE button (2026-08-31), and it is not "open it somewhere else" - that is
- * the shell's job and it is one Escape away. It is the bytes. A file Prism
- * cannot interpret is still a file Prism can READ, and a header is often the
- * whole question: what is this actually, and did it download completely.
+ * TWO buttons (#494; owner, 2026-11-09: "it shoudl be possible to opena exe
+ * instalelr", which replaces the 2026-08-31 decision that opening elsewhere
+ * was the shell's job). Open hands the file to Windows, and pressing it is a
+ * deliberate open: this card is what a preview of such a file shows, and a
+ * preview itself never starts anything. A file Windows handed to Prism lands
+ * here too and goes back only on that press, so there is no loop. A member of
+ * a zip has no Open (`openable`): what is here is Prism's temp copy.
+ *
+ * The other is the bytes (2026-08-31). A file Prism cannot interpret is still
+ * a file Prism can READ, and a header is often the whole question: what is
+ * this actually, and did it download completely.
  */
-export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
+export function UnsupportedView({
+  file,
+  openable = true
+}: {
+  file: ViewerFile
+  openable?: boolean
+}): JSX.Element {
   const size = file.size === undefined ? '' : formatBytes(file.size)
   const [hex, setHex] = useState(false)
 
@@ -59,18 +75,29 @@ export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
         {size && ` · ${size}`}
       </div>
       {/* Desktop only (#106). `explorer` is the flag that means "there is a
-          Windows around this window": the tree hides unviewable files, so the
-          only route to this screen is Windows handing one over, and the bytes
-          are the desktop's answer to that. On the phone the screen names the
-          file and stops. Not `write`, which is about changing files and
-          would read as if the hex view edited. */}
+          Windows around this window". On the phone the screen names the file
+          and stops: nothing there can start a program on the PC. Not `write`,
+          which is about changing files and would read as if the hex view
+          edited. */}
       {window.prism.capabilities.explorer && (
-        <button
-          className="rounded-full border border-[color:var(--p-line)] px-4 py-1.5 text-[12.5px] font-semibold text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-          onClick={() => setHex(true)}
-        >
-          Show the bytes
-        </button>
+        <div className="flex items-center gap-2">
+          {openable && (
+            <button
+              className={BUTTON}
+              onClick={(e) => {
+                window.prism.openInDefault(file.path)
+                // Left on it, a held Enter started the file over and over and
+                // the next Space started it again (#494, `openGuards` e2e).
+                e.currentTarget.blur()
+              }}
+            >
+              Open
+            </button>
+          )}
+          <button className={BUTTON} onClick={() => setHex(true)}>
+            Show the bytes
+          </button>
+        </div>
       )}
     </div>
   )
