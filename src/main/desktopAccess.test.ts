@@ -120,3 +120,35 @@ describe('the guard times itself (#322)', () => {
     expect(lines).toEqual([])
   })
 })
+
+// D12: the bin is never a granted FOLDER. Its files reach the wall only as the
+// exact `$R` paths of a listing (pathWall `grantBin`), so a Recycle Bin folder
+// passed to a folder grant, from anywhere, grants nothing.
+describe('the Recycle Bin is never granted as a folder (D12)', () => {
+  it('grantDesktopDirectory refuses a $Recycle.Bin path and anything below it', () => {
+    const bin = join(directory, 'C', '$Recycle.Bin', 'S-1-5-21-1-2-3-1001')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, '$R1ABCDE.txt'), 'x')
+    grantDesktopDirectory('tab', bin)
+    grantDesktopDirectory('tab', join(directory, 'C', '$Recycle.Bin'))
+    expect(ownsDesktopDirectory('tab', bin)).toBe(false)
+    expect(insideDesktop(bin)).toBe(false)
+    expect(insideDesktop(join(bin, '$R1ABCDE.txt'))).toBe(false)
+  })
+
+  it('extendDesktopDirectories refuses it too, under a folder the tab does hold', () => {
+    const bin = join(directory, 'C', '$Recycle.Bin', 'S-1')
+    mkdirSync(bin, { recursive: true })
+    grantDesktopDirectory('tab', directory)
+    extendDesktopDirectories(directory, [bin, join(directory, 'C')])
+    expect(ownsDesktopDirectory('tab', join(directory, 'C'))).toBe(true)
+    expect(ownsDesktopDirectory('tab', bin)).toBe(false)
+  })
+
+  it('an ordinary folder is still granted (the segment must be the whole name)', () => {
+    const ok = join(directory, 'my$Recycle.Bin notes')
+    mkdirSync(ok)
+    grantDesktopDirectory('tab', ok)
+    expect(ownsDesktopDirectory('tab', ok)).toBe(true)
+  })
+})

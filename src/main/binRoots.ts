@@ -34,12 +34,22 @@ export function ownSid(): Promise<string | null> {
   return sid
 }
 
-/** The seam's folders, or null when there is no seam (not `--e2e`, or unset). */
-function seamDirs(): string[] | null {
+/** The seam's folders, or null when there is no seam (not `--e2e`, or unset).
+ *  Exported for `binTrash`, so the e2e's own deletes land in the fake bin too. */
+export function seamBinDirs(): string[] | null {
   if (!process.argv.includes('--e2e')) return null
   const raw = process.env.PRISM_E2E_BIN_DIRS
   if (raw === undefined) return null
   return raw.split('|').filter((d) => d && isAbsolute(d))
+}
+const seamDirs = seamBinDirs
+
+/** `PRISM_E2E_SLOW_BIN` (D17): milliseconds each bin job adds per item, so a
+ *  short fixture lasts long enough to see the bar and press Cancel. `--e2e` only. */
+export function slowBinMs(): number {
+  if (!process.argv.includes('--e2e')) return 0
+  const n = Number(process.env.PRISM_E2E_SLOW_BIN)
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 5000) : 0
 }
 
 /** Probe a folder, but never wait on a drive that does not answer (1.5 s, as `browseLocations`). */

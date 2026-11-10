@@ -116,6 +116,34 @@ export interface RestoreOutcome {
 /** What a move does with a name already taken at the destination. */
 export type MoveOnClash = 'ask' | 'keep-both' | 'replace'
 export type MoveClash = { path: string; name: string }
+
+/**
+ * What Restore in the bin view did (Recycle Bin feature, D13). `restored` are
+ * the places the items were put back TO (after any "name (2)"), which is what
+ * undo and "mark where it lands" need; `left` are the `$R` paths still in the
+ * bin. With onClash 'ask' nothing moves and the clashing names come back in
+ * `clashes` (`path` is the bin entry, `name` the original name), the
+ * `MoveResult` pattern.
+ */
+export interface BinRestoreResult extends RestoreOutcome {
+  clashes: MoveClash[]
+  /** Paths 'replace' sent to the bin first, so undo can bring them back. */
+  replaced: string[]
+  /** The bin entries that could not be put back (locked, denied, bad record). */
+  failed: string[]
+  /** True when the wall refused a path: it was not a listed bin entry. */
+  refused?: boolean
+}
+
+/** What Delete permanently and Empty did (D14, D15): how many pairs are gone
+ *  and which entries were left (failed or not reached). */
+export interface BinDeleteResult {
+  ok: boolean
+  deleted: number
+  left: string[]
+  cancelled: boolean
+  refused?: boolean
+}
 export type MoveResult = {
   /** Where each one came from and landed: undo needs both halves. */
   moved: Array<{ from: string; to: string }>
