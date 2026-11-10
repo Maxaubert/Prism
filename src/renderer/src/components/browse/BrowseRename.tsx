@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { selectStem } from '../../lib/selectStem'
 import { Dialog } from '../Dialog'
+import { RENAME_WORDS, type RenameWords } from '../../dialogs/renameWording'
 
 /**
  * Rename in a dialog: the Explorer's rows, a member of a zip in the Explorer,
@@ -13,12 +14,16 @@ export function BrowseRename({
   name,
   onSave,
   onCancel,
-  title = 'Rename',
+  words = RENAME_WORDS,
+  title = words.title,
   select = 'all'
 }: {
   name: string
   onSave: (name: string) => void
   onCancel: () => void
+  /** The dialog's words: Rename (the default) or a new folder's. */
+  words?: RenameWords
+  /** A title of its own over `words` (the archive's own Rename). */
   title?: string
   /** What is selected when it opens: the whole name, or up to the extension. */
   select?: 'all' | 'stem'
@@ -40,10 +45,10 @@ export function BrowseRename({
       onCancel={onCancel}
       body={
         <label>
-          New name
+          {words.label}
           <input
             ref={input}
-            aria-label="New name"
+            aria-label={words.label}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={(event) => {
@@ -61,7 +66,7 @@ export function BrowseRename({
       choices={[
         { label: 'Cancel', onPick: onCancel },
         {
-          label: 'Rename',
+          label: words.done,
           primary: true,
           onPick: () => {
             if (value.trim()) onSave(value)

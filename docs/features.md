@@ -2496,6 +2496,43 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (AZERTY's Ctrl+Q is not Ctrl+A). After a rename the keyboard follows the row to its new
   name. Fullscreen unmounts both surfaces, so nothing here writes there. The `hotkeys` e2e
   drives every key on both surfaces, a paused film under them, and a zip.
+  **THE NEW FOLDER SAYS "NEW FOLDER"** (owner, 2026-11-10: "when you ctrl shift n to create a new
+  folder it says rename"). Ctrl+Shift+N still makes the folder first and asks its name in the
+  rename dialog, but worded for what it is (`dialogs/renameWording.ts`): the title "New folder",
+  the field "Name", the buttons Cancel and Done. Escape or Cancel keeps it named "New folder", as
+  File Explorer does. F2 stays "Rename" / "New name" / "Rename", and so does the archive's own
+  Rename. Held by `renameWording.test.ts` and the e2e `newFolderTitle`.
+  **NEW FOLDER ANSWERS FROM ANYWHERE IN THE EXPLORER BUT A TEXT FIELD** (owner, 2026-11-10: "if i
+  click the left sidebar and click documents then ctrl shift n it doesnt open the new folder
+  panel i have to click into the file list"). The folder keys listened only with the focus in the
+  list, and a click on a place leaves it on the place's button. New folder acts on the folder
+  shown, which the sidebar, a toolbar button and the empty list all show, so it answers from all
+  of them (`FolderBrowser`). DECIDED: no other key follows. Delete, Ctrl+Shift+C, Alt+Enter,
+  Ctrl+Enter and F3 act on the SELECTED rows (or search by them), and from the sidebar the user is
+  looking at a place, not a row; they stay the list's. After the name is given the keyboard ends
+  on the list with the new folder selected under its new name (`useListKeyboard` hears the chord as
+  the list's own; App marks the renamed path quietly). Held by the e2e `newFolderSidebar`.
+  **THE CARET A MAGNIFIER FOLLOWS** (owner, 2026-11-10: "the caret dont seem to be tracked in the
+  input field it doesnt work with my magnifier"). MEASURED through UI Automation from a PowerShell
+  probe on the e2e's hidden desktop (`tools/e2e/uiaCaret.ps1`): in the name dialog Chromium
+  answered `TextPattern.GetSelection()` with a collapsed range that had NO rectangle, so a
+  magnifier had nothing to follow. The cause is layout, not script: the same input answers a thin
+  bar that moves with every key when it sits in a positioned box, and an empty range when its box
+  is a plain block (padding, margin or centring in front of it) under the centring scrim. The
+  field's focus, its collapsed selection at the end of the text, the absence of `select()` or
+  `setSelectionRange()` on a keystroke and the absence of any transform or animation above it
+  were all fine from the start. FIX: the dialog box (`DIALOG_BOX`) is `relative`, which covers
+  every field in a `Dialog`. The address field and the folder search popup were measured and
+  already answer a caret. Held by the e2e `caretTracks`, which reads the caret as a magnifier does
+  in the new folder dialog, the rename dialog, the address field and the search popup, against a
+  plain input as the control. CONFIRMED AS WIND READS IT (review, 2026-11-10, a probe that asks in
+  Wind's own order, `src/track/focus_track.cpp` `findCaret`, with the window focused on the hidden
+  desktop): Prism's window has no Win32 caret and no TextPattern2, so Wind reads `GetSelection()`.
+  With no rectangle it widens the range by one character, and that lands on a FIXED spot 244 px
+  right of the box's left edge and 66 px below the field's top (the button row), about 550 px right
+  and three lines down at 225%, the fixed spot in the owner's Wind log. With the box `relative`
+  the selection has its own bar, which moved 6 px a key, and Wind never widens. The MSAA caret
+  moved with every key in both layouts, so it was never the cause.
   **SPACE TOGGLES THE PREVIEW PANE** (owner, 2026-11-08: "can you bind preview to space bar",
   then chose "Toggle the preview panel"). A plain Space on the Explorer's list shows or hides
   the pane on the right, the toolbar button's own `togglePreview` (same state, same
