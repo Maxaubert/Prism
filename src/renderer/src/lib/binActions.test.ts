@@ -4,6 +4,7 @@ import {
   binHoldDirs,
   binRestoreFailure,
   binStopped,
+  bytesOfBinPaths,
   namesOfBinPaths
 } from './binActions'
 import { BIN_PLACE } from '@shared/binPlace'
@@ -20,6 +21,17 @@ describe('binActions (Recycle Bin, D13 to D17)', () => {
       'C:\\Docs',
       'D:\\work'
     ])
+  })
+
+  it('adds the sizes of the marked rows for the question, or says it cannot', () => {
+    const rows = [
+      { path: 'a', size: 10 },
+      { path: 'b', size: 5 },
+      { path: 'c' }
+    ]
+    expect(bytesOfBinPaths(['a', 'b'], rows)).toBe(15)
+    expect(bytesOfBinPaths(['a', 'c'], rows)).toBeUndefined()
+    expect(bytesOfBinPaths(['gone'], rows)).toBeUndefined()
   })
 
   it('reads the original names for the question', () => {

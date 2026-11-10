@@ -147,6 +147,11 @@ export const CALL = {
   binRestore: 'bin:restore',
   binDelete: 'bin:delete',
   binEmpty: 'bin:empty',
+  /** What Empty would free, per drive (#503): the bin's items and bytes. */
+  binUsage: 'bin:usage',
+  /** Delete files for good, never through the bin (the delete question's
+   *  middle button, #500). Walled like `fileTrash`. */
+  filePurge: 'file:purge',
   fileMove: 'file:move',
 
   tailStart: 'tail:start',

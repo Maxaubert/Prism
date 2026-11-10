@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
-import { binStripLabels } from '../../lib/binView'
+import { binFacts, binStripLabels } from '../../lib/binView'
 
 /**
  * THE STRIP ABOVE THE BIN'S COLUMNS (Recycle Bin feature, D20): the zip
@@ -12,6 +12,7 @@ import { binStripLabels } from '../../lib/binView'
 export function BinStrip({
   marked,
   count,
+  bytes = 0,
   onRestore,
   onDelete,
   onEmpty
@@ -20,19 +21,25 @@ export function BinStrip({
   marked: number
   /** How many items the bin holds. */
   count: number
+  /** How much the bin holds, from the sizes in its records (#502). */
+  bytes?: number
   onRestore?: () => void
   onDelete?: () => void
   onEmpty?: () => void
 }): JSX.Element {
   const label = binStripLabels(marked)
   return (
-    <div className="browse-archive-strip browse-bin-strip" data-bin-strip data-testid="bin-strip">
+    <div
+      className="browse-archive-strip browse-bin-strip"
+      data-bin-strip
+      data-bin-count={count}
+      data-bin-bytes={Math.round(bytes)}
+      data-testid="bin-strip"
+    >
       <span className="browse-archive-strip-name">
         <FileMenuIcon name="delete" />
         <strong>Recycle Bin</strong>
-        <span className="browse-archive-strip-facts">
-          {count} {count === 1 ? 'item' : 'items'}
-        </span>
+        <span className="browse-archive-strip-facts">{binFacts(count, bytes)}</span>
       </span>
       <span className="browse-archive-strip-verbs">
         <button className="browse-archive-button" disabled={!marked} onClick={onRestore} data-bin-verb="restore">

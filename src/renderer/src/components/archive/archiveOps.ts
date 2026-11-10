@@ -40,12 +40,6 @@ export const ARCHIVE_COPY = {
   readOnly: "This archive can't be changed. Extract it to make changes.",
   moveEncrypted: "Prism can't rearrange a password-protected archive.",
   moveFailed: "Those couldn't be moved inside the archive.",
-  deleteTitle: (names: readonly string[]): string =>
-    names.length > 1
-      ? `Delete ${names.length} items from the archive?`
-      : `Delete "${names[0]}" from the archive?`,
-  deleteBody: (count: number): string =>
-    `This is permanent: a zip has no Recycle Bin to take ${count > 1 ? 'them' : 'it'} back from.`,
   deleteFailed: (failed: number, names: readonly string[]): string =>
     names.length === 1
       ? `Couldn't delete "${names[0]}".`

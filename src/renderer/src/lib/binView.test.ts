@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BIN_PLACE } from '@shared/binPlace'
 import type { BrowseSort } from '@shared/browse'
-import { BIN_EMPTY, BIN_SORT, binColumns, binnedOf, binnedPath } from './binView'
+import { BIN_EMPTY, BIN_SORT, binBytes, binColumns, binFacts, binnedOf, binnedPath } from './binView'
 import { nextSort, viewSort } from './downloadsView'
 
 const name: BrowseSort = { key: 'name', direction: 'asc' }
@@ -46,6 +46,22 @@ describe('where a bin row came from', () => {
     expect(binnedPath('C:\\Users\\m', 'a.txt')).toBe('C:\\Users\\m\\a.txt')
     expect(binnedPath('C:\\', 'a.txt')).toBe('C:\\a.txt')
     expect(binnedPath('', 'a.txt')).toBe('a.txt')
+  })
+})
+
+describe('what the bin holds (#502, owner 2026-11-10: how many GB are stored in it)', () => {
+  it('adds up the sizes main read from the records, files and folders alike', () => {
+    expect(binBytes({ files: [{ size: 1000 }, { size: 24 }, {}], folders: [{ size: 2048 }, {}] })).toBe(3072)
+    expect(binBytes({ files: [], folders: [] })).toBe(0)
+    expect(binBytes(undefined)).toBe(0)
+  })
+  it('says the count and the size on one quiet line', () => {
+    expect(binFacts(38, 1.4 * 1024 ** 3)).toBe('38 items · 1.4 GB')
+    expect(binFacts(1, 4 * 1024)).toBe('1 item · 4.0 KB')
+  })
+  it('says only the count for an empty bin, or when no size is known', () => {
+    expect(binFacts(0, 0)).toBe('0 items')
+    expect(binFacts(3, 0)).toBe('3 items')
   })
 })
 

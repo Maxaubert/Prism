@@ -4,8 +4,10 @@ import {
   SETTLE_MS,
   STOP_GRACE_MS,
   beginHold,
-  busyLabel,
   busyPct,
+  holdsNow,
+  jobCount,
+  jobTitle,
   endHold,
   holdMatches,
   holdProgress,
@@ -103,10 +105,21 @@ describe('the loading bar hold (owner, 2026-11-09)', () => {
     expect(isHeld(dir)).toBe(false)
   })
 
-  it('says how far: a count, a name, and a percentage from either', () => {
-    expect(busyLabel({ verb: 'Deleting', name: null, total: 500, done: 120, stopping: false })).toBe('Deleting 120 of 500')
-    expect(busyLabel({ verb: 'Copying', name: 'film.mkv', total: 1, done: 0, stopping: false })).toBe('Copying film.mkv')
-    expect(busyLabel({ verb: 'Copying', name: null, total: null, done: 0, stopping: true })).toBe('Stopping…')
+  it('keeps the file being worked on, as a line of its own (#501)', () => {
+    beginHold('f', { verb: 'Copying', dirs: [dir], total: 3 })
+    vi.advanceTimersByTime(BUSY_AFTER_MS)
+    holdProgress('f', { done: 1, file: 'a.txt' })
+    expect(holdsNow()[0].file).toBe('a.txt')
+  })
+
+  it('says how far: a title, a small count, and a percentage from either (#501)', () => {
+    expect(jobTitle({ verb: 'Deleting', name: null, total: 500, stopping: false })).toBe('Deleting 500 items')
+    expect(jobTitle({ verb: 'Copying', name: 'film.mkv', total: 1, stopping: false })).toBe('Copying film.mkv')
+    expect(jobTitle({ verb: 'Copying', name: null, total: null, stopping: true })).toBe('Stopping…')
+    expect(jobCount({ total: 500, done: 120 })).toBe('120 of 500')
+    expect(jobCount({ total: 500, done: 900 })).toBe('500 of 500')
+    expect(jobCount({ total: 1, done: 0 })).toBe('')
+    expect(jobCount({ total: null, done: 0 })).toBe('')
     expect(busyPct({ pct: 47, total: 1, done: 0 })).toBe(47)
     expect(busyPct({ pct: null, total: 4, done: 1 })).toBe(25)
     expect(busyPct({ pct: null, total: null, done: 0 })).toBeNull()

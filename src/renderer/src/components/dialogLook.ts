@@ -22,7 +22,7 @@ export const DIALOG_BOX =
 export const DIALOG_TITLE = 'text-[14.5px] font-semibold text-[var(--p-text)]'
 export const DIALOG_BODY = 'mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]'
 // A name or a path inside a question's body, a step brighter than the line.
-export const DIALOG_EMPHASIS = 'text-[#d7dae1]'
+export const DIALOG_EMPHASIS = 'text-[var(--p-text)]'
 // No focus ring (#272; owner, 2026-10-04: "go through the ui and remove focus
 // effects like this"): a focused button looks as it does under the pointer.
 export function dialogButton(c: { primary?: boolean; danger?: boolean }): string {

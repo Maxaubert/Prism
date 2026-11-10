@@ -43,6 +43,7 @@ import type {
   ArchiveMoveResult,
   ArchiveStat,
   BinDeleteResult,
+  BinUsage,
   BinIfEmptyResult,
   BinRestoreResult,
   ComicOpenResult,
@@ -291,6 +292,8 @@ const api = {
     ipcRenderer.invoke(CALL.fileRename, path, name, onClash),
   /** Send a file to the Recycle Bin. */
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke(CALL.fileTrash, path),
+  /** Delete a file or folder for good, past the Recycle Bin. Not undoable. */
+  purgeFile: (path: string): Promise<boolean> => ipcRenderer.invoke(CALL.filePurge, path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<TextRead> => ipcRenderer.invoke(CALL.fileText, path),
   /** The LAST `max` bytes of a file, for one too big for readText. Read-only
@@ -518,6 +521,8 @@ const api = {
     ipcRenderer.invoke(CALL.binDelete, paths, jobId),
   /** Empty the Recycle Bin on every drive (D15), as a job. Not undoable. */
   binEmpty: (jobId?: string): Promise<BinDeleteResult> => ipcRenderer.invoke(CALL.binEmpty, jobId),
+  /** What Empty would free: the bin's items and bytes, per drive (#503). */
+  binUsage: (): Promise<BinUsage> => ipcRenderer.invoke(CALL.binUsage),
   /** Move files and folders into another folder. 'ask' reports clashes and
    *  moves nothing, so the user answers before anything happens. */
   moveEntries: (paths: string[], destDir: string, onClash: MoveOnClash, jobId?: string): Promise<MoveResult> =>

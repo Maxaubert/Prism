@@ -6,7 +6,7 @@ import { stoppedNote, withFileJob } from '../../lib/fileJob'
 import { parentDir } from '@shared/path'
 import type { UndoEntry } from '../../lib/undo'
 import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
-import { ArchiveDeleteDialog } from '../../dialogs/ArchiveDeleteDialog'
+import { ArchiveDeleteAsk } from '../../dialogs/DeleteAsks'
 import { NoticeDialog } from '../../dialogs/NoticeDialog'
 import { askArchivePassword, useArchiveQuestionUp } from '../../lib/archiveQuestion'
 import {
@@ -302,9 +302,10 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
   const dialogs = (
     <>
       {confirm && (
-        <ArchiveDeleteDialog
+        <ArchiveDeleteAsk
+          container={confirm.container}
+          inners={confirm.inners}
           names={confirm.names}
-          count={confirm.inners.length}
           onCancel={() => setConfirm(null)}
           onDelete={() => {
             const { container, inners, names, after } = confirm

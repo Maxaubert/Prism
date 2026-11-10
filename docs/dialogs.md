@@ -25,18 +25,18 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 
 | Dialog | Asks or says | Opened by |
 |---|---|---|
-| `DeleteDialog` | Move one file or folder to the Recycle Bin? | App (`delete`): Explorer row, tree row, Delete key |
-| `DeleteManyDialog` | Move N items to the Recycle Bin? | App (`delete-many`): marked rows |
+| `DeleteDialog` | Delete one file or folder: Cancel, Delete permanently (red outline, asks once more), Delete (red, to the Recycle Bin, the default). Title "Delete <name>?", one line: its size | App (`delete`): Explorer row, tree row, Delete key |
+| `DeleteManyDialog` | The same for several: "Delete N items?", the first two names, "+rest" and the total size | App (`delete-many`): marked rows |
 | `MoveClashDialog` | Names already taken where a move lands: Keep both or Replace | App (`move-clash`): drag, paste |
 | `MoveClashDialog` (again) | A Restore from the Recycle Bin onto names already taken: the same dialog, its own ask kind, Keep both lands `name (2)`, Replace sends what is there to the bin | App (`bin-clash`): the bin's Restore |
-| `PermanentDeleteDialog` | Delete items of the Recycle Bin for good: the name (or "N items"), "Windows cannot put it back". Cancel is the primary, Delete the danger | App (`bin-delete`): Delete key, the strip, the row menu |
-| `EmptyBinDialog` | Empty the whole Recycle Bin, every drive, for good; the count when the bin is open. Cancel is the primary, Empty the danger | App (`bin-empty`): the strip, the list's empty space, the sidebar row |
+| `PermanentDeleteDialog` | Delete for good: "Delete <name> permanently?" (or "N items"), the size. Cancel (the default) and Delete permanently. The middle button's second question, the bin's Delete permanently, and a zip's Delete | App (`delete-permanent`, `bin-delete`): the middle button, Delete key, the strip, the row menu |
+| `EmptyBinDialog` | "Empty the Recycle Bin?", "N items · size" and one bar per drive (used, in the accent the part it frees, "<free> free" left, "+<freed>" right). Cancel (the default) and Empty Recycle Bin | App (`bin-empty`): the strip, the list's empty space, the sidebar row |
 | `NameTakenDialog` | A rename onto a taken name: Replace or Keep both | App (`clash`) |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
 | `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `components/archive/ArchiveQuestion.tsx` only, beside App: every route asks through `lib/archiveQuestion.ts`, so an archive never has two up |
-| `ArchiveDeleteDialog` | Delete members from a zip, for good (Cancel is primary) | `archive/useArchiveOps.tsx` |
+| `ArchiveDeleteDialog` | Delete members from a zip: the permanent question, no middle button | `archive/useArchiveOps.tsx` |
 | `ArchiveClashDialog` | Added files, or members moved inside a zip (#70 D7), land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
 | `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
 | `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default, From a file... (the picture's refusal is App's `failed` NoticeDialog, its text `ICON_REFUSED` in `lib/iconFromFile.ts`). A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
@@ -47,3 +47,22 @@ pinned by its test), `properties/PropertiesDialog.tsx`, `PhoneDialog.tsx`, the c
 `UpdateDialog`, `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look), and
 `browse/BusyBar.tsx`, the loading bar over a held list (not a dialog: it covers one tab's list only,
 and the rest of the window stays yours).
+
+## The delete question (owner, 2026-11-10, #500 #503 #504)
+
+- **One component draws all five delete questions**: `dialogs/DeleteQuestion.tsx` (icon, title, one quiet line,
+  buttons on the right). `DeleteDialog`, `DeleteManyDialog`, `PermanentDeleteDialog`, `EmptyBinDialog` and
+  `ArchiveDeleteDialog` only build its words (`dialogs/deleteCopy.tsx`); `DeleteAsks.tsx` adds the one hook that
+  fills the size in. A new delete question goes through `DeleteQuestion`, never its own `<Dialog>`.
+- **Minimal text.** The title and one line: what goes and how big it is. No sentence says where it goes or whether
+  it can come back. A name is never in quotes (`components/DialogName.tsx` styles it in a body; a title keeps it plain).
+- **Buttons.** Red solid is the one that deletes, the same red everywhere. Red outline is the middle "Delete
+  permanently" of a normal delete, which asks once more. **The default (the focus, Enter) is Delete on a question
+  that can be undone, and Cancel on every one that cannot** (permanent, Empty, a zip). Shift+Delete is still the bin.
+- **Size.** A file's size is read once; a folder's is counted by the Properties counter (`useFolderSizes`) and
+  fills in, a quiet "…" until then. The question and its buttons never wait. Several items show the total.
+- **Only Empty has a bar**, one per drive the bin spans. Main answers `bin:usage` (`binUsage.ts`: the `$I` sizes
+  per drive, the drive's size and free space from `driveUsage`).
+- Held by the five dialog tests, `deleteCopy.test.ts`, `binUsage.test.ts`, and the `deleteQuestion`, `binDelete` and
+  `binEmpty` e2e (every state shot in the default, a light and two high-contrast themes: `delete-question-*.png`,
+  `bin-empty-dialog-*.png`).

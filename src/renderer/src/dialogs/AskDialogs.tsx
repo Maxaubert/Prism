@@ -2,10 +2,7 @@ import type { JSX } from 'react'
 import type { OnClash } from '@shared/types'
 import type { MoveOnClash } from '@shared/ipcTypes'
 import type { Ask } from './asks'
-import { DeleteDialog } from './DeleteDialog'
-import { DeleteManyDialog } from './DeleteManyDialog'
-import { EmptyBinDialog } from './EmptyBinDialog'
-import { PermanentDeleteDialog } from './PermanentDeleteDialog'
+import { BinDeleteAsk, BinEmptyAsk, DeleteAsk, DeleteManyAsk, PurgeAsk } from './DeleteAsks'
 import { FileChangedDialog } from './FileChangedDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { folderIconOf, readFolderIcons, type FolderIconChoice } from '../lib/folderIcons'
@@ -22,6 +19,10 @@ export interface AskAnswers {
   unsavedNames: readonly string[]
   runDelete: (path: string) => void
   runDeleteMany: (paths: string[]) => void
+  /** The delete question's middle button: ask again, as the permanent question. */
+  askPermanent: (paths: string[]) => void
+  /** Delete these for good, past the Recycle Bin (never undoable). */
+  runPurge: (paths: string[]) => void
   runMove: (paths: string[], dest: string, mode: MoveOnClash) => void
   runRename: (path: string, name: string, onClash: OnClash) => void
   /** Closing the window or installing, once unsaved text is settled. */
@@ -65,16 +66,25 @@ export function AskDialogs({
   switch (ask.kind) {
     case 'delete':
       return (
-        <DeleteDialog name={ask.name} onCancel={a.dismiss} onDelete={() => a.runDelete(ask.path)} />
+        <DeleteAsk
+          path={ask.path}
+          name={ask.name}
+          onCancel={a.dismiss}
+          onDelete={() => a.runDelete(ask.path)}
+          onPermanent={() => a.askPermanent([ask.path])}
+        />
       )
     case 'delete-many':
       return (
-        <DeleteManyDialog
-          count={ask.paths.length}
+        <DeleteManyAsk
+          paths={ask.paths}
           onCancel={a.dismiss}
           onDelete={() => a.runDeleteMany(ask.paths)}
+          onPermanent={() => a.askPermanent(ask.paths)}
         />
       )
+    case 'delete-permanent':
+      return <PurgeAsk paths={ask.paths} onCancel={a.dismiss} onDelete={() => a.runPurge(ask.paths)} />
     case 'move-clash':
       return (
         <MoveClashDialog
@@ -95,14 +105,15 @@ export function AskDialogs({
       )
     case 'bin-delete':
       return (
-        <PermanentDeleteDialog
+        <BinDeleteAsk
           names={ask.names}
+          bytes={ask.bytes}
           onCancel={a.dismiss}
           onDelete={() => a.runBinDelete(ask.paths)}
         />
       )
     case 'bin-empty':
-      return <EmptyBinDialog count={ask.count} onCancel={a.dismiss} onEmpty={a.runBinEmpty} />
+      return <BinEmptyAsk onCancel={a.dismiss} onEmpty={a.runBinEmpty} />
     case 'close-dirty':
       return (
         <UnsavedDialog

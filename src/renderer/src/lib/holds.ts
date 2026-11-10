@@ -50,6 +50,8 @@ export interface Hold {
   id: string
   verb: string
   name: string | null
+  /** The file being worked on right now, for the card's quiet line (#501). */
+  file: string | null
   dirs: ReadonlySet<string>
   under: readonly string[]
   bar: boolean
@@ -100,6 +102,7 @@ export function beginHold(id: string, spec: HoldSpec): void {
     id,
     verb: spec.verb,
     name: spec.name ?? null,
+    file: null,
     dirs: new Set(spec.dirs.filter(Boolean).map(pathKey)),
     under: (spec.under ?? []).filter(Boolean).map(pathKey),
     bar: spec.bar !== false,
@@ -134,14 +137,15 @@ function update(id: string, change: (h: Hold) => Hold): void {
  *  numbers, and on screen it is at most one store update per TICK_MS. */
 export function holdProgress(
   id: string,
-  p: { done?: number; total?: number | null; pct?: number | null; name?: string }
+  p: { done?: number; total?: number | null; pct?: number | null; name?: string; file?: string | null }
 ): void {
   const apply = (h: Hold): Hold => ({
     ...h,
     ...(p.done !== undefined ? { done: p.done } : {}),
     ...(p.total !== undefined ? { total: p.total } : {}),
     ...(p.pct !== undefined ? { pct: p.pct } : {}),
-    ...(p.name !== undefined ? { name: p.name } : {})
+    ...(p.name !== undefined ? { name: p.name } : {}),
+    ...(p.file !== undefined ? { file: p.file } : {})
   })
   const wait = pending.get(id)
   if (wait) {
@@ -248,11 +252,16 @@ export function useBusyBar(dir: string): Hold | null {
   return useSyncExternalStore(store.subscribe, read, read)
 }
 
-/** The bar's line: "Deleting 120 of 500", "Copying film.mkv", or "Stopping…". */
-export function busyLabel(h: Pick<Hold, 'verb' | 'name' | 'total' | 'done' | 'stopping'>): string {
+/** The card's title (#501): "Deleting 500 items", "Copying film.mkv", or "Stopping…". */
+export function jobTitle(h: Pick<Hold, 'verb' | 'name' | 'total' | 'stopping'>): string {
   if (h.stopping) return 'Stopping…'
-  if (h.total !== null && h.total > 1) return `${h.verb} ${Math.min(h.done, h.total)} of ${h.total}`
+  if (h.total !== null && h.total > 1) return `${h.verb} ${h.total} items`
   return h.name ? `${h.verb} ${h.name}` : h.verb
+}
+
+/** The card's small count: "120 of 500", or nothing for one item or an unknown total. */
+export function jobCount(h: Pick<Hold, 'total' | 'done'>): string {
+  return h.total !== null && h.total > 1 ? `${Math.min(h.done, h.total)} of ${h.total}` : ''
 }
 
 /** The bar's percentage, 0-100, or null while nothing is known. */
@@ -261,6 +270,9 @@ export function busyPct(h: Pick<Hold, 'pct' | 'total' | 'done'>): number | null 
   if (h.total !== null && h.total > 0) return Math.min(100, (h.done / h.total) * 100)
   return null
 }
+
+/** Test seam: the holds on show. */
+export const holdsNow = (): readonly Hold[] => store.get()
 
 /** Test seam: forget every hold. */
 export function resetHolds(): void {
