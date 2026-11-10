@@ -713,10 +713,12 @@ export function BrowseList(props: Props): JSX.Element {
         }) / scale
       handUp(node.scrollTop)
     }
-    // Only when the cells' size or count per line changed: that is the zoom, or
-    // the width, having landed.
+    // When the cells' size or count per line changed (the zoom, or the width,
+    // having landed), and on every step: a step that changes no cell (a zip at
+    // a tile step keeps 40px rows) still consumes what it noted, or the next
+    // listing would be scrolled by it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowHeight, cols, settled])
+  }, [rowHeight, cols, settled, zoomStep])
   useLayoutEffect(() => {
     if (settled)
       lastShape.current = { rowHeight, cols, lead, top: logicalTop, measured: measured.current }

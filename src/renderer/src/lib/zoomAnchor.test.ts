@@ -69,6 +69,11 @@ describe('zoom anchor', () => {
     expect(anchorAt({ top: 0, pointerY: 12 + 124 * 19 + 5, cellH: 124, count: 98, cols: 5, lead: 12, col: 4 }).index).toBe(97)
   })
 
+  it('at the very top of a grid a resize does not scroll the padding away', () => {
+    const before = anchorAt({ top: 0, pointerY: 0, cellH: 170, count: 200, cols: 7, lead: 12 })
+    expect(anchorScroll({ ...before, pointerY: 0, cellH: 170, count: 200, viewH: 800, cols: 5, lead: 12 })).toBe(0)
+  })
+
   it('never scrolls past either end', () => {
     expect(anchorScroll({ index: 0, within: 0, pointerY: 300, cellH: 76, count, viewH })).toBe(0)
     expect(anchorScroll({ index: 4999, within: 0.9, pointerY: 0, cellH: 76, count, viewH })).toBe(count * 76 - viewH)

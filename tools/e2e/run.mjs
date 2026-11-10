@@ -12328,6 +12328,90 @@ async function gridBasicScenario(fixtures) {
  * opened tile in view, and in the LIST (step 1) Left and Right still reach
  * the viewer: the window sees the keydown there and does not in the grid.
  */
+/**
+ * CROSSING FROM ROWS TO TILES KEEPS THE KEYBOARD (zoom grid review, 2026-11-10).
+ * A row and a tile are different elements, so a step across the boundary used
+ * to drop the focus to the page and the arrows stopped until a click. And a
+ * Ctrl+wheel that changes no cell (a zip at a tile step stays 40px rows) must
+ * leave nothing behind: it used to land on the next listing and scroll it.
+ */
+async function zoomFocusScenario(fixtures) {
+  console.log('zoom focus')
+  const dir = join(fixtures, 'zoomfocus')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 80; i++) writeFileSync(join(dir, `a${String(i).padStart(2, '0')}.txt`), `f ${i}\n`)
+  const AdmZip = (await import('adm-zip')).default
+  const pack = new AdmZip()
+  for (let i = 0; i < 200; i++) pack.addFile(`m${String(i).padStart(3, '0')}.txt`, Buffer.from(`m ${i}`))
+  pack.writeZip(join(dir, 'a-pack.zip'))
+  const { app, win } = await launch(join(dir, 'a00.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const inside = `${listSel} [data-browse-path*="zoomfocus"][data-browse-path$=".txt"]`
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const focus = () =>
+    win.evaluate(() => {
+      const t = document.activeElement?.closest?.('.browse-tile, .browse-row[data-browse-path]')
+      return t ? { tile: t.classList.contains('browse-tile'), name: t.getAttribute('data-browse-path').split(/[\\/]/).pop() } : null
+    })
+  const wheelAt = async (y, dy, n) => {
+    const r = await win.evaluate((py) => { const b = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect(); return { x: b.left + 200, y: b.top + py } }, y)
+    await win.mouse.move(r.x, r.y)
+    for (let i = 0; i < n; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0) await win.locator(`${listSel} [data-browse-path$="zoomfocus"]`).dblclick()
+    ok(await until(async () => (await win.locator(inside).count()) > 0, 10000), 'the Explorer shows the folder')
+    await sleep(300)
+    await wheelAt(120, -100, 3)
+    ok((await stored()) === '4', `three notches up is step 4 (${await stored()})`)
+    await win.locator(`${listSel} .browse-row[data-browse-path$="a00.txt"]`).click()
+    await sleep(250)
+    await win.keyboard.press('Control+Equal')
+    await sleep(350)
+    ok((await stored()) === '5', `Ctrl+Plus at step 4 is the first grid step (${await stored()})`)
+    let f = await focus()
+    ok(f?.tile && f.name === 'a00.txt', `the focus stayed on the file, on its tile (${JSON.stringify(f)})`)
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    f = await focus()
+    ok(f?.tile && f.name === 'a01.txt', `and Right moves on without a click (${JSON.stringify(f)})`)
+    await win.keyboard.press('Control+Minus')
+    await sleep(350)
+    f = await focus()
+    ok(f && !f.tile && f.name === 'a01.txt', `back to rows the focus is on that file's row (${JSON.stringify(f)})`)
+    await win.keyboard.press('Control+Equal')
+    await sleep(350)
+
+    // A zip at a tile step stays rows: Ctrl+wheel there changes no cell.
+    await win.locator(`${listSel} [data-browse-path$="a-pack.zip"]`).dblclick()
+    ok(await until(async () => (await win.locator(`${listSel} [data-browse-path*="m00"]`).count()) > 0, 10000), 'the zip lists its members')
+    await sleep(400)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 3000 })
+    await sleep(350)
+    await wheelAt(320, -100, 1)
+    ok((await stored()) === '6', `a notch in the zip moves the step (${await stored()})`)
+    await win.locator('.browse-toolbar [aria-label="Up"]').click()
+    ok(await until(async () => (await win.locator(`${listSel} .browse-tile`).count()) > 0, 10000), 'Up is the grid of the folder again')
+    await sleep(500)
+    const top = await win.evaluate(() => document.querySelector('[data-testid="browse-list"]').scrollTop)
+    ok(top === 0, `and nothing the zip's wheel noted scrolled it (${top})`)
+    await win.screenshot({ path: join(SHOTS, 'zoom-focus-grid.png') })
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function gridKeysScenario(fixtures) {
   console.log('grid keys')
   const dir = join(fixtures, 'gridkeys')
@@ -27571,6 +27655,7 @@ await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(zoomListScenario)
+await run(zoomFocusScenario)
 await run(thumbsEngineScenario)
 await run(thumbsListScenario)
 await run(gridBasicScenario)
