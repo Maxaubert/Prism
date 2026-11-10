@@ -27587,7 +27587,8 @@ async function newFolderTitleScenario(fixtures) {
     ok(w.title === 'Rename' && w.field === 'New name' && w.primary === 'Rename', `F2 stays Rename (${JSON.stringify(w)})`)
     await win.keyboard.press('Escape')
   } finally {
-    await app.close()
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -27684,7 +27685,8 @@ async function newFolderSidebarScenario(fixtures) {
       await pinRow.click({ button: 'right' }).catch(() => {})
       await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click({ timeout: 3000 }).catch(() => {})
     }
-    await app.close()
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -27831,7 +27833,8 @@ async function caretTracksScenario(fixtures) {
     })
     await probe('#caret-control', 'Control', 'control')
   } finally {
-    await app.close()
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 

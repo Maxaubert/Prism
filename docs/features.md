@@ -2525,7 +2525,14 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   every field in a `Dialog`. The address field and the folder search popup were measured and
   already answer a caret. Held by the e2e `caretTracks`, which reads the caret as a magnifier does
   in the new folder dialog, the rename dialog, the address field and the search popup, against a
-  plain input as the control.
+  plain input as the control. CONFIRMED AS WIND READS IT (review, 2026-11-10, a probe that asks in
+  Wind's own order, `src/track/focus_track.cpp` `findCaret`, with the window focused on the hidden
+  desktop): Prism's window has no Win32 caret and no TextPattern2, so Wind reads `GetSelection()`.
+  With no rectangle it widens the range by one character, and that lands on a FIXED spot 244 px
+  right of the box's left edge and 66 px below the field's top (the button row), about 550 px right
+  and three lines down at 225%, the fixed spot in the owner's Wind log. With the box `relative`
+  the selection has its own bar, which moved 6 px a key, and Wind never widens. The MSAA caret
+  moved with every key in both layouts, so it was never the cause.
   **SPACE TOGGLES THE PREVIEW PANE** (owner, 2026-11-08: "can you bind preview to space bar",
   then chose "Toggle the preview panel"). A plain Space on the Explorer's list shows or hides
   the pane on the right, the toolbar button's own `togglePreview` (same state, same
