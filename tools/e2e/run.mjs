@@ -28750,7 +28750,16 @@ async function binBigScenario(fixtures) {
     const onDisk = readdirSync(orig).filter((f) => /^f\d{4}\.txt$/.test(f)).length
     ok(onDisk === n, `exactly what the line says is on disk (${onDisk})`)
     ok(binPairs(bin.dirs[0]).length === N - n, `and the rest are still in the bin (${binPairs(bin.dirs[0]).length})`)
-    ok(await until(async () => new RegExp(`${N - n} items`).test(await win.locator('[data-bin-strip]').innerText().catch(() => '')), 8000, 150), 'and the list still holds them')
+    // The same check, with what the strip said last in its failure line: a red
+    // run (seen once in a full run, never alone in 18 loaded runs, 2026-11-10)
+    // then says whether the list was stale (the old count), empty or still held.
+    let stripSaid = ''
+    const listed = await until(async () => {
+      stripSaid = await win.locator('[data-bin-strip]').innerText().catch(() => '')
+      return new RegExp(`${N - n} items`).test(stripSaid)
+    }, 8000, 150)
+    const bars = await win.locator('[data-busy-bar]').count().catch(() => -1)
+    ok(listed, `and the list still holds them (strip said ${JSON.stringify(stripSaid.replace(/\s+/g, ' ').slice(0, 60))}, want ${N - n} items, bars ${bars})`)
   } finally {
     await app?.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })
