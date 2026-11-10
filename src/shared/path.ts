@@ -15,6 +15,17 @@
 /** Either separator. */
 const SEP = /[\\/]/
 
+/**
+ * A path as people paste it (owner, 2026-11-09): spaces around it, Windows'
+ * Copy as path's double quotes, forward slashes. A drive or UNC path comes back
+ * in backslashes; anything else (a place that is not a path) only loses the
+ * spaces and quotes.
+ */
+export function pastedPath(text: string): string {
+  const t = text.trim().replace(/^"(.*)"$/, '$1').trim()
+  return /^(?:[a-zA-Z]:[\\/]|[\\/]{2})/.test(t) ? t.replace(/\//g, '\\') : t
+}
+
 /** `p` without trailing separators: "C:\a\" -> "C:\a", "C:\" -> "C:". */
 export function trimSep(p: string): string {
   return p.replace(/[\\/]+$/, '')

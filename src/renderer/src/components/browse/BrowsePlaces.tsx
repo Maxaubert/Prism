@@ -257,7 +257,8 @@ export function BrowsePlaces({
                 if (!pin.isFolder && event.key === 'Enter') {
                   event.preventDefault()
                   event.stopPropagation()
-                  onQuickAccessFile?.(pin.path, true)
+                  // A held Enter is one open (#494, `openGuards` e2e).
+                  if (!event.repeat) onQuickAccessFile?.(pin.path, true)
                   return
                 }
                 if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return

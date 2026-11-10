@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { unsupportedMessage } from './unsupported'
+import { goesToWindows, unsupportedMessage } from './unsupported'
 
 const GENERIC = "Prism can't show this kind of file"
+
+describe('goesToWindows (#494)', () => {
+  it('is the kind Prism has no viewer for', () => {
+    expect(goesToWindows({ kind: 'other' })).toBe(true)
+  })
+
+  it('is never a file Prism shows', () => {
+    for (const kind of ['image', 'video', 'audio', 'pdf', 'doc', 'text', 'archive', 'comic'] as const)
+      expect(goesToWindows({ kind })).toBe(false)
+  })
+
+  it('is never a member of a zip', () => {
+    expect(goesToWindows({ kind: 'other', member: true })).toBe(false)
+  })
+})
 
 describe('unsupportedMessage', () => {
   it('names an ordinary extension', () => {

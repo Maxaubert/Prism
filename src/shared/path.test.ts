@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  pastedPath,
   baseName,
   byName,
   extOf,
@@ -172,6 +173,22 @@ describe('volumeOf (#70, the drive rule)', () => {
     expect(volumeOf('')).toBe('')
     expect(volumeOf('relative\\x')).toBe('')
     expect(volumeOf('\\\\srv')).toBe('')
+  })
+})
+
+describe('pastedPath (owner, 2026-11-09)', () => {
+  it('takes what Windows and people paste', () => {
+    expect(pastedPath('"C:\\a b\\x.md"')).toBe('C:\\a b\\x.md')
+    expect(pastedPath('  C:\\a\\x.md  ')).toBe('C:\\a\\x.md')
+    expect(pastedPath(' " C:\\a\\x.md " ')).toBe('C:\\a\\x.md')
+    expect(pastedPath('C:/a/b/x.md')).toBe('C:\\a\\b\\x.md')
+    expect(pastedPath('//server/share/x.md')).toBe('\\\\server\\share\\x.md')
+  })
+
+  it('leaves a canonical path and a non-path alone', () => {
+    expect(pastedPath('C:\\a\\x.md')).toBe('C:\\a\\x.md')
+    expect(pastedPath('C:\\')).toBe('C:\\')
+    expect(pastedPath('some/words')).toBe('some/words')
   })
 })
 

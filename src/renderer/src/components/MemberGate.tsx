@@ -4,7 +4,7 @@ import type { MemberAnswer } from '@shared/archivePlace'
 import { formatBytes } from '../lib/format'
 import { intendToPlay, wasPlaying } from '../lib/playState'
 import { ROW_BUTTON } from 'prism-term-core/renderer/settings/fields'
-import { PasswordDialog } from '../dialogs/PasswordDialog'
+import { askArchivePassword } from '../lib/archiveQuestion'
 
 /**
  * THE MEMBER GATE (#300). A file inside a zip is a place in the Explorer now,
@@ -16,7 +16,9 @@ import { PasswordDialog } from '../dialogs/PasswordDialog'
  * What the mockup drew while it works (04a): a 200 px bar and "Unpacking
  * caret.ts to show it", but only after 150 ms, so a small member never flashes
  * it. A member past the automatic-preview limit waits for an explicit Open; a
- * locked one asks for the password, and again when it was wrong.
+ * locked one asks for the password, and again when it was wrong. The question
+ * is the window's (`askArchivePassword`): an extract of the same archive asking
+ * at the same moment joins it, and the gate only says what is shut.
  */
 export function MemberGate({
   file,
@@ -27,14 +29,18 @@ export function MemberGate({
 }): JSX.Element {
   const [answer, setAnswer] = useState<{ key: string; got: MemberAnswer } | null>(null)
   const [slow, setSlow] = useState<string | null>(null)
-  const [ask, setAsk] = useState<{ wrong: boolean } | null>(null)
   const [force, setForce] = useState<string | null>(null)
   const [password, setPassword] = useState<{ key: string; pw: string } | null>(null)
+  // Counted so the same wrong password typed twice is still tried again.
+  const [tries, setTries] = useState(0)
   const key = file.path
+  const name = file.name
   const forced = force === key
   const pw = password?.key === key ? password.pw : undefined
   useEffect(() => {
     let live = true
+    let withdraw = (): void => {}
+    const began = performance.now()
     const timer = setTimeout(() => live && setSlow(key), 150)
     void window.prism
       .archiveMember(key, pw, forced)
@@ -44,8 +50,22 @@ export function MemberGate({
           // A pick that meant "play this" (#139) meant the member, whose
           // player is keyed by the temp copy's url.
           if (wasPlaying(window.prism.mediaUrl(key))) intendToPlay(window.prism.mediaUrl(got.path))
-          setAsk(null)
-        } else if (got.reason === 'password') setAsk({ wrong: !!pw })
+        } else if (got.reason === 'password') {
+          const ask = askArchivePassword({
+            archive: got.container ?? key,
+            name,
+            wrong: !!pw,
+            tried: pw,
+            began
+          })
+          withdraw = ask.withdraw
+          void ask.answer.then((value) => {
+            if (!live || value === null) return
+            setAnswer(null)
+            setPassword({ key, pw: value })
+            setTries((n) => n + 1)
+          })
+        }
         setAnswer({ key, got })
       })
       .catch(() => live && setAnswer({ key, got: { ok: false, reason: 'failed' } }))
@@ -53,12 +73,12 @@ export function MemberGate({
     return () => {
       live = false
       clearTimeout(timer)
+      withdraw()
     }
-  }, [key, pw, forced])
+  }, [key, name, pw, forced, tries])
 
   const got = answer?.key === key ? answer.got : null
   if (got?.ok) {
-    const name = file.name
     return <>{render({ ...file, path: got.path, kind: got.kind === 'other' ? file.kind : got.kind, member: undefined, name })}</>
   }
   const center = 'grid h-full w-full place-items-center p-6 text-center text-[13px] text-[var(--p-dim)]'
@@ -93,18 +113,6 @@ export function MemberGate({
     return (
       <div className={center} data-member-gate="locked">
         <span>{file.name} is password protected.</span>
-        {ask && (
-          <PasswordDialog
-            name={file.name}
-            wrong={ask.wrong}
-            onCancel={() => setAsk(null)}
-            onSubmit={(value) => {
-              setAsk(null)
-              setAnswer(null)
-              setPassword({ key, pw: value })
-            }}
-          />
-        )}
       </div>
     )
   return (

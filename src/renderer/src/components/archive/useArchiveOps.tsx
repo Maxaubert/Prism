@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { placeOf } from '@shared/archivePlace'
 import { archivePassword, rememberArchivePassword } from '../../lib/archivePass'
 import { markLanded } from '../../lib/landMarks'
@@ -8,7 +8,7 @@ import type { UndoEntry } from '../../lib/undo'
 import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
 import { ArchiveDeleteDialog } from '../../dialogs/ArchiveDeleteDialog'
 import { NoticeDialog } from '../../dialogs/NoticeDialog'
-import { PasswordDialog } from '../../dialogs/PasswordDialog'
+import { askArchivePassword, useArchiveQuestionUp } from '../../lib/archiveQuestion'
 import {
   addMembers,
   ARCHIVE_COPY,
@@ -16,8 +16,7 @@ import {
   copyBetweenZips,
   renameMember,
   runWithPassword,
-  type ArchiveFail,
-  type PassQuestion
+  type ArchiveFail
 } from './archiveOps'
 
 export interface ArchiveOpsDeps {
@@ -91,7 +90,16 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
     latest.current = deps
   })
   const [oops, setOops] = useState<string | null>(null)
-  const [askPass, setAskPass] = useState<PassQuestion | null>(null)
+  const passwordUp = useArchiveQuestionUp()
+  /** Requests waiting on the question: they go with this host. */
+  const waiting = useRef(new Set<() => void>())
+  useEffect(() => {
+    const held = waiting.current
+    return () => {
+      held.forEach((withdraw) => withdraw())
+      held.clear()
+    }
+  }, [])
   const [confirm, setConfirm] = useState<{
     container: string
     inners: string[]
@@ -134,14 +142,20 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         run,
         remembered: archivePassword(container),
         remember: (pw) => rememberArchivePassword(container, pw),
-        ask: (q) =>
-          setAskPass({
-            ...q,
-            run: (answer) => {
-              setAskPass(null)
-              q.run(answer)
-            }
-          }),
+        ask: (q) => {
+          const ask = askArchivePassword({
+            archive: container,
+            name: q.name,
+            wrong: q.wrong,
+            tried: q.tried,
+            began: q.began
+          })
+          waiting.current.add(ask.withdraw)
+          void ask.answer.then((answer) => {
+            waiting.current.delete(ask.withdraw)
+            if (answer !== null) q.run(answer)
+          })
+        },
         say: setOops
       }),
     []
@@ -287,14 +301,6 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
 
   const dialogs = (
     <>
-      {askPass && (
-        <PasswordDialog
-          name={askPass.name}
-          wrong={askPass.wrong}
-          onSubmit={askPass.run}
-          onCancel={() => setAskPass(null)}
-        />
-      )}
       {confirm && (
         <ArchiveDeleteDialog
           names={confirm.names}
@@ -359,7 +365,7 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
     askDelete,
     rename,
     say: setOops,
-    open: !!(oops || askPass || confirm || clash),
+    open: !!(oops || passwordUp || confirm || clash),
     dialogs
   }
 }

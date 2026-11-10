@@ -822,6 +822,72 @@ else" (TabStrip.tsx, #70/#71): a tab still slides in its row, and now it can als
   right-click and the late drop.
 - Attaching into ANOTHER window's strip, and closing a window emptied that way: step 4, the next entry.
 
+## A document has the same colours in the pane, the window and the full view (owner, 2026-11-09, #493)
+
+**THE PREVIEW WINDOW IS A STANDARDS PAGE** (owner, 2026-11-09: "excel docs look differnt in preview at
+least window preview rather then if you open them. for exampel the amu report in downlodas has black
+letters normally but in the preview the text is white"). `window.open('', name)` makes a blank page with
+no doctype, and a page with no doctype is in quirks mode, where a `<table>` takes its colour from the
+root and not from what holds it. So in the window every table cell wore the theme's text (white on
+the white paper in a dark theme) while everything outside a table stayed the paper's dark ink, in a
+workbook, a Word document, an ebook and a markdown table alike. `PreviewWindow.tsx`'s `dress()` now writes a
+doctype into the blank page before anything goes in it; a colour rule per table would have left the
+rest of quirks mode (fonts, line heights, box sizes) still different from the pane. Writing it gives the
+window the opener's address instead of `about:blank`; nothing reads it, and main denies the child every
+navigation and every window whatever its address (the `previewWindow` e2e, which now holds its page to the
+address it began with). A real dark fill keeps
+its light text, and the paper's ink never comes from the theme. PDF text layers are transparent and
+were the same before and after. Held by the `sheetColours` e2e: a hand-written workbook, read in the
+pane, the window and the full view in all 18 themes, the window's `compatMode`, and a Word document, a
+book, a markdown table and a PDF compared across the three.
+
+## A file's path in the address field (owner, 2026-11-09)
+
+The owner: "cant open this path directly in prism". A path that names a file opens the file, in
+its folder with its row selected, as a double-click on that row would (a read of it as a folder
+fails first, so a folder pays nothing). What people paste is accepted at the one place every
+route goes through, `navigate`: double quotes (Windows' Copy as path), forward slashes, spaces
+around it (`pastedPath`). No wall moved: its folder is asked for as any typed folder is, and only
+a row of that folder counts, so a path that is nothing still says so. A file the listing does not
+show (a dotfile) is therefore not opened this way. The `openByPath` e2e holds it,
+`src/shared/path.test.ts` the spellings.
+
+## A file Prism cannot show opens the way Windows would (owner, 2026-11-09, #494)
+
+The owner: "files that cant be opened in prism like exes shoudl be opned like they normally woudl,
+it shoudl be possible to opena exe instalelr for exampel wihoutu prism saying ti doesnt know what to
+do". This replaces the 2026-08-31 decision that opening elsewhere was the shell's job. A DELIBERATE
+open of the `other` kind goes to Windows through the existing open route (`CALL.fileOpenDefault`,
+`shell.openPath`, inside `insideDesktop`), so SmartScreen and UAC answer as they do in File
+Explorer, and the list stays where it is. Deliberate means a double-click, Enter, the menu's Open, a
+path typed in the address field, a search hit picked, a double-click or Enter on a pin, and the Open
+button on the card. `openDeliberately` in `useFolderBrowsing` is the one door.
+
+**ONLY A DELIBERATE OPEN STARTS ANYTHING.** Selecting a row, arrowing past it, the preview pane, the
+preview window, a walk in full view and one click on a pin never do: they go through `openFile`,
+and a preview of such a file is `UnsupportedView`, now with Open beside Show the bytes. One click on
+a pin marks its row and stays in the list, so the second click of a double-click still finds it.
+Search results are rows, the same rules. A link in a document and a file dropped on the viewer show
+the card: a page must not be able to start a program with one click. A file Windows handed to
+Prism shows the card and goes back only on that press, so there is no loop. A member of a zip and
+the phone stay as they were: no Open (`openable`, the `explorer` capability), a member's copy
+being Prism's own temp file.
+
+**NOTHING IS STARTED UNDER --e2e**: the open route records on `__e2eOpenedFiles` and stops. The
+`opensInWindows` e2e holds one call for each deliberate open and none for selecting, arrowing,
+previewing or walking, `unsupported` the no-loop, `src/renderer/src/lib/unsupported.test.ts` which
+files go.
+
+**WHAT NOBODY MEANT STARTS NOTHING** (review, 2026-11-09, all held by the `openGuards` e2e). A
+double-click opens only the row its first press was on: Chromium counts a double-click by place and
+time, so a file arriving between the presses put the second one on another row, which started it. A
+held Enter on a row or a pin is one open, not thirty a second, and a key held from a question or the
+search box cannot repeat onto a program. The card's Open gives up the focus when it is pressed:
+left on it, a held Enter started the file over and over and the next Space started it again. A
+navigation hands a file to Windows only from the address field (`navigate`'s `typed`): a pin, a
+crumb or a row said "go to this folder", so a folder that has since become a program opens on its
+card instead. A typed program leaves the keyboard on the list, which stays where it was.
+
 ## Attach into any window (tab tear-off step 4, owner, 2026-10-29)
 
 Owner, 2026-10-29 (spec section 1, points 4, 5 and 7; plan step 4): "a tab can be dropped into ANY window's tab
@@ -1551,7 +1617,16 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   right-click menu + F2/Delete: view (extracted to a temp file main
   grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
   delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
-  the dialog says so. Passwords: asked once per archive and remembered; ZipCrypto opens via
+  the dialog says so. **ONE PASSWORD QUESTION PER ARCHIVE** (owner, 2026-11-09): every route
+  (a locked member's preview, the verbs, the Explorer going in, the archive panel) asks through
+  `lib/archiveQuestion.ts`, and the window draws the one question beside App. A second request for
+  the same archive joins it and tries its answer; a wrong answer brings them all back to one
+  question, Cancel drops them all, and so does a request already on its way when the Cancel came
+  (it began before it). One that comes back after an answer was given is handed that answer without
+  asking. Questions about different archives wait in line. A question no longer waits for its own
+  tab: it belongs to the window. Per window, so two windows can each ask once. Held by the
+  `archivePassOnce` e2e, which sets off a preview and an extract in one tick, and
+  `lib/archiveQuestion.test.ts`. Passwords: asked once per archive and remembered; ZipCrypto opens via
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
@@ -3728,6 +3803,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   in it opens its viewer's own menu (below). Wiring: `docs/architecture.md`.
   The `previewWindow` e2e drives it end to end; `src/main/previewWindow.test.ts`,
   `lib/previewWindowKeys.test.ts` hold the parts.
+  **A FLAG NOBODY ASKED FOR MAKES NO WINDOW** (owner, 2026-11-09: "it cant be previewd only
+  viewd normally", the log showing the window armed, opened and shut with no toggle at 13:41:02 and 13:41:10). A
+  restored or arrived flag used to mount the window for the one commit before the effect put
+  it back off; the window is now made only for a tab a toggle opened it on. The `markdownPreview`
+  e2e holds that no window is made, and that a markdown file previews in the pane and the
+  window and stays. One other flash, at 13:41:47 (on, then off 58 ms later, the only such pair in two days of log), was not reproduced; who shuts the window is now said in the log (`preview` crumb, `why`).
   **ITS VIEWER ANSWERS ITS OWN KEYS AND LINKS** (owner, 2026-11-08: "Keys and in-page links
   don't work with focus inside the preview window (image and video shortcuts, markdown #
   links) fix that"). With the keyboard in the window, its viewer's keys work as in the pane:
