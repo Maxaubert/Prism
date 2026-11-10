@@ -72,6 +72,17 @@ describe('Thumbs for the desktop', () => {
     expect(await t.makeFor(f, 'image', 320)).not.toBeNull()
   })
 
+  it('a film whose ffmpeg the holders killed is not tried again at the first frame: the move needs the file', async () => {
+    const t = new Thumbs('ffmpeg', cache, (c) => c.kill())
+    const f = source('held.mp4')
+    script = () => ({ fail: true, killed: true })
+    await t.makeFor(f, 'video', 320)
+    expect(calls).toHaveLength(1)
+    calls.length = 0
+    await t.get(source('held2.mp4'), 'video')
+    expect(calls).toHaveLength(1)
+  })
+
   it('a phone sharing a desktop job that is cancelled still gets its picture', async () => {
     const t = make()
     const f = source('shared.jpg')

@@ -385,7 +385,9 @@ export class Thumbs {
       } else {
         ok = (await this.run(thumbArgs(file, kind, tmp), job)).ok
         // A video shorter than the seek gives no frame at all: take the first.
-        if (!ok && kind === 'video') ok = (await this.run(thumbArgs(file, kind, tmp, 0), job)).ok
+        // Not after a holders' kill: a move is waiting for this very file, and
+        // a second ffmpeg would hold it again.
+        if (!ok && kind === 'video' && !job.released) ok = (await this.run(thumbArgs(file, kind, tmp, 0), job)).ok
       }
       if (!ok) {
         await fsp.rm(tmp, { force: true }).catch(() => undefined)
@@ -409,7 +411,9 @@ export class Thumbs {
     if (kind === 'video') {
       let seek = VIDEO_SEEK_S
       let r = await this.run(thumbArgs(file, kind, tmp, seek, width, how), job)
-      // A clip shorter than the seek gives no frame: the first one.
+      // A clip shorter than the seek gives no frame: the first one. Not after
+      // a holders' kill: a move is waiting for this very file.
+      if (!r.ok && job.released) return false
       if (!r.ok) {
         seek = 0
         r = await this.run(thumbArgs(file, kind, tmp, seek, width, how), job)
