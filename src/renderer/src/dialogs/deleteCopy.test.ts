@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { plain } from './testing'
-import { archiveBytes, deleteLine, deleteTitle, sizeText, sumDeleteSize } from './deleteCopy'
+import { archiveBytes, deleteLine, deleteTitle, pressAnswers, sizeText, sumDeleteSize } from './deleteCopy'
 
 describe('archiveBytes: what a zip delete frees', () => {
   const entries = [
@@ -82,5 +82,19 @@ describe('sumDeleteSize: the total, filling in as folders are counted', () => {
   })
   it('files still being read keep it counting', () => {
     expect(sumDeleteSize({ files: undefined, folders: [], sizes: {} })).toEqual({ state: 'counting' })
+  })
+})
+
+describe('pressAnswers: a double-click never answers the next question (review, 2026-11-10)', () => {
+  it('a single press, a key (detail 0) and Cancel always answer', () => {
+    expect(pressAnswers('danger', 1)).toBe(true)
+    expect(pressAnswers('outline', 1)).toBe(true)
+    expect(pressAnswers('danger', 0)).toBe(true)
+    expect(pressAnswers('plain', 2)).toBe(true)
+  })
+  it('the second press of a double-click on a delete button answers nothing', () => {
+    expect(pressAnswers('danger', 2)).toBe(false)
+    expect(pressAnswers('outline', 2)).toBe(false)
+    expect(pressAnswers('danger', 3)).toBe(false)
   })
 })

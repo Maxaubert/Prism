@@ -1,7 +1,7 @@
 import type { JSX, ReactNode } from 'react'
 import { Modal } from '../components/Modal'
 import { DIALOG_BOX, DIALOG_TITLE, dialogButton } from '../components/dialogLook'
-import type { DriveBar } from './deleteCopy'
+import { pressAnswers, type DriveBar } from './deleteCopy'
 
 /**
  * THE ONE DELETE QUESTION (#500, #504; owner, 2026-11-10: "minimal text").
@@ -138,7 +138,10 @@ export function DeleteQuestion({
             key={c.label}
             data-primary={c.focus ? 'true' : undefined}
             data-tone={c.tone}
-            onClick={c.onPick}
+            // The second press of a double-click answers nothing (pressAnswers).
+            onClick={(e) => {
+              if (pressAnswers(c.tone, e.detail)) c.onPick()
+            }}
             className={buttonClass(c.tone)}
           >
             {c.label}
