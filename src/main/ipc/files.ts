@@ -271,7 +271,7 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
 
 /** Explorer's verbs, Open with, the clipboard and paste, file icons, restore. */
 export function registerShellIpc(ctx: MainCtx): void {
-  const { movable, readable, shellVerbSetting, textShape, written } = ctx
+  const { movable, shellVerbSetting, textShape, written } = ctx
   // "Open file" / "Open in Prism" in File Explorer's own context menu
   // (HKCU only).
   ipcMain.handle(CALL.shellVerbStatus, () => shellVerbSetting.status())
@@ -368,7 +368,10 @@ export function registerShellIpc(ctx: MainCtx): void {
   }
   ipcMain.handle(CALL.fileCopyClip, (_e, p: string | string[], cut = false): boolean => {
     const list = Array.isArray(p) ? p : [p]
-    if (!list.length || list.some((x) => !readable(x))) {
+    // `copyable`, not `readable` (review, 2026-11-10): a binned `$R` is readable
+    // for the preview, but a Cut of it pasted in File Explorer would move it out
+    // of the bin and leave its `$I` (D12, D16).
+    if (!list.length || list.some((x) => !ctx.wall.copyable(x))) {
       const shown = list.filter((x): x is string => typeof x === 'string')
       writeOp(copyLine({ paths: shown, cut: cut === true, kinds: ['disk'], refused: true }))
       return false

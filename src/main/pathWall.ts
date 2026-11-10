@@ -69,6 +69,10 @@ export interface PathWall {
   binActs(p: unknown): boolean
   /** A READ: inside the wall, or something main extracted itself. */
   readable(p: unknown): p is string
+  /** A CLIPBOARD OR DRAG-OUT source (review, 2026-11-10): `readable` without
+   *  the bin grant. A `$R` handed to Windows as a cut or a drag would move out
+   *  of the bin and leave its `$I` behind (D12). */
+  copyable(p: unknown): p is string
   /** A WRITE in place (rename, bin, save): inside the wall. */
   editable(p: string): boolean
   /** A move or zip SOURCE: inside the wall or extracted (an
@@ -164,6 +168,7 @@ export function createPathWall(deps: WallDeps): PathWall {
     comicsDir: () => comics,
     extracted,
     readable,
+    copyable: (p): p is string => typeof p === 'string' && (deps.insideDesktop(p) || extracted(p)),
     editable: (p) => deps.insideDesktop(p),
     movable: (p): p is string =>
       typeof p === 'string' && (deps.insideDesktop(p) || extracted(p)),
