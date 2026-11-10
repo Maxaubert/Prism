@@ -894,7 +894,8 @@ export default function App(): JSX.Element {
     return [...binListing.folders, ...binListing.files].map((row) => ({
       path: row.path,
       name: row.name,
-      from: row.binned?.from
+      from: row.binned?.from,
+      size: row.size
     }))
   }, [binListing])
   useEffect(() => {
@@ -1226,6 +1227,7 @@ export default function App(): JSX.Element {
     onDropIntoTab,
     runDelete,
     runDeleteMany,
+    runPurge,
     runMove,
     runDuplicate,
     runRename,
@@ -1433,6 +1435,8 @@ export default function App(): JSX.Element {
     unsavedNames,
     runDelete: (path) => void runDelete(path),
     runDeleteMany: (paths) => void runDeleteMany(paths),
+    askPermanent: (paths) => setAsk({ kind: 'delete-permanent', paths }),
+    runPurge: (paths) => void runPurge(paths),
     runMove: (paths, dest, mode) => void runMove(paths, dest, mode),
     runRename: (path, name, onClash) => void runRename(path, name, onClash),
     leave,

@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AskDialogs, type AskAnswers } from './AskDialogs'
 import type { Ask } from './asks'
-import { DeleteDialog } from './DeleteDialog'
-import { EmptyBinDialog } from './EmptyBinDialog'
+import { BinDeleteAsk, BinEmptyAsk, DeleteAsk, DeleteManyAsk, PurgeAsk } from './DeleteAsks'
 import { MoveClashDialog } from './MoveClashDialog'
-import { PermanentDeleteDialog } from './PermanentDeleteDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
@@ -16,6 +14,8 @@ const answers = (): AskAnswers => ({
   unsavedNames: ['a.txt'],
   runDelete: vi.fn(),
   runDeleteMany: vi.fn(),
+  askPermanent: vi.fn(),
+  runPurge: vi.fn(),
   runMove: vi.fn(),
   runRename: vi.fn(),
   leave: vi.fn(),
@@ -42,6 +42,7 @@ interface El {
     onKeepBoth?: () => void
     onReplace?: () => void
     onEmpty?: () => void
+    onPermanent?: () => void
   }
 }
 const draw = (ask: Ask, layer: 'under' | 'over', a = answers()): El | null =>
@@ -51,7 +52,7 @@ const del: Ask = { kind: 'delete', path: 'C:/a', name: 'a', isFolder: false }
 
 describe('AskDialogs', () => {
   it('draws each ask in the layer it always sat in', () => {
-    expect(draw(del, 'under')?.type).toBe(DeleteDialog)
+    expect(draw(del, 'under')?.type).toBe(DeleteAsk)
     expect(draw(del, 'over')).toBeNull()
     expect(draw({ kind: 'failed', message: 'x' }, 'over')?.type).toBe(NoticeDialog)
     expect(draw({ kind: 'failed', message: 'x' }, 'under')).toBeNull()
@@ -62,6 +63,22 @@ describe('AskDialogs', () => {
     const a = answers()
     draw(del, 'under', a)?.props.onDelete?.()
     expect(a.runDelete).toHaveBeenCalledWith('C:/a')
+  })
+
+  it('the middle button asks again as the permanent question, which deletes for good', () => {
+    const a = answers()
+    draw(del, 'under', a)?.props.onPermanent?.()
+    expect(a.askPermanent).toHaveBeenCalledWith(['C:/a'])
+    const many: Ask = { kind: 'delete-many', paths: ['C:/a', 'C:/b'] }
+    const m = draw(many, 'under', a)
+    expect(m?.type).toBe(DeleteManyAsk)
+    m?.props.onPermanent?.()
+    expect(a.askPermanent).toHaveBeenLastCalledWith(['C:/a', 'C:/b'])
+    const el = draw({ kind: 'delete-permanent', paths: ['C:/a', 'C:/b'] }, 'under', a)
+    expect(el?.type).toBe(PurgeAsk)
+    el?.props.onDelete?.()
+    expect(a.runPurge).toHaveBeenCalledWith(['C:/a', 'C:/b'])
+    expect(a.runDelete).not.toHaveBeenCalled()
   })
 
   it('the window close discards, clears the ask, then leaves (an install carried through)', () => {
@@ -85,18 +102,17 @@ describe('AskDialogs', () => {
   it('Delete permanently asks with the names, and the answer deletes those paths', () => {
     const a = answers()
     const el = draw({ kind: 'bin-delete', paths: ['p1'], names: ['a.txt'] }, 'under', a)
-    expect(el?.type).toBe(PermanentDeleteDialog)
+    expect(el?.type).toBe(BinDeleteAsk)
     expect(el?.props.names).toEqual(['a.txt'])
     el?.props.onDelete?.()
     expect(a.runBinDelete).toHaveBeenCalledWith(['p1'])
     expect(draw({ kind: 'bin-delete', paths: ['p1'], names: ['a'] }, 'over')).toBeNull()
   })
 
-  it('Empty asks with the count when the bin is open, and the answer empties', () => {
+  it('Empty asks (main counts what it frees), and the answer empties', () => {
     const a = answers()
-    const el = draw({ kind: 'bin-empty', count: 12 }, 'under', a)
-    expect(el?.type).toBe(EmptyBinDialog)
-    expect(el?.props.count).toBe(12)
+    const el = draw({ kind: 'bin-empty' }, 'under', a)
+    expect(el?.type).toBe(BinEmptyAsk)
     el?.props.onEmpty?.()
     expect(a.runBinEmpty).toHaveBeenCalled()
   })

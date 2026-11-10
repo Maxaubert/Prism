@@ -1,38 +1,34 @@
 import type { JSX } from 'react'
-import { Dialog } from '../components/Dialog'
-import { DIALOG_EMPHASIS } from '../components/dialogLook'
+import { DeleteQuestion } from './DeleteQuestion'
+import { sizeText, deleteTitle, type DeleteSize } from './deleteCopy'
 
-/** Items of the Recycle Bin deleted for good (Recycle Bin, D14). Windows has
- *  no way back from here, so the safe answer (Cancel) is the one Enter picks,
- *  as `ArchiveDeleteDialog` does. */
+/** Delete for good: the middle button of a delete, the bin's Delete
+ *  permanently, and a zip's Delete (a zip has no bin). Windows has no way back
+ *  from here, so Cancel is the default (#500, owner 2026-11-10). */
 export function PermanentDeleteDialog({
   names,
+  count,
+  size,
   onCancel,
   onDelete
 }: {
-  /** The original names of the marked items. */
+  /** The names of what goes (the first few are enough). */
   names: readonly string[]
+  /** How many items go, when that is more than the names given. */
+  count?: number
+  size?: DeleteSize
   onCancel: () => void
   onDelete: () => void
 }): JSX.Element {
-  const one = names.length === 1
   return (
-    <Dialog
-      title={one ? 'Delete permanently?' : `Delete ${names.length} items permanently?`}
-      body={
-        one ? (
-          <>
-            &quot;<span className={DIALOG_EMPHASIS}>{names[0]}</span>&quot; is deleted for good. Windows
-            cannot put it back.
-          </>
-        ) : (
-          'Everything selected is deleted for good. Windows cannot put it back.'
-        )
-      }
+    <DeleteQuestion
+      icon="warn"
+      title={deleteTitle(names, count ?? names.length, true)}
+      line={<span data-delete-size>{sizeText(size)}</span>}
       onCancel={onCancel}
       choices={[
-        { label: 'Cancel', onPick: onCancel, primary: true },
-        { label: 'Delete', danger: true, onPick: onDelete }
+        { label: 'Cancel', tone: 'plain', focus: true, onPick: onCancel },
+        { label: 'Delete permanently', tone: 'danger', onPick: onDelete }
       ]}
     />
   )

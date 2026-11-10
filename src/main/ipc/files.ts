@@ -6,6 +6,7 @@ import type {
   BinDeleteResult,
   BinIfEmptyResult,
   BinRestoreResult,
+  BinUsage,
   MoveOnClash,
   MoveResult,
   PasteResult,
@@ -34,6 +35,8 @@ import { readTail, startTail, stopTail } from '../fileTail'
 import { binIndex, restoreIndexed } from '../binRestore'
 import { binDirs, shellBinAllowed, slowBinMs } from '../binRoots'
 import { binReader } from '../binList'
+import { binUsage } from '../binUsage'
+import { driveUsage } from '../driveUsage'
 import { deleteItems, emptyBin, restoreItems, type BinEnv } from '../binOps'
 import { trashItem as trashVia } from '../binTrash'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
@@ -170,6 +173,19 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
     if (!editable(p) && !wall.putBack(p)) return false
     try {
       await trashItem(p)
+      return true
+    } catch {
+      return false
+    } finally {
+      await written(p)
+    }
+  })
+  // DELETE FOR GOOD (#500; owner, 2026-11-10): the delete question's middle
+  // button. The same wall as the bin verb (an editable path), and never undoable.
+  ipcMain.handle(CALL.filePurge, async (_e, p: unknown): Promise<boolean> => {
+    if (typeof p !== 'string' || !editable(p)) return false
+    try {
+      await rm(p, { recursive: true, force: true })
       return true
     } catch {
       return false
@@ -820,6 +836,15 @@ export function registerShellIpc(ctx: MainCtx): void {
       return r
     } finally {
       endCopies(job)
+    }
+  })
+  // What Empty would free, per drive (#503). Takes nothing from the renderer:
+  // the folders are the bin folders main already knows.
+  ipcMain.handle(CALL.binUsage, async (): Promise<BinUsage> => {
+    try {
+      return await binUsage(await binDirs(), (dirs) => binReader.read(dirs), (roots) => driveUsage(roots))
+    } catch {
+      return { items: 0, bytes: 0, drives: [] }
     }
   })
   ipcMain.handle(CALL.binEmpty, async (e, jobId?: unknown): Promise<BinDeleteResult> => {
