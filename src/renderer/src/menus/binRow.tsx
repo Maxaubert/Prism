@@ -5,9 +5,8 @@ import { FileMenuIcon } from '../components/icons/FileMenuIcon'
 
 /**
  * THE RECYCLE BIN'S MENUS (Recycle Bin feature, D19; owner, 2026-11-10). One
- * builder file for the bin, as `archiveMenus.ts` is the zip's. This stage holds
- * the sidebar row's; the row and empty-space menus of the bin's own list join
- * it with the actions.
+ * builder file for the bin, as `archiveMenus.ts` is the zip's: the rows of its
+ * list, the list's empty space and the sidebar row.
  */
 
 export interface BinRowMenuContext {
@@ -19,22 +18,37 @@ export interface BinRowMenuContext {
   showInPreview: (file: ViewerFile) => void
   /** The ORIGINAL full paths of these bin entries, as text (D16). */
   copyOriginalPaths: (paths: string[]) => void
+  /** Put these bin entries back where they came from (D13). */
+  restore: (paths: string[]) => void
+  /** Ask, then delete these for good (D14). */
+  askDelete: (paths: string[]) => void
 }
 
 /**
- * A ROW OF THE BIN'S LIST (D12, D16). Read-only: a binned item can be looked
- * at and its original path copied, and the actions (Restore, Delete
- * permanently) join in the next stage. A folder is never opened (D10). With
- * several rows marked only what acts on all of them is offered. None of the
- * ordinary row's verbs (Cut, Paste, Rename, pins, Show in File Explorer,
- * Properties) is here: the bin is not a place you write to.
+ * A ROW OF THE BIN'S LIST (D12, D13, D14, D16). A binned item can be looked
+ * at, put back, have its original path copied or be deleted for good; the row
+ * that destroys is last and red. A folder is never opened (D10). With several
+ * rows marked only what acts on all of them is offered, with the count. None
+ * of the ordinary row's verbs (Cut, Paste, Rename, pins, Show in File
+ * Explorer, Properties) is here: the bin is not a place you write to.
  */
 export function binRowMenu(ctx: BinRowMenuContext): MenuItem[] {
   const { entry } = ctx
   if (ctx.paths && ctx.paths.length > 1) {
     const paths = ctx.paths
     return [
-      { label: 'Copy original paths', icon: <FileMenuIcon name="path" />, onPick: () => ctx.copyOriginalPaths(paths) }
+      {
+        label: `Restore ${paths.length} items`,
+        icon: <FileMenuIcon name="restore" />,
+        onPick: () => ctx.restore(paths)
+      },
+      { label: 'Copy original paths', icon: <FileMenuIcon name="path" />, onPick: () => ctx.copyOriginalPaths(paths) },
+      {
+        label: `Delete ${paths.length} items permanently`,
+        icon: <FileMenuIcon name="delete" />,
+        danger: true,
+        onPick: () => ctx.askDelete(paths)
+      }
     ]
   }
   const file = entry.file
@@ -54,7 +68,34 @@ export function binRowMenu(ctx: BinRowMenuContext): MenuItem[] {
           }
         ]
       : []),
-    { label: 'Copy original path', icon: <FileMenuIcon name="path" />, onPick: () => ctx.copyOriginalPaths([entry.path]) }
+    { label: 'Restore', icon: <FileMenuIcon name="restore" />, onPick: () => ctx.restore([entry.path]) },
+    { label: 'Copy original path', icon: <FileMenuIcon name="path" />, onPick: () => ctx.copyOriginalPaths([entry.path]) },
+    {
+      label: 'Delete permanently',
+      icon: <FileMenuIcon name="delete" />,
+      danger: true,
+      onPick: () => ctx.askDelete([entry.path])
+    }
+  ]
+}
+
+export interface BinEmptySpaceMenuContext {
+  /** How many items the bin holds (the list's count). */
+  count: number
+  onEmpty: () => void
+}
+
+/** A right press on the bin list's empty space: the one thing that is about
+ *  the bin as a whole. Disabled, not hidden, when there is nothing to empty. */
+export function binEmptySpaceMenu(ctx: BinEmptySpaceMenuContext): MenuItem[] {
+  return [
+    {
+      label: 'Empty Recycle Bin',
+      icon: <FileMenuIcon name="delete" />,
+      danger: true,
+      disabled: ctx.count === 0,
+      onPick: ctx.onEmpty
+    }
   ]
 }
 
@@ -81,6 +122,7 @@ export function binPlaceMenu(ctx: BinPlaceMenuContext): MenuItem[] {
     {
       label: 'Empty Recycle Bin',
       icon: <FileMenuIcon name="delete" />,
+      danger: true,
       disabled: !ctx.onEmpty,
       onPick: () => ctx.onEmpty?.()
     }

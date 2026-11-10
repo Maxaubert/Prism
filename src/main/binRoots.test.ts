@@ -36,6 +36,20 @@ describe('binDirs', () => {
     delete process.env.PRISM_E2E_SLOW_BIN
   })
 
+  // Undo's restore falls back to PowerShell's Shell.Application, which reads the
+  // owner's REAL bin. Under the seam it must not: the fallback is refused.
+  it('the shell fallback is allowed only when there is no seam', async () => {
+    process.argv = argv.filter((a) => a !== '--e2e')
+    process.env.PRISM_E2E_BIN_DIRS = 'C:\\fx\\ok'
+    expect((await import('./binRoots')).shellBinAllowed()).toBe(true)
+    process.argv = [...argv, '--e2e']
+    vi.resetModules()
+    expect((await import('./binRoots')).shellBinAllowed()).toBe(false)
+    delete process.env.PRISM_E2E_BIN_DIRS
+    vi.resetModules()
+    expect((await import('./binRoots')).shellBinAllowed()).toBe(true)
+  })
+
   it('drops a seam entry that is not absolute', async () => {
     process.argv = [...argv, '--e2e']
     process.env.PRISM_E2E_BIN_DIRS = 'relative\\bin|C:\\fx\\ok'

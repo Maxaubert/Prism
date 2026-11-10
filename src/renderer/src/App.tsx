@@ -47,7 +47,8 @@ import { EditorLoading, Viewer } from './components/stage/Viewer'
 import { EmptyState, NoFileState } from './components/stage/EmptyState'
 import { ContextMenu } from './components/ContextMenu'
 import { explorerRowMenu } from './menus/explorerRow'
-import { binRowMenu } from './menus/binRow'
+import { binEmptySpaceMenu, binRowMenu } from './menus/binRow'
+import { useBinOps, type BinRowInfo } from './hooks/useBinOps'
 import { binnedPath } from './lib/binView'
 import { titleBarMoreMenu } from './menus/moreMenu'
 import { useFolderBrowsing } from './hooks/useFolderBrowsing'
@@ -884,6 +885,17 @@ export default function App(): JSX.Element {
   // A row of the Recycle Bin asks Windows nothing: no paste state, no "open
   // with" apps for a path that is Windows' own bin entry (Recycle Bin, D12).
   const inBinList = browsing.listing?.bin === true
+  /** The bin's rows as the jobs need them: entry path, ORIGINAL name, origin
+   *  folder. Empty unless the bin is what the list shows. */
+  const binListing = browsing.listing
+  const binRowsOf = useCallback((): BinRowInfo[] => {
+    if (!binListing?.bin) return []
+    return [...binListing.folders, ...binListing.files].map((row) => ({
+      path: row.path,
+      name: row.name,
+      from: row.binned?.from
+    }))
+  }, [binListing])
   useEffect(() => {
     if (!browseMenuPath || inBinList) return
     let cancelled = false
@@ -1190,6 +1202,14 @@ export default function App(): JSX.Element {
       copyPath: (path) => void clipboardText(path)
     }
   })
+  /** The Recycle Bin's Restore, Delete permanently and Empty (Recycle Bin,
+   *  D13 to D18): jobs of their own, asked about before they destroy. */
+  const binOps = useBinOps({
+    setAsk,
+    setRefreshKey,
+    noteUndo,
+    rows: binRowsOf
+  })
   /** The list's empty space inside an archive was right-clicked (#300). */
   const [emptyMenu, setEmptyMenu] = useState<{ x: number; y: number } | null>(null)
   const browseArchive = browsing.listing?.archive ?? null
@@ -1422,7 +1442,10 @@ export default function App(): JSX.Element {
     answerReload: (path, reload) => setReloadAnswer({ path, reload }),
     runInstall,
     setFolderIcon,
-    folderIconFromFile: folderIconFromFileAnswer
+    folderIconFromFile: folderIconFromFileAnswer,
+    runBinRestore: (paths, mode) => void binOps.runRestore(paths, mode),
+    runBinDelete: (paths) => void binOps.runDelete(paths),
+    runBinEmpty: () => void binOps.runEmpty()
   }
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
@@ -1682,6 +1705,12 @@ export default function App(): JSX.Element {
                 }
                 archiveDone={archiveActions.done}
                 onEmptyContextMenu={(event) => setEmptyMenu({ x: event.clientX, y: event.clientY })}
+                // The Recycle Bin's strip, keys and sidebar row (Recycle Bin,
+                // D13 to D15 and D19): each asks before it destroys.
+                onBinRestore={binOps.restore}
+                onBinDelete={binOps.askDelete}
+                onEmptyBin={binOps.askEmpty}
+                onBinEmptyContextMenu={(event) => setEmptyMenu({ x: event.clientX, y: event.clientY })}
                 onRefresh={() => {
                   void window.prism
                     .refreshFolderSizes(active.browse.path)
@@ -2004,6 +2033,8 @@ export default function App(): JSX.Element {
                 paths: browseMenu.paths,
                 openFile: (f) => void browsing.openDeliberately(f),
                 showInPreview: (f) => openBrowseSplit(f),
+                restore: binOps.restore,
+                askDelete: binOps.askDelete,
                 copyOriginalPaths: (paths) => {
                   // The ORIGINAL full paths, one per line (D16), from the listing's rows.
                   const rows = [...(browsing.listing?.folders ?? []), ...(browsing.listing?.files ?? [])]
@@ -2068,7 +2099,19 @@ export default function App(): JSX.Element {
           items={archiveActions.menu({ entry: null }, browseArchive, active.browse.path) ?? []}
         />
       )}
-      {emptyMenu && !browseArchive && active && (
+      {emptyMenu && inBinList && active && (
+        // The Recycle Bin's blank space: Empty Recycle Bin, and nothing that writes.
+        <ContextMenu
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          items={binEmptySpaceMenu({
+            count: (browsing.listing?.folders.length ?? 0) + (browsing.listing?.files.length ?? 0),
+            onEmpty: binOps.askEmpty
+          })}
+        />
+      )}
+      {emptyMenu && !inBinList && !browseArchive && active && (
         // A plain folder's blank space: Show as grid / Show as list (Stage 6).
         <ContextMenu
           x={emptyMenu.x}

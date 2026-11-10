@@ -215,6 +215,16 @@ describe('binListing (stage 2: the bin as a DirListing)', () => {
     rmSync(b.root, { recursive: true, force: true })
   })
 
+  it('hands the folder entries over separately: they are acted on (Restore, Delete), never read', async () => {
+    const b = bin()
+    b.put('AAA.jpg', 'C:\\Users\\m\\Pictures\\cat.jpg', 1_700_000_000_000)
+    b.put('BBB', 'C:\\Users\\m\\Docs\\notes', 1_700_000_100_000, 'dir')
+    const seen: Array<[string[], string[] | undefined]> = []
+    await binListing([b.dir], createBinReader(), async (files, folders) => void seen.push([[...files], folders && [...folders]]))
+    expect(seen).toEqual([[[join(b.dir, '$RAAA.jpg')], [join(b.dir, '$RBBB')]]])
+    rmSync(b.root, { recursive: true, force: true })
+  })
+
   it('an empty bin still replaces the grant, so it shrinks with the bin', async () => {
     const b = bin()
     const granted: string[][] = []

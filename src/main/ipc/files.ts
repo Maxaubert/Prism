@@ -32,7 +32,7 @@ import { encodeText, fallbackShape, moveShapes } from '../textFile'
 import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
 import { binIndex, restoreIndexed } from '../binRestore'
-import { binDirs, slowBinMs } from '../binRoots'
+import { binDirs, shellBinAllowed, slowBinMs } from '../binRoots'
 import { binReader } from '../binList'
 import { deleteItems, emptyBin, restoreItems, type BinEnv } from '../binOps'
 import { trashItem as trashVia } from '../binTrash'
@@ -729,6 +729,12 @@ export function registerShellIpc(ctx: MainCtx): void {
       await written(...all)
       return job ? { ok: true, restored: all, left: [], cancelled: false } : true
     }
+    // Under the e2e seam the shell is not asked: its walk would read the owner's
+    // REAL bin. What the fake bin does not hold is simply not there.
+    if (!shellBinAllowed()) {
+      await written(...all)
+      return job ? { ok: false, restored: direct, left: paths, cancelled: false } : false
+    }
     const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
     const script = [
       '$ErrorActionPreference = "SilentlyContinue"',
@@ -767,7 +773,7 @@ export function registerShellIpc(ctx: MainCtx): void {
    * must not be listed again). */
   const binEnv = (): BinEnv => ({
     dirs: binDirs,
-    granted: (p) => ctx.wall.binGranted(p),
+    granted: (p) => ctx.wall.binActs(p),
     trash: trashItem,
     slowMs: slowBinMs()
   })

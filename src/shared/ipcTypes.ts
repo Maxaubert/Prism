@@ -143,6 +143,8 @@ export interface BinDeleteResult {
   left: string[]
   cancelled: boolean
   refused?: boolean
+  /** How many items the job set out to delete, so a Cancel can say "of N". */
+  total: number
 }
 export type MoveResult = {
   /** Where each one came from and landed: undo needs both halves. */

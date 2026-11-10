@@ -140,7 +140,9 @@ export async function restoreItems(
       let final = target
       const twin = names.has(basename(target).toLowerCase())
       if (twin || (await exists(target))) {
-        if (twin || onClash === 'keep-both') {
+        // Only an explicit 'replace' sends what is there to the bin: an 'ask'
+        // that finds the name taken after its check (a race) keeps both.
+        if (twin || onClash !== 'replace') {
           final = join(dir, await uniqueNameAsync(dir, basename(target), names))
         } else {
           // 'replace': the item in the way goes to the bin, not away.
@@ -181,7 +183,7 @@ export async function deleteItems(
   tick?: BinTick
 ): Promise<BinDeleteResult> {
   const { ok: entries, refused } = await accept(env, paths)
-  const out: BinDeleteResult = { ok: false, deleted: 0, left: [...refused], cancelled: false }
+  const out: BinDeleteResult = { ok: false, deleted: 0, left: [...refused], cancelled: false, total: entries.length + refused.length }
   if (refused.length) out.refused = true
   for (const [n, e] of entries.entries()) {
     if (signal?.aborted) {
@@ -214,7 +216,7 @@ const EMPTY_PASSES = 10
  * a pair that cannot be deleted is tried once and reported.
  */
 export async function emptyBin(env: BinEnv, signal?: AbortSignal, tick?: BinTick): Promise<BinDeleteResult> {
-  const out: BinDeleteResult = { ok: false, deleted: 0, left: [], cancelled: false }
+  const out: BinDeleteResult = { ok: false, deleted: 0, left: [], cancelled: false, total: 0 }
   const dirs = await env.dirs()
   const failed = new Set<string>()
   let total = 0
@@ -253,6 +255,7 @@ export async function emptyBin(env: BinEnv, signal?: AbortSignal, tick?: BinTick
       )
     }
   }
+  out.total = total
   out.left = [...failed]
   out.ok = !out.cancelled && failed.size === 0
   return out

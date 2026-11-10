@@ -459,7 +459,7 @@ const explorerListings = createExplorerListings({
   // The Recycle Bin (D5): read directly, never cached on disk. A record that
   // could not be read is counted in one diagnostics line, never a broken row.
   bin: async () => {
-    const { listing, skipped } = await binListing(await binDirs(), undefined, (paths) => wall.grantBin(paths))
+    const { listing, skipped } = await binListing(await binDirs(), undefined, (files, folders) => wall.grantBin(files, folders))
     if (skipped) mainCrumb('bin-skipped', { count: skipped })
     return listing
   },

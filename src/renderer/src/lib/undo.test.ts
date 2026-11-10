@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { describe as label, emptyUndo, redone, remember, rememberRename, undone, type UndoEntry } from './undo'
+import {
+  describe as label,
+  emptyUndo,
+  entryPlaces,
+  entrySize,
+  entryStoppable,
+  entryVerb,
+  redone,
+  remember,
+  rememberRename,
+  undone,
+  type UndoEntry
+} from './undo'
 
 const move: UndoEntry = { kind: 'move', items: [{ from: 'C:\\a\\f.txt', to: 'C:\\b\\f.txt' }] }
 const ren: UndoEntry = { kind: 'rename', from: 'C:\\a\\old.txt', to: 'C:\\a\\new.txt' }
@@ -64,6 +76,33 @@ describe('the undo stack', () => {
     expect(label(bin)).toBe('deleting 2 items')
     expect(label(move)).toBe('moving f.txt')
     expect(label({ kind: 'duplicate', source: 'C:\\a\\p.png', path: 'C:\\a\\p (2).png' })).toBe('duplicating p (2).png')
+  })
+})
+
+// RESTORE FROM THE BIN VIEW IS UNDOABLE (Recycle Bin, D18): the exact mirror
+// of `trash`, so the two agree when they meet on the stack.
+describe('the unbin entry (Recycle Bin, D18)', () => {
+  const unbin: UndoEntry = { kind: 'unbin', paths: ['C:\\a\\x.txt', 'D:\\b\\y.txt'] }
+  it('is named for the message', () => {
+    expect(label(unbin)).toBe('restoring 2 items')
+    expect(label({ kind: 'unbin', paths: ['C:\\a\\x.txt'] })).toBe('restoring x.txt')
+  })
+  it('counts its paths for the loading bar', () => {
+    expect(entrySize(unbin)).toBe(2)
+  })
+  it('holds the folders the items sit in', () => {
+    expect(entryPlaces(unbin)).toEqual({ dirs: ['C:\\a', 'D:\\b'], under: unbin.paths })
+  })
+  it('says the opposite of trash: undo deletes (back into the bin), redo restores', () => {
+    expect(entryVerb(unbin, 'undo')).toBe('Deleting')
+    expect(entryVerb(unbin, 'redo')).toBe('Restoring')
+    expect(entryVerb(bin, 'undo')).toBe('Restoring')
+  })
+  it('is stoppable and walks the stack like any entry', () => {
+    expect(entryStoppable(unbin)).toBe(true)
+    const s = remember(remember(emptyUndo, bin), unbin)
+    expect(undone(s)!.entry).toBe(unbin)
+    expect(undone(undone(s)!.state)!.entry).toBe(bin)
   })
 })
 

@@ -44,6 +44,12 @@ export function seamBinDirs(): string[] | null {
 }
 const seamDirs = seamBinDirs
 
+/** May Prism ask Windows' own shell about the bin? Not under the e2e seam: the
+ *  Shell.Application walk reads the owner's REAL bin, which no test may touch. */
+export function shellBinAllowed(): boolean {
+  return seamBinDirs() === null
+}
+
 /** `PRISM_E2E_SLOW_BIN` (D17): milliseconds each bin job adds per item, so a
  *  short fixture lasts long enough to see the bar and press Cancel. `--e2e` only. */
 export function slowBinMs(): number {
