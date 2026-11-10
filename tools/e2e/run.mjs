@@ -11429,6 +11429,2095 @@ async function sidebarGroundScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * CTRL+WHEEL ZOOM, LIST STEPS 0 TO 4 (owner, 2026-11-09: "ctrl scroll to adjust
+ * the size of the list view"). One saved step for every folder: Ctrl+wheel
+ * moves it, the row under the pointer stays under it, Chromium's own page zoom
+ * never fires, a restart keeps it, and the Settings row lights Small, Medium or
+ * Large only for steps 0 to 2.
+ */
+async function zoomListScenario(fixtures) {
+  console.log('zoom list')
+  const dir = join(fixtures, 'zoomlist')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'sub'), { recursive: true })
+  for (let i = 0; i < 120; i++) writeFileSync(join(dir, `z${String(i).padStart(3, '0')}.txt`), `zoom ${i}\n`)
+  for (const n of ['s1.txt', 's2.txt']) writeFileSync(join(dir, 'sub', n), `sub ${n}\n`)
+  let { app, win } = await launch(join(dir, 'z000.txt'))
+  const rowSel = '[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]'
+  // Any of the folder's own files drawn says we are in it (a scrolled list does not draw z000).
+  const inside = '[data-testid="browse-list"] .browse-row[data-browse-path*="zoomlist"][data-browse-path$=".txt"]'
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="zoomlist"]').dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const rowH = () => win.evaluate((sel) => document.querySelector(sel)?.getBoundingClientRect().height ?? 0, rowSel)
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const dpr = () => win.evaluate(() => window.devicePixelRatio)
+  const listBox = () => win.evaluate(() => {
+    const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })
+  // Which file is under a point, and how far down its row the point is (0 to 1).
+  const under = (x, y) =>
+    win.evaluate(([px, py]) => {
+      const row = document.elementFromPoint(px, py)?.closest('.browse-row[data-browse-path]')
+      if (!row) return null
+      const r = row.getBoundingClientRect()
+      return { path: row.getAttribute('data-browse-path'), within: (py - r.top) / r.height, h: r.height }
+    }, [x, y])
+  // The pointer sits over the list's middle for every wheel (Settings leaves it on the cog).
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(200)
+  }
+  const pressedInSettings = async () => {
+    const row = await gotoPref(win, 'explorer-size')
+    const lit = await row.locator('[aria-pressed="true"]').allTextContents()
+    const sub = await row.innerText()
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    return { lit, sub }
+  }
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder of 120')
+    await sleep(300)
+    ok((await rowH()) === 26, `Medium is step 1: 26px rows (${await rowH()})`)
+    const dpr0 = await dpr()
+    const box = await listBox()
+    const px = box.x + Math.min(200, box.w / 2)
+    const py = box.y + 170
+    // Scroll a little, so the pointer is over a row in the middle of the list.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 500 })
+    await sleep(300)
+    at = { x: px, y: py }
+    await win.mouse.move(px, py)
+
+    // Up is bigger: 26 -> 40 -> 56 -> 76, the same file under the pointer each time.
+    for (const want of [40, 56, 76]) {
+      const before = await under(px, py)
+      await wheel(-100)
+      const h = await rowH()
+      const after = await under(px, py)
+      ok(h === want, `Ctrl+wheel up: ${want}px rows (${h})`)
+      ok(
+        before && after && before.path === after.path && Math.abs(before.within - after.within) * after.h <= 1,
+        `the row under the pointer stayed under it at ${want}px (${JSON.stringify(before)} -> ${JSON.stringify(after)})`
+      )
+    }
+    await win.screenshot({ path: join(SHOTS, 'zoom-list-step4.png') })
+    // The end: more wheel changes nothing, and the page itself never zooms.
+    // (Since Stage 6 the wheel goes on past 4 into the grid: five more notches
+    // reach step 9, the last, and then it stops.)
+    await wheel(-100, 8)
+    ok((await stored()) === '9', `at the last step (9) more Ctrl+wheel up changes nothing (${await stored()})`)
+    ok((await dpr()) === dpr0, `Chromium's own page zoom never fired (${dpr0} -> ${await dpr()})`)
+    await wheel(100, 5)
+    ok((await rowH()) === 76 && (await stored()) === '4', `five notches back down is step 4 again (${await stored()})`)
+    const high = await pressedInSettings()
+    ok(high.lit.length === 0 && /Set by zooming/.test(high.sub), `at step 4 no Settings size is lit and the row says how (${JSON.stringify(high)})`)
+    ok(await intoFolder(), 'back in the Explorer')
+    await sleep(300)
+
+    // Down is smaller, all the way to Small and no further.
+    for (const want of [56, 40, 26, 22]) {
+      await wheel(100)
+      ok((await rowH()) === want, `Ctrl+wheel down: ${want}px rows (${await rowH()})`)
+    }
+    await wheel(100, 3)
+    ok((await rowH()) === 22, 'at the first step more Ctrl+wheel down changes nothing')
+    ok((await dpr()) === dpr0, 'and the page still has not zoomed')
+    await win.screenshot({ path: join(SHOTS, 'zoom-list-step0.png') })
+
+    // The keys: Ctrl+Equals zooms in, Ctrl+Minus out, Ctrl+0 is Medium.
+    await win.locator(rowSel).first().click()
+    await win.keyboard.press('Control+Equal')
+    await sleep(250)
+    ok((await rowH()) === 26, `Ctrl+Plus: one step up (${await rowH()})`)
+    await win.keyboard.press('Control+Equal')
+    await win.keyboard.press('Control+Equal')
+    await sleep(250)
+    ok((await rowH()) === 56, `Ctrl+Plus twice more (${await rowH()})`)
+    await win.keyboard.press('Control+Minus')
+    await sleep(250)
+    ok((await rowH()) === 40, `Ctrl+Minus: one step down (${await rowH()})`)
+    await win.keyboard.press('Control+0')
+    await sleep(250)
+    ok((await rowH()) === 26, `Ctrl+0 is Medium (${await rowH()})`)
+
+    // The Settings row stays one with the wheel: Large lit at step 2, and a click writes the step.
+    await wheel(-100)
+    ok((await rowH()) === 40, 'step 2 is Large')
+    const large = await pressedInSettings()
+    ok(large.lit.join() === 'Large', `Settings lights Large at step 2 (${JSON.stringify(large.lit)})`)
+    await pickStyleSegment(win, 'explorer-size', 'Small')
+    ok(await intoFolder(), 'back in the Explorer')
+    await sleep(250)
+    ok((await rowH()) === 22 && (await stored()) === '0', `the Settings row writes the step: Small is step 0 (${await rowH()}, ${await stored()})`)
+
+    // One size everywhere, and a restart keeps it.
+    await wheel(-100, 3)
+    ok((await rowH()) === 56, `step 3 before the restart (${await rowH()})`)
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'z000.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder again')
+    await sleep(300)
+    ok((await rowH()) === 56, `the step is back after a restart (${await rowH()})`)
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="sub"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="s1.txt"]').count()) === 1, 10000), 'a second folder opens')
+    await sleep(250)
+    ok((await rowH()) === 56, `and wears the same step (${await rowH()})`)
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
+ * THE DESKTOP'S THUMBNAIL ENGINE (zoom grid, Stage 2: main only, no tile yet).
+ * Through `window.prism.thumbs` the page asks for pictures and main answers as
+ * fsmedia://thumb/ urls: a photo, a photo turned by its EXIF, a clear PNG, a
+ * GIF, an mp4 and the iPhone-style HEVC .mov each load as a picture of the
+ * right shape and width; a 0-byte jpg and a text file named .jpg are null;
+ * asking again is a cache hit with no new ffmpeg; a path outside the folder is
+ * refused; a rename succeeds while 40 thumbnails are queued; a changed mtime is
+ * a new url; 200 asks never put more than 3 ffmpegs to work and the page and
+ * main stay responsive. A contact sheet of what arrived is screenshotted.
+ */
+async function thumbsEngineScenario(fixtures) {
+  console.log('thumbs engine')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the thumbnail engine is skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'thumbsengine')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const plain = join(dir, 'a.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', plain])
+  // 64x32, turned to portrait by an EXIF orientation of 6.
+  const flat = join(dir, 'flat.tmp.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=64x32:rate=1', '-frames:v', '1', flat])
+  const exif = Buffer.concat([
+    Buffer.from('Exif\0\0'),
+    Buffer.from('4d4d002a00000008' + '0001' + '011200030000000100060000' + '00000000', 'hex')
+  ])
+  const jpg = readFileSync(flat)
+  const len = Buffer.alloc(2)
+  len.writeUInt16BE(exif.length + 2)
+  writeFileSync(join(dir, 'turned.jpg'), Buffer.concat([jpg.subarray(0, 2), Buffer.from([0xff, 0xe1]), len, exif, jpg.subarray(2)]))
+  rmSync(flat)
+  ff(['-f', 'lavfi', '-i', 'color=c=red@0.0:s=64x64,format=rgba', '-frames:v', '1', join(dir, 'clear.png')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=48x48:rate=5:duration=1', join(dir, 'anim.gif')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=2', '-c:v', 'mpeg4', join(dir, 'clip.mp4')])
+  const hevc = join(fixtures, 'av', 'iphone-hevc.mov')
+  const haveMov = existsSync(hevc)
+  if (haveMov) copyFileSync(hevc, join(dir, 'clip.mov'))
+  else console.log('  (the HEVC .mov fixture is not built, so the mov checks are skipped)')
+  writeFileSync(join(dir, 'empty.jpg'), '')
+  writeFileSync(join(dir, 'fake.jpg'), 'this is a text file named jpg')
+  writeFileSync(join(dir, 'notes.txt'), 'notes\n')
+  for (let i = 0; i < 40; i++) copyFileSync(plain, join(dir, `bulk${String(i).padStart(3, '0')}.jpg`))
+  for (let i = 0; i < 200; i++) copyFileSync(plain, join(dir, `load${String(i).padStart(3, '0')}.jpg`))
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  const P = (n) => join(dir, n)
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    const inFolder = '[data-testid="browse-list"] .browse-row[data-browse-path*="thumbsengine"][data-browse-path$=".jpg"]'
+    // The Explorer opens on the fixtures folder (the folder row of ours is there): go into it.
+    if ((await win.locator(inFolder).count()) === 0) await win.locator('[data-testid="browse-list"] [data-browse-path$="thumbsengine"]').dblclick()
+    ok(await until(async () => (await win.locator(inFolder).count()) > 0, 10000), 'the Explorer is in the folder')
+    const tab = await win.evaluate(() => {
+      const t = [...document.querySelectorAll('[role="tablist"] [data-tab-id]')].find(
+        (e) => e.querySelector('[role="tab"]')?.getAttribute('aria-selected') === 'true'
+      )
+      return t?.getAttribute('data-tab-id') ?? null
+    })
+    ok(!!tab, `the Explorer tab has an id (${tab})`)
+    let gen = 0
+    // Ask for `names` (or absolute paths) and wait for `expect` answers (the hits at once, the rest pushed).
+    const ask = (paths, { tier = 320, expect = paths.length, ms = 40000, id = tab } = {}) => {
+      gen += 1
+      return win.evaluate(
+        async ([t, g, items, want, wait]) => {
+          const got = {}
+          const off = window.prism.thumbs.onReady((m) => {
+            if (m.gen === g) for (const r of m.results) got[r.path] = r.url
+          })
+          const reply = await window.prism.thumbs.want(t, g, items)
+          Object.assign(got, reply.ready)
+          const t0 = performance.now()
+          while (Object.keys(got).length < want && performance.now() - t0 < wait) await new Promise((r) => setTimeout(r, 40))
+          off()
+          return { got, ready: reply.ready }
+        },
+        [id, gen, paths.map((path) => ({ path, tier })), expect, ms]
+      )
+    }
+    // Load a thumbnail url as an image: its size and its mean brightness (0 to 255).
+    const look = (url) =>
+      win.evaluate(async (u) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.src = u
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = 16
+        c.height = 16
+        const g = c.getContext('2d')
+        g.drawImage(img, 0, 0, 16, 16)
+        const d = g.getImageData(0, 0, 16, 16).data
+        let sum = 0
+        for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3
+        return { w: img.naturalWidth, h: img.naturalHeight, bright: sum / 256, corner: d[3] }
+      }, url)
+
+    const good = ['a.jpg', 'turned.jpg', 'clear.png', 'anim.gif', 'clip.mp4', ...(haveMov ? ['clip.mov'] : [])]
+    const bad = ['empty.jpg', 'fake.jpg']
+    const first = await ask([...good, ...bad].map(P))
+    const urls = good.map((n) => first.got[P(n)])
+    ok(urls.every((u) => typeof u === 'string' && /^fsmedia:\/\/thumb\/[0-9a-f]{40}\.(jpg|webp)$/.test(u)), `every good file has a thumbnail url (${JSON.stringify(urls)})`)
+    ok(bad.every((n) => P(n) in first.got && first.got[P(n)] === null), 'the 0-byte jpg and the text file named jpg answer null (no picture)')
+    const shape = {}
+    for (const n of good) shape[n] = await look(first.got[P(n)])
+    ok(shape['a.jpg'].w === 320 && shape['a.jpg'].h === 240, `a 160x120 photo is 320 wide, same shape (${shape['a.jpg'].w}x${shape['a.jpg'].h})`)
+    ok(shape['turned.jpg'].w === 320 && shape['turned.jpg'].h === 640, `a photo turned by its EXIF is portrait (${shape['turned.jpg'].w}x${shape['turned.jpg'].h})`)
+    ok(shape['clear.png'].w === 320 && shape['clear.png'].corner === 0, `a clear PNG keeps its clear corner (alpha ${shape['clear.png'].corner})`)
+    ok(shape['anim.gif'].w === 320, 'a GIF gives a 320 wide picture')
+    ok(shape['clip.mp4'].w === 320 && shape['clip.mp4'].bright > 8, `an mp4 gives a frame that is not black (${Math.round(shape['clip.mp4'].bright)})`)
+    if (haveMov) ok(shape['clip.mov'].w === 320 && shape['clip.mov'].bright > 8, `the HEVC .mov gives a frame that is not black (${Math.round(shape['clip.mov'].bright)})`)
+
+    // The contact sheet: LOOK at what arrived.
+    await win.evaluate((list) => {
+      const sheet = document.createElement('div')
+      sheet.id = 'thumbs-sheet'
+      sheet.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;background:#808080'
+      for (const u of list) {
+        const i = document.createElement('img')
+        i.src = u
+        i.style.cssText = 'height:300px;background:repeating-conic-gradient(#bbb 0 25%,#eee 0 50%) 0 0/16px 16px'
+        sheet.append(i)
+      }
+      document.body.append(sheet)
+    }, urls)
+    await sleep(600)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-engine-sheet.png') })
+    await win.evaluate(() => document.getElementById('thumbs-sheet')?.remove())
+
+    // Asking again: the hits come back at once, no ffmpeg runs.
+    const before = await stats()
+    const again = await ask([...good, ...bad].map(P), { expect: 0 })
+    const after = await stats()
+    ok(good.every((n) => again.ready[P(n)] === first.got[P(n)]), 'asking again answers the same urls at once (the cache)')
+    ok(bad.every((n) => P(n) in again.ready && again.ready[P(n)] === null), 'and a file with no picture is null at once (remembered)')
+    ok(before && after && after.runs === before.runs, `and no ffmpeg ran (${before?.runs} -> ${after?.runs})`)
+
+    // The 640 tier is its own, wider picture.
+    const big = await ask([P('a.jpg')], { tier: 640 })
+    ok(big.got[P('a.jpg')] && big.got[P('a.jpg')] !== first.got[P('a.jpg')], 'the 640 tier is a different file')
+    ok((await look(big.got[P('a.jpg')])).w === 640, 'and 640 wide')
+
+    // The wall: a file the Explorer did not list for this tab, and a tab that is not this one.
+    const outside = join(fixtures, 'av', 'xvid.avi')
+    const walled = await ask([outside, P('a.jpg')], { expect: 99, ms: 1500 })
+    ok(!(outside in walled.got), 'a path outside the folder is refused')
+    const stranger = await ask([P('a.jpg')], { expect: 99, ms: 800, id: 'not-my-tab' })
+    ok(Object.keys(stranger.got).length === 0, 'a tab that never visited the folder gets nothing')
+
+    // A changed file is a new url.
+    const later = new Date(Date.now() + 60000)
+    utimesSync(P('a.jpg'), later, later)
+    const touched = await ask([P('a.jpg')])
+    ok(touched.got[P('a.jpg')] && touched.got[P('a.jpg')] !== first.got[P('a.jpg')], 'a changed modified time is a new url')
+
+    // A rename succeeds while 40 thumbnails are queued (the holders kill the ffmpeg that holds the file).
+    const bulk = Array.from({ length: 40 }, (_, i) => P(`bulk${String(i).padStart(3, '0')}.jpg`))
+    gen += 1
+    const rename = await win.evaluate(
+      async ([t, g, items, from, to]) => {
+        await window.prism.thumbs.want(t, g, items)
+        // The first are running now, the last are waiting: rename one of each.
+        const r1 = await window.prism.renameFile(from[0], to[0], 'ask')
+        const r2 = await window.prism.renameFile(from[1], to[1], 'ask')
+        return [r1, r2]
+      },
+      [tab, gen, bulk.map((path) => ({ path, tier: 320 })), [bulk[0], bulk[39]], ['bulk-renamed-a.jpg', 'bulk-renamed-b.jpg']]
+    )
+    ok(rename.every((r) => r.ok), `a rename succeeds while 40 thumbnails are queued (${JSON.stringify(rename.map((r) => r.ok || r.reason))})`)
+    ok(existsSync(P('bulk-renamed-a.jpg')) && existsSync(P('bulk-renamed-b.jpg')) && !existsSync(bulk[0]), 'and the files have their new names')
+    await win.evaluate((t) => window.prism.thumbs.cancel(t), tab)
+
+    // 200 asks for distinct files: at most 3 ffmpegs at once, and nothing freezes.
+    await sleep(500)
+    const loads = Array.from({ length: 200 }, (_, i) => P(`load${String(i).padStart(3, '0')}.jpg`))
+    await win.evaluate(() => {
+      window.__gaps = []
+      let last = performance.now()
+      window.__pulse = setInterval(() => {
+        const now = performance.now()
+        window.__gaps.push(now - last)
+        last = now
+      }, 20)
+    })
+    let mainWorst = 0
+    let sampling = true
+    const sample = (async () => {
+      while (sampling) {
+        const t0 = Date.now()
+        await app.evaluate(() => 1)
+        mainWorst = Math.max(mainWorst, Date.now() - t0)
+        await sleep(100)
+      }
+    })()
+    const t0 = Date.now()
+    const heavy = await ask(loads, { ms: 90000 })
+    const took = Date.now() - t0
+    sampling = false
+    await sample
+    const gaps = await win.evaluate(() => {
+      clearInterval(window.__pulse)
+      return window.__gaps
+    })
+    const worst = Math.max(...gaps)
+    const final = await stats()
+    ok(Object.keys(heavy.got).length === 200 && loads.every((p) => typeof heavy.got[p] === 'string'), `all 200 were made (${Object.keys(heavy.got).length}, ${took} ms)`)
+    ok(final && final.peak <= 3, `never more than 3 ffmpegs at once (peak ${final?.peak})`)
+    ok(worst < 400, `the page stayed responsive: longest gap ${Math.round(worst)} ms`)
+    ok(mainWorst < 500, `main stayed responsive: slowest round trip ${mainWorst} ms`)
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
+ * PICTURES IN THE LIST ROWS (zoom grid, Stage 3). Ctrl+wheel to step 3 puts a
+ * 40px picture box in the Name column and step 4 a 60px one: a photo shows a
+ * loaded 320-wide thumbnail, an SVG is drawn from the file, the iPhone-style
+ * HEVC .mov shows a frame that is not black, a film wears a play glyph, a clear
+ * PNG sits on the checker, a text file, a PDF and a folder keep their icons in
+ * a slot of the same width (the names line up), a corrupt "jpg" keeps its icon
+ * with no error mark. A fast scroll through 400 files makes no ask until it
+ * stops. Back at Medium there are no picture boxes and no asks at all.
+ */
+async function thumbsListScenario(fixtures) {
+  console.log('thumbs list')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the list pictures are skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'thumbslist')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'many'), { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const photo = join(dir, 'a-photo.jpg')
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', photo])
+  ff(['-f', 'lavfi', '-i', 'color=c=red@0.0:s=64x64,format=rgba', '-frames:v', '1', join(dir, 'a-clear.png')])
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=2', '-c:v', 'mpeg4', join(dir, 'a-clip.mp4')])
+  const hevc = join(fixtures, 'av', 'iphone-hevc.mov')
+  const haveMov = existsSync(hevc)
+  if (haveMov) copyFileSync(hevc, join(dir, 'a-clip.mov'))
+  else console.log('  (the HEVC .mov fixture is not built, so the mov checks are skipped)')
+  writeFileSync(join(dir, 'a-corrupt.jpg'), 'this is a text file named jpg')
+  writeFileSync(join(dir, 'a-notes.txt'), 'notes\n')
+  writeFileSync(join(dir, 'a-data.json'), '{}\n')
+  writeFileSync(join(dir, 'a-doc.pdf'), '%PDF-1.4 not a real one\n')
+  writeFileSync(join(dir, 'a-song.mp3'), 'not audio')
+  writeFileSync(
+    join(dir, 'a-logo.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="28" fill="#c33"/></svg>'
+  )
+  for (let i = 0; i < 26; i++) copyFileSync(photo, join(dir, `p${String(i).padStart(2, '0')}.jpg`))
+  for (let i = 0; i < 400; i++) copyFileSync(photo, join(dir, 'many', `m${String(i).padStart(3, '0')}.jpg`))
+
+  let { app, win } = await launch(join(dir, 'a-notes.txt'))
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  const rowOf = (name) => `[data-testid="browse-list"] .browse-row[data-browse-path$="${name}"]`
+  const inside = '[data-testid="browse-list"] .browse-row[data-browse-path*="thumbslist"][data-browse-path$=".jpg"]'
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="thumbslist"]').dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const rowH = () => win.evaluate((sel) => document.querySelector(sel)?.getBoundingClientRect().height ?? 0, rowOf('a-notes.txt'))
+  const listBox = () =>
+    win.evaluate(() => {
+      const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return { x: r.left, y: r.top, w: r.width, h: r.height }
+    })
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(250)
+  }
+  // Everything a row shows in its picture slot, measured after render.
+  const slot = (name) =>
+    win.evaluate((sel) => {
+      const row = document.querySelector(sel)
+      if (!row) return null
+      const box = row.querySelector('.browse-thumb')
+      const img = row.querySelector('.browse-thumb-img')
+      const sl = row.querySelector('.browse-thumb-slot')
+      const text = row.querySelector('.browse-name-text')
+      const rr = row.getBoundingClientRect()
+      const b = box?.getBoundingClientRect()
+      return {
+        box: b ? { w: b.width, h: b.height } : null,
+        slotW: sl ? sl.getBoundingClientRect().width : null,
+        img: img ? { w: img.naturalWidth, shown: img.hasAttribute('data-shown'), src: img.getAttribute('src') } : null,
+        state: box?.getAttribute('data-thumb-state') ?? null,
+        checker: !!box?.classList.contains('p-checker'),
+        play: !!row.querySelector('.browse-thumb-play'),
+        icon: !!(box ?? sl)?.querySelector('svg'),
+        textLeft: text ? text.getBoundingClientRect().left - rr.left : null
+      }
+    }, rowOf(name))
+  // A thumbnail url as an image: its mean brightness, drawn through a CORS-clean copy.
+  const bright = (url) =>
+    win.evaluate(async (u) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.src = u
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = 16
+      c.height = 16
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0, 16, 16)
+      const d = g.getImageData(0, 0, 16, 16).data
+      let sum = 0
+      for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3
+      return sum / 256
+    }, url)
+  const shownCount = () => win.locator('[data-testid="browse-list"] .browse-thumb-img[data-shown]').count()
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder')
+    await sleep(300)
+    ok((await win.locator('[data-testid="browse-list"] .browse-thumb').count()) === 0, 'at Medium no row has a picture box')
+    const idle0 = await stats()
+    const box = await listBox()
+    at = { x: box.x + Math.min(200, box.w / 2), y: box.y + 170 }
+    await win.mouse.move(at.x, at.y)
+    await sleep(600)
+    const idle1 = await stats()
+    ok(idle0 && idle1 && idle1.wants === 0 && idle0.wants === 0, `at Medium the page asks for no thumbnail (${idle0?.wants} -> ${idle1?.wants})`)
+
+    // Step 3: Roomy, 56px rows, a 40px picture.
+    await wheel(-100, 2)
+    ok((await rowH()) === 56, `step 3 has 56px rows (${await rowH()})`)
+    ok(await until(async () => (await shownCount()) >= 5, 30000), `pictures arrive in the rows (${await shownCount()})`)
+    if (haveMov) await until(async () => !!(await slot('a-clip.mov'))?.img?.shown, 30000)
+    await until(async () => !!(await slot('a-logo.svg'))?.img?.shown, 10000)
+    await sleep(500)
+    const s = {}
+    for (const n of ['a-photo.jpg', 'a-clear.png', 'a-clip.mp4', 'a-clip.mov', 'a-corrupt.jpg', 'a-notes.txt', 'a-doc.pdf', 'a-logo.svg', 'a-song.mp3']) s[n] = await slot(n)
+    const photoS = s['a-photo.jpg']
+    ok(photoS?.img?.shown && photoS.img.w === 320, `the photo row shows a loaded 320 wide thumbnail (${JSON.stringify(photoS?.img)})`)
+    ok(/^fsmedia:\/\/thumb\/[0-9a-f]{40}\.jpg$/.test(photoS?.img?.src ?? ''), 'and it comes from the thumbnail cache url')
+    ok(photoS?.box && photoS.box.w === 40 && photoS.box.h === 40, `in a 40px box (${JSON.stringify(photoS?.box)})`)
+    ok(!photoS?.play && !photoS?.checker, 'a photo has no play glyph and no checker')
+    ok(s['a-clear.png']?.img?.shown && s['a-clear.png'].checker, `a clear PNG sits on the checker (${JSON.stringify(s['a-clear.png'])})`)
+    ok(s['a-clip.mp4']?.img?.shown && s['a-clip.mp4'].play, 'an mp4 shows its frame with the play glyph')
+    if (haveMov) {
+      const mov = s['a-clip.mov']
+      ok(mov?.img?.shown && mov.img.w === 320 && mov.play, `the HEVC .mov shows a frame with the play glyph (${JSON.stringify(mov?.img)})`)
+      const b = mov?.img?.src ? await bright(mov.img.src) : 0
+      ok(b > 8, `and the .mov frame is not black (${Math.round(b)})`)
+    }
+    ok(s['a-logo.svg']?.img?.shown && s['a-logo.svg'].img.src.startsWith('fsmedia://local/'), `an SVG is drawn from the file itself (${s['a-logo.svg']?.img?.src?.slice(0, 40)})`)
+    ok(s['a-corrupt.jpg']?.state === 'icon' && !s['a-corrupt.jpg'].img && s['a-corrupt.jpg'].icon, `a corrupt jpg keeps its icon, no picture, no mark (${s['a-corrupt.jpg']?.state})`)
+    for (const n of ['a-notes.txt', 'a-doc.pdf', 'a-song.mp3'])
+      ok(!s[n]?.box && s[n]?.icon && s[n].slotW === 40, `${n} keeps its icon in a 40px slot (${JSON.stringify([s[n]?.icon, s[n]?.slotW])})`)
+    const folderSlot = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$="many"]')
+      const sl = row?.querySelector('.browse-thumb-slot')
+      return sl ? sl.getBoundingClientRect().width : null
+    })
+    ok(folderSlot === 40, `a folder keeps its glyph in a 40px slot (${folderSlot})`)
+    const lefts = ['a-photo.jpg', 'a-clear.png', 'a-clip.mp4', 'a-corrupt.jpg', 'a-notes.txt', 'a-doc.pdf'].map((n) => s[n]?.textLeft)
+    ok(lefts.every((l) => l != null && Math.abs(l - lefts[0]) < 0.5), `the names line up whether the row has a picture or an icon (${lefts.map((l) => Math.round(l * 10) / 10)})`)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-list-step3.png') })
+
+    // Step 4: Roomier, 76px rows, a 60px picture from the same 320 thumbnail.
+    await wheel(-100, 1)
+    ok((await rowH()) === 76, `step 4 has 76px rows (${await rowH()})`)
+    ok(await until(async () => (await slot('a-photo.jpg'))?.img?.shown === true, 15000), 'the photo still shows at step 4')
+    const big = await slot('a-photo.jpg')
+    ok(big?.box && big.box.w === 60 && big.box.h === 60 && big.img.w === 320, `step 4 has a 60px box over the 320 thumbnail (${JSON.stringify([big?.box, big?.img?.w])})`)
+    await sleep(400)
+    await win.screenshot({ path: join(SHOTS, 'thumbs-list-step4.png') })
+
+    // A fast scroll through 400 files asks for nothing until it stops.
+    await wheel(100, 1)
+    ok((await rowH()) === 56, 'back to step 3')
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="many"]').dblclick()
+    ok(await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$="m000.jpg"]').count()) === 1, 10000), 'the folder of 400 opens')
+    ok(await until(async () => (await shownCount()) >= 5, 30000), 'its first pictures arrive')
+    await sleep(1200)
+    const base = (await stats()).wants
+    let during = base
+    const scrolling = win.evaluate(async () => {
+      const l = document.querySelector('[data-testid="browse-list"]')
+      for (let i = 1; i <= 36; i++) {
+        l.scrollTop = i * 560
+        await new Promise((r) => setTimeout(r, 25))
+      }
+    })
+    let going = true
+    const poll = (async () => {
+      while (going) {
+        during = Math.max(during, (await stats()).wants)
+        await sleep(60)
+      }
+    })()
+    await scrolling
+    going = false
+    await poll
+    ok(during === base, `a fast scroll sent no ask (${base} -> ${during})`)
+    ok(await until(async () => (await stats()).wants > base, 5000), 'one ask goes out once the scroll stops')
+    await sleep(1500)
+    const after = (await stats()).wants
+    ok(after - base <= 3, `and only a few (${after - base})`)
+    ok(await until(async () => (await shownCount()) >= 5, 30000), `pictures arrive for the rows it stopped on (${await shownCount()})`)
+
+    // Back to Medium: no boxes, and no asks.
+    const w0 = (await stats()).wants
+    await wheel(100, 2)
+    ok((await win.locator('[data-testid="browse-list"] .browse-thumb').count()) === 0, 'back at Medium no row has a picture box')
+    await sleep(600)
+    ok((await stats()).wants === w0, 'and the page asks for nothing more')
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
+ * THE GRID (zoom grid, Stage 4, 2026-11-09): layout, virtualisation, click,
+ * scroll and the sort strip, on a folder of 2,000 files in 3 subfolders. The
+ * grid was behind a test-only ceiling until Stage 6 lifted the cap, so this
+ * lifts it. Checked by measuring the page after render, never by constants
+ * (the owner's screen is 225%): the tile boxes against the maths for the
+ * measured width, thumbnails for the first screen only, the mounted tiles
+ * under the bound all the way down and back, click / Ctrl / Shift marks, a
+ * double click into a folder and into the viewer, the sort strip, the item
+ * under the pointer across list and grid, the step across a restart, and the
+ * preview pane changing the columns without losing the first tile in view.
+ */
+async function gridBasicScenario(fixtures) {
+  console.log('grid basic')
+  const dir = join(fixtures, 'gridbasic')
+  rmSync(dir, { recursive: true, force: true })
+  for (const sub of ['a', 'b', 'c']) mkdirSync(join(dir, sub), { recursive: true })
+  writeFileSync(join(dir, 'a', 'in-a.txt'), 'inside a\n')
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const seed = join(fixtures, 'gridbasic-seed.jpg')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', seed])
+  // i0000..i0299 are photos (newest), t0000..t1698 are text (oldest), v0.mp4 one film: 2,000 files.
+  for (let i = 0; i < 300; i++) {
+    const p = join(dir, `i${String(i).padStart(4, '0')}.jpg`)
+    if (HAS_FFMPEG) copyFileSync(seed, p)
+    else writeFileSync(p, 'not a picture')
+    const t = new Date(2024, 5, 1, 0, 0, i)
+    utimesSync(p, t, t)
+  }
+  for (let i = 0; i < 1699; i++) {
+    const p = join(dir, `t${String(i).padStart(4, '0')}.txt`)
+    writeFileSync(p, `text ${i}\n`)
+    const t = new Date(2020, 0, 1, 0, i)
+    utimesSync(p, t, t)
+  }
+  const clip = join(dir, 'v0.mp4')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25:duration=1', '-c:v', 'mpeg4', clip])
+  else writeFileSync(clip, 'not a film')
+  utimesSync(clip, new Date(2022, 0, 1), new Date(2022, 0, 1))
+  rmSync(seed, { force: true })
+
+  let { app, win } = await launch(join(dir, 't0000.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const tilesSel = `${listSel} .browse-tile`
+  const tile = (name) => win.locator(`${tilesSel}[data-browse-path$="${name}"]`)
+  const inside = `${listSel} [data-browse-path*="gridbasic"][data-browse-path$=".jpg"]`
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator(`${listSel} [data-browse-path$="gridbasic"]`).dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  // Everything about the grid, measured after render.
+  const geo = () =>
+    win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const lr = list.getBoundingClientRect()
+      const tiles = [...list.querySelectorAll('.browse-tile')]
+      const rects = tiles.map((t) => t.getBoundingClientRect())
+      const top0 = rects[0]?.top
+      const cols = rects.filter((r) => Math.abs(r.top - top0) < 1).length
+      const nextRow = rects.find((r) => r.top > top0 + 1)
+      const box = tiles[0]?.querySelector('.browse-thumb')?.getBoundingClientRect()
+      return {
+        n: tiles.length,
+        rows: list.querySelectorAll('.browse-row[data-browse-path]').length,
+        cols,
+        w: rects[0]?.width ?? 0,
+        h: rects[0]?.height ?? 0,
+        left0: rects[0] ? rects[0].left - lr.left : null,
+        top0: rects[0] ? rects[0].top - lr.top : null,
+        pitchX: rects[1] ? rects[1].left - rects[0].left : null,
+        pitchY: nextRow ? nextRow.top - top0 : null,
+        box: box ? box.width : null,
+        clientW: list.clientWidth,
+        clientH: list.clientHeight,
+        scrollTop: list.scrollTop,
+        scrollH: list.scrollHeight
+      }
+    })
+  const wantCols = (g) => Math.max(1, Math.floor((g.clientW - 24 + 4) / (g.box + 12 + 4)))
+  const shownCount = () => win.locator(`${listSel} .browse-thumb-img[data-shown]`).count()
+  const names = () =>
+    win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile')].map((t) => t.getAttribute('data-browse-path').split(/[\\/]/).pop()))
+  let at = null
+  const wheel = async (dy, count = 1) => {
+    if (at) await win.mouse.move(at.x, at.y)
+    for (let i = 0; i < count; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  // The pointer's y inside the item with this path: true when its cell still spans it.
+  const spans = (path, py) =>
+    win.evaluate(
+      ([p, y]) => {
+        const el = [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path]')].find((e) => e.getAttribute('data-browse-path') === p)
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        return r.top - 1 <= y && y <= r.bottom + 1
+      },
+      [path, py]
+    )
+  const under = (x, y) =>
+    win.evaluate(([px, py]) => document.elementFromPoint(px, py)?.closest('[data-browse-path]')?.getAttribute('data-browse-path') ?? null, [x, y])
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), 'the Explorer shows the folder of 2,000')
+    await sleep(300)
+    const list0 = await win.evaluate(() => {
+      const r = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return { x: r.left, y: r.top, w: r.width, h: r.height }
+    })
+    at = { x: list0.x + Math.min(260, list0.w / 2), y: list0.y + 200 }
+    await win.mouse.move(at.x, at.y)
+
+    // Up from Medium: 2 Large, 3 Roomy, 4 Roomier, 5 the first tiles, 6 the next.
+    await wheel(-100, 5)
+    ok((await stored()) === '6', `five notches up is step 6 (${await stored()})`)
+    // The zoom keeps the item under the pointer, so the list may not be at its top: go there to measure the first line.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 })
+    await sleep(400)
+    const g6 = await geo()
+    ok(g6.n > 0 && g6.rows === 0, `step 6 draws tiles and no rows (${g6.n} tiles, ${g6.rows} rows)`)
+    ok(g6.box === 128 && g6.w === 140, `a tile is a 128 picture in a 140 cell (${g6.box}, ${g6.w})`)
+    ok(g6.pitchX === 144 && g6.left0 === 12, `cells sit 4px apart from a 12px edge (${g6.pitchX}, ${g6.left0})`)
+    ok(g6.cols === wantCols(g6), `the columns equal the maths for the measured ${g6.clientW}px width (${g6.cols} vs ${wantCols(g6)})`)
+    ok(g6.h > g6.box + 20 && Math.abs(g6.pitchY - (g6.h + 4)) < 0.05, `the name band is under the picture and lines are ${g6.h}+4 apart (${g6.pitchY})`)
+    ok(Math.abs(g6.top0 - 12) < 0.05, `the first line starts 12px down (${g6.top0})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-step6.png') })
+    if (HAS_FFMPEG) {
+      ok(await until(async () => (await shownCount()) >= 5, 30000), `thumbnails load for the first screen (${await shownCount()})`)
+      await sleep(600)
+      const s = await stats()
+      const mountedImages = await win.locator(`${tilesSel}[data-browse-path$=".jpg"]`).count()
+      ok(s && s.runs <= mountedImages + 3, `and only for what is mounted: ${s?.runs} runs, ${mountedImages} photos on screen`)
+    }
+    ok((await win.locator(`${tilesSel}[data-browse-path$="i0299.jpg"]`).count()) === 0, 'a tile far down is not mounted yet')
+
+    // Scroll to the end and back: the mounted tiles stay under the bound.
+    const pitch = g6.pitchY
+    const bound = (g6.clientH / pitch + 6) * g6.cols
+    let most = 0
+    const total = g6.scrollH
+    for (let k = 0; k <= 12; k++) {
+      await win.evaluate((y) => { document.querySelector('[data-testid="browse-list"]').scrollTop = y }, (total / 12) * k)
+      await sleep(70)
+      most = Math.max(most, (await geo()).n)
+    }
+    ok(most <= bound, `at most ${most} tiles mounted over 2,000 files, under the bound ${Math.round(bound)}`)
+    ok(await until(async () => (await tile('v0.mp4').count()) === 1, 3000), 'the last file is there at the end')
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 })
+    await sleep(300)
+    ok((await geo()).n <= bound, 'and back at the top the window is small again')
+
+    // Click selects; Ctrl+click toggles; Shift+click marks the run.
+    await tile('i0003.jpg').click()
+    await sleep(250)
+    ok(
+      (await tile('i0003.jpg').getAttribute('data-selected')) !== null && (await win.locator(`${tilesSel}[data-selected]`).count()) === 1,
+      'a click selects that one tile'
+    )
+    await tile('i0005.jpg').click({ modifiers: ['Control'] })
+    await sleep(250)
+    ok((await win.locator(`${tilesSel}[data-selected]`).count()) === 2, 'Ctrl+click adds a second')
+    await tile('i0008.jpg').click({ modifiers: ['Shift'] })
+    await sleep(250)
+    const marked = await win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile[data-selected]')].map((t) => t.getAttribute('data-browse-path').split(/[\\/]/).pop()))
+    ok(['i0005.jpg', 'i0006.jpg', 'i0007.jpg', 'i0008.jpg'].every((n) => marked.includes(n)), `Shift+click marks the run from the anchor (${marked.join(' ')})`)
+    await win.locator(`${listSel} [data-browse-path$="i0003.jpg"]`).click()
+    await sleep(200)
+    ok((await win.locator(`${tilesSel}[data-selected]`).count()) === 1, 'a plain click is one tile again')
+
+    // Double click: a folder tile enters it; an image tile opens in the viewer.
+    await tile('a').dblclick()
+    ok(await until(async () => (await tile('in-a.txt').count()) === 1, 10000), 'a double click on a folder tile enters it')
+    ok((await geo()).n >= 1, 'and it is still a grid there')
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(await until(async () => (await tile('i0001.jpg').count()) === 1, 10000), 'Alt+Left returns to the 2,000')
+    await tile('i0001.jpg').dblclick()
+    ok(await until(async () => (await viewing(win)).includes('i0001'), 15000), 'a double click on an image tile opens the viewer')
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    ok(await until(async () => (await tile('i0001.jpg').count()) === 1, 10000), 'and Back is the grid again')
+
+    // The sort strip: the same buttons, packed left, and a click re-orders the tiles.
+    const strip = await win.evaluate(() =>
+      [...document.querySelectorAll('.browse-list-area .browse-columns button')].map((b) => ({
+        text: b.textContent.trim(),
+        left: b.getBoundingClientRect().left,
+        aria: b.getAttribute('aria-label')
+      }))
+    )
+    const listLeft = (await win.evaluate(() => document.querySelector('[data-testid="browse-list"]').getBoundingClientRect().left))
+    ok(strip.map((b) => b.text).join('|') === 'Name|Date modified|Size|Type', `the strip has the same four buttons (${strip.map((b) => b.text).join('|')})`)
+    ok(strip.every((b, i) => i === 0 || b.left > strip[i - 1].left) && strip[3].left - listLeft < 420, `packed to the left (${strip.map((b) => Math.round(b.left - listLeft)).join(', ')})`)
+    ok(strip.every((b) => /^Sort by /.test(b.aria ?? '')), 'each keeps its Sort by label')
+    await win.screenshot({ path: join(SHOTS, 'grid-strip.png') })
+    const before = (await names()).slice(0, 8)
+    ok(before.includes('i0000.jpg') && !before.includes('t0000.txt'), `by name the photos come first (${before.join(' ')})`)
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
+    await sleep(500)
+    const firstFile = async () => (await names()).find((n) => /\.(txt|jpg|mp4)$/.test(n))
+    const a = await firstFile()
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
+    await sleep(500)
+    const b = await firstFile()
+    ok(a !== b && [a, b].sort().join() === ['i0299.jpg', 't0000.txt'].sort().join(), `Date modified re-orders the tiles, oldest and newest first (${a}, ${b})`)
+    await win.locator('.browse-list-area .browse-columns button', { hasText: 'Name' }).click()
+    await sleep(400)
+
+    // The item under the pointer stays under it across list and grid.
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 3000 })
+    await sleep(300)
+    let px = at.x
+    let py = at.y
+    let cur = await under(px, py)
+    for (let k = 0; !cur && k < 12; k++) cur = await under((px += 14), py)
+    await win.mouse.move(px, py)
+    at = { x: px, y: py }
+    ok(!!cur, `a tile is under the pointer to follow (${cur?.split(/[\\/]/).pop()})`)
+    const path = []
+    const sequence = [-1, -1, -1, 1, 1, 1, 1, 1]
+    let stay = true
+    const notes = []
+    for (const dir2 of sequence) {
+      const sBefore = Number(await stored())
+      await wheel(dir2 < 0 ? 100 : -100)
+      const sAfter = Number(await stored())
+      if (sAfter === sBefore) continue
+      const held = await spans(cur, py)
+      notes.push(`${sBefore}->${sAfter}:${held ? 'y' : 'N'}`)
+      if (!held) stay = false
+      path.push(sAfter)
+    }
+    ok(stay && path.length >= 6, `the same item stayed under the pointer through steps ${path.join(' ')} (${notes.join(' ')})`)
+    // Top of the range, then a screenshot of the biggest tiles.
+    await wheel(-100, 4)
+    ok((await stored()) === '9', `the last step is 9 (${await stored()})`)
+    const g9 = await geo()
+    ok(g9.box === 272 && g9.cols === wantCols(g9), `step 9 has 272 pictures in ${g9.cols} columns (${g9.box})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-step9.png') })
+    await wheel(100, 3)
+    ok((await stored()) === '6', `back down to step 6 (${await stored()})`)
+
+    // The step survives a restart, in the grid.
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 't0000.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder')
+    await sleep(500)
+    const gr = await geo()
+    ok(gr.n > 0 && gr.box === 128 && (await stored()) === '6', `the grid is back at step 6 (${gr.box}, ${await stored()})`)
+
+    // A narrower window gives fewer columns, and the first tile in view stays in view.
+    // (A preview pane toggle cannot be used here: it re-reads the folder and puts any list back at the top.)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 2500 })
+    await sleep(500)
+    const firstSeen = async () =>
+      win.evaluate(() => {
+        const list = document.querySelector('[data-testid="browse-list"]')
+        const lr = list.getBoundingClientRect()
+        const t = [...list.querySelectorAll('.browse-tile')].find((e) => e.getBoundingClientRect().top >= lr.top)
+        return t ? t.getAttribute('data-browse-path') : null
+      })
+    const gBefore = await geo()
+    const seen = await firstSeen()
+    const size = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentSize())
+    const resize = (w) => app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, size[1]])
+    await resize(size[0] - 450)
+    await until(async () => (await geo()).clientW !== gBefore.clientW, 8000)
+    await sleep(900)
+    const gAfter = await geo()
+    ok(gAfter.clientW < gBefore.clientW && gAfter.cols < gBefore.cols, `a narrower window changes the width ${gBefore.clientW} -> ${gAfter.clientW} and the columns ${gBefore.cols} -> ${gAfter.cols}`)
+    ok(gAfter.cols === wantCols(gAfter), `the new columns equal the maths (${gAfter.cols})`)
+    const stillIn = await win.evaluate((p) => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const lr = list.getBoundingClientRect()
+      const el = [...list.querySelectorAll('.browse-tile')].find((e) => e.getAttribute('data-browse-path') === p)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      return r.bottom > lr.top && r.top < lr.bottom
+    }, seen)
+    ok(stillIn, `the first tile in view is still in view after the columns changed (${seen?.split(/[\\/]/).pop()}; scroll ${gBefore.scrollTop} -> ${gAfter.scrollTop})`)
+    await resize(size[0])
+    await until(async () => (await geo()).clientW === gBefore.clientW, 8000)
+    await sleep(600)
+    const back = await firstSeen()
+    ok(back === seen || Math.abs((await geo()).scrollTop - gBefore.scrollTop) < 400, `and back at the old width the same tiles are in view (${back?.split(/[\\/]/).pop()})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-preview.png') })
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.explorer.zoom', 'prism.explorer.size']) localStorage.removeItem(k) }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
+ * THE KEYBOARD IN THE GRID (zoom grid, Stage 5, 2026-11-09; spec 5.2 and
+ * 5.3), on a folder of 53 files (a prime, so the last line is short at every
+ * column count). Measured by which tile holds the focus and by the tiles'
+ * own boxes, never by constants: the arrows move in two dimensions, Down from
+ * above a short last line lands on the last item, the Page keys, Home and
+ * End, Shift marks an index range, Ctrl moves the focus and Ctrl+Space marks
+ * a tile that is not next to the others, type-ahead, Space (the preview
+ * pane), Enter, Up and Down walking the opened files, the way back with the
+ * opened tile in view, and in the LIST (step 1) Left and Right still reach
+ * the viewer: the window sees the keydown there and does not in the grid.
+ */
+/**
+ * CROSSING FROM ROWS TO TILES KEEPS THE KEYBOARD (zoom grid review, 2026-11-10).
+ * A row and a tile are different elements, so a step across the boundary used
+ * to drop the focus to the page and the arrows stopped until a click. And a
+ * Ctrl+wheel that changes no cell (a zip at a tile step stays 40px rows) must
+ * leave nothing behind: it used to land on the next listing and scroll it.
+ */
+async function zoomFocusScenario(fixtures) {
+  console.log('zoom focus')
+  const dir = join(fixtures, 'zoomfocus')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (let i = 0; i < 80; i++) writeFileSync(join(dir, `a${String(i).padStart(2, '0')}.txt`), `f ${i}\n`)
+  const AdmZip = (await import('adm-zip')).default
+  const pack = new AdmZip()
+  for (let i = 0; i < 200; i++) pack.addFile(`m${String(i).padStart(3, '0')}.txt`, Buffer.from(`m ${i}`))
+  pack.writeZip(join(dir, 'a-pack.zip'))
+  const { app, win } = await launch(join(dir, 'a00.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const inside = `${listSel} [data-browse-path*="zoomfocus"][data-browse-path$=".txt"]`
+  const stored = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  const focus = () =>
+    win.evaluate(() => {
+      const t = document.activeElement?.closest?.('.browse-tile, .browse-row[data-browse-path]')
+      return t ? { tile: t.classList.contains('browse-tile'), name: t.getAttribute('data-browse-path').split(/[\\/]/).pop() } : null
+    })
+  const wheelAt = async (y, dy, n) => {
+    const r = await win.evaluate((py) => { const b = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect(); return { x: b.left + 200, y: b.top + py } }, y)
+    await win.mouse.move(r.x, r.y)
+    for (let i = 0; i < n; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0) await win.locator(`${listSel} [data-browse-path$="zoomfocus"]`).dblclick()
+    ok(await until(async () => (await win.locator(inside).count()) > 0, 10000), 'the Explorer shows the folder')
+    await sleep(300)
+    await wheelAt(120, -100, 3)
+    ok((await stored()) === '4', `three notches up is step 4 (${await stored()})`)
+    await win.locator(`${listSel} .browse-row[data-browse-path$="a00.txt"]`).click()
+    await sleep(250)
+    await win.keyboard.press('Control+Equal')
+    await sleep(350)
+    ok((await stored()) === '5', `Ctrl+Plus at step 4 is the first grid step (${await stored()})`)
+    let f = await focus()
+    ok(f?.tile && f.name === 'a00.txt', `the focus stayed on the file, on its tile (${JSON.stringify(f)})`)
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    f = await focus()
+    ok(f?.tile && f.name === 'a01.txt', `and Right moves on without a click (${JSON.stringify(f)})`)
+    await win.keyboard.press('Control+Minus')
+    await sleep(350)
+    f = await focus()
+    ok(f && !f.tile && f.name === 'a01.txt', `back to rows the focus is on that file's row (${JSON.stringify(f)})`)
+    await win.keyboard.press('Control+Equal')
+    await sleep(350)
+
+    // A zip at a tile step stays rows: Ctrl+wheel there changes no cell.
+    await win.locator(`${listSel} [data-browse-path$="a-pack.zip"]`).dblclick()
+    ok(await until(async () => (await win.locator(`${listSel} [data-browse-path*="m00"]`).count()) > 0, 10000), 'the zip lists its members')
+    await sleep(400)
+    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 3000 })
+    await sleep(350)
+    await wheelAt(320, -100, 1)
+    ok((await stored()) === '6', `a notch in the zip moves the step (${await stored()})`)
+    await win.locator('.browse-toolbar [aria-label="Up"]').click()
+    ok(await until(async () => (await win.locator(`${listSel} .browse-tile`).count()) > 0, 10000), 'Up is the grid of the folder again')
+    await sleep(500)
+    const top = await win.evaluate(() => document.querySelector('[data-testid="browse-list"]').scrollTop)
+    ok(top === 0, `and nothing the zip's wheel noted scrolled it (${top})`)
+    await win.screenshot({ path: join(SHOTS, 'zoom-focus-grid.png') })
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+async function gridKeysScenario(fixtures) {
+  console.log('grid keys')
+  const dir = join(fixtures, 'gridkeys')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+  const seed = join(fixtures, 'gridkeys-seed.jpg')
+  if (HAS_FFMPEG) ff(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', seed])
+  const names = []
+  for (let i = 0; i < 40; i++) names.push(`alpha${String(i).padStart(2, '0')}.txt`)
+  for (let i = 0; i < 7; i++) names.push(`beta${String(i).padStart(2, '0')}.txt`)
+  names.push('phone.txt', 'photo.txt', 'phrase.txt')
+  for (const n of names) writeFileSync(join(dir, n), `keys ${n}\n`)
+  for (const n of ['zz1.jpg', 'zz2.jpg', 'zz3.jpg']) {
+    if (HAS_FFMPEG) copyFileSync(seed, join(dir, n))
+    else writeFileSync(join(dir, n), 'not a picture')
+    names.push(n)
+  }
+  rmSync(seed, { force: true })
+  const COUNT = names.length // 53
+
+  let { app, win } = await launch(join(dir, 'alpha00.txt'))
+  const listSel = '[data-testid="browse-list"]'
+  const tilesSel = `${listSel} .browse-tile`
+  const tile = (name) => win.locator(`${tilesSel}[data-browse-path$="${name}"]`)
+  const inside = `${listSel} [data-browse-path*="gridkeys"][data-browse-path$=".txt"]`
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${listSel} [data-browse-path]`, { timeout: 10000 })
+    if ((await win.locator(inside).count()) === 0)
+      await win.locator(`${listSel} [data-browse-path$="gridkeys"]`).dblclick()
+    return until(async () => (await win.locator(inside).count()) > 0, 10000)
+  }
+  // Where the focus is: the focused tile's index and name, and its box in the list.
+  const focus = () =>
+    win.evaluate(() => {
+      const el = document.activeElement
+      const t = el?.closest?.('.browse-tile, .browse-row[data-browse-path]')
+      if (!t) return null
+      const r = t.getBoundingClientRect()
+      const l = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      return {
+        i: Number(t.getAttribute('data-browse-index')),
+        name: t.getAttribute('data-browse-path').split(/[\\/]/).pop(),
+        top: r.top,
+        left: r.left,
+        inView: r.bottom > l.top && r.top < l.bottom
+      }
+    })
+  // The place after a key, once the focus has landed (it follows a frame later).
+  const settle = async () => { await sleep(260); return focus() }
+  const cursorIndex = () => win.evaluate(() => { const t = document.querySelector('[data-testid="browse-list"] .browse-tile[data-cursor]'); return t ? Number(t.getAttribute('data-browse-index')) : null })
+  const marks = () =>
+    win.evaluate(() => [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile[data-selected], [data-testid="browse-list"] .browse-row[data-selected]')].map((t) => Number(t.getAttribute('data-browse-index'))).sort((a, b) => a - b))
+  const cols = () =>
+    win.evaluate(() => {
+      const t = [...document.querySelectorAll('[data-testid="browse-list"] .browse-tile')]
+      const top0 = t[0].getBoundingClientRect().top
+      return t.filter((e) => Math.abs(e.getBoundingClientRect().top - top0) < 1).length
+    })
+  const geo = () =>
+    win.evaluate(() => {
+      const list = document.querySelector('[data-testid="browse-list"]')
+      const t = [...list.querySelectorAll('.browse-tile')]
+      const a = t[0].getBoundingClientRect()
+      const next = t.find((e) => e.getBoundingClientRect().top > a.top + 1)
+      return { clientH: list.clientHeight, pitch: next ? next.getBoundingClientRect().top - a.top : a.height + 4, top: list.scrollTop }
+    })
+  const lineOf = (c, i) => Math.floor(i / c)
+  const press = async (k) => { await win.keyboard.press(k) }
+  const toTop = async () => { await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 }); await sleep(250) }
+  const wheel = async (dy, n) => {
+    const r = await win.evaluate(() => { const b = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect(); return { x: b.left + 200, y: b.top + 120 } })
+    await win.mouse.move(r.x, r.y)
+    for (let i = 0; i < n; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, dy)
+      await win.keyboard.up('Control')
+      await sleep(130)
+    }
+    await sleep(300)
+  }
+  try {
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+    ok(await intoFolder(), `the Explorer shows the folder of ${COUNT}`)
+    await sleep(300)
+
+    // THE LIST FIRST: Left and Right are not the list's (owner, 2026-09-01), they reach the viewer.
+    await win.evaluate(() => {
+      window.__keysSeen = { right: 0, left: 0 }
+      window.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') window.__keysSeen.right++; if (e.key === 'ArrowLeft') window.__keysSeen.left++ })
+    })
+    await win.locator(`${listSel} .browse-row[data-browse-path$="alpha05.txt"]`).click()
+    await sleep(250)
+    await press('ArrowRight')
+    await press('ArrowLeft')
+    await sleep(250)
+    const seenList = await win.evaluate(() => window.__keysSeen)
+    ok(seenList.right === 1 && seenList.left === 1, `in the list Left and Right reach the window, and so the viewer (${JSON.stringify(seenList)})`)
+    const f0 = await focus()
+    ok(f0?.name === 'alpha05.txt', `and they move nothing in the list (${f0?.name})`)
+
+    // Up to step 6 (Large 2, Roomy 3, Roomier 4, tiles 5 and 6): small enough tiles for several lines to a page.
+    await wheel(-100, 5)
+    ok((await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))) === '6', 'five notches up is step 6')
+    await win.evaluate(() => { window.__keysSeen = { right: 0, left: 0 } })
+    await toTop()
+    const C = await cols()
+    const g = await geo()
+    ok(C >= 2 && C < COUNT, `the grid has ${C} columns (a short last line: ${COUNT % C} of ${C})`)
+    const lines = Math.max(1, Math.floor(g.clientH / g.pitch) - 1)
+    ok(COUNT > C * (lines + 1), `the folder is longer than a page (${lines} lines of ${C})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-keys-start.png') })
+
+    // Left and Right step one item; Up and Down a whole line (measured on the boxes).
+    await tile('alpha09.txt').click()
+    const here = await settle()
+    ok(here?.i === 9, `a click puts the focus on alpha09 (${here?.i})`)
+    await press('ArrowRight')
+    const r1 = await settle()
+    ok(r1?.i === 10 && r1.name === 'alpha10.txt', `Right goes to the next item (${r1?.i})`)
+    ok(r1.top === here.top ? r1.left > here.left : r1.top > here.top, 'and it sits after it on the same line or the next')
+    await press('ArrowLeft')
+    const l1 = await settle()
+    ok(l1?.i === 9, `Left goes back (${l1?.i})`)
+    await press('ArrowDown')
+    const d1 = await settle()
+    ok(d1?.i === 9 + C, `Down goes ${C} on (${d1?.i})`)
+    ok(Math.abs(d1.left - here.left) < 0.5 && d1.top > here.top, 'to the tile directly below it')
+    await press('ArrowUp')
+    const u1 = await settle()
+    // (Not the same top: the list scrolled to bring the lower line in.)
+    ok(u1?.i === 9 && Math.abs(u1.left - here.left) < 0.5 && u1.top < d1.top, `Up goes back to the tile above (${u1?.i})`)
+    ok((await marks()).join() === '9', `and the arrows select only the tile they land on (${(await marks()).join()})`)
+    await press('ArrowUp')
+    const up2 = await settle()
+    ok(up2?.i === 9 - C || (9 < C && up2?.i === 9), `Up on the first line stays, otherwise goes a line (${up2?.i})`)
+
+    // The ends: Left at the first item and Up on the first line stay; Home and End.
+    await press('Home')
+    const home = await settle()
+    ok(home?.i === 0 && home.inView, `Home is the first item, in view (${home?.i})`)
+    await press('ArrowLeft')
+    ok((await settle())?.i === 0, 'Left at the first item stays (no wrap)')
+    await press('ArrowUp')
+    ok((await settle())?.i === 0, 'Up at the first item stays')
+    await press('End')
+    const end = await settle()
+    ok(end?.i === COUNT - 1 && end.name === 'zz3.jpg' && end.inView, `End is the last item and scrolls it in (${end?.name}, in view ${end?.inView})`)
+    await press('ArrowRight')
+    ok((await settle())?.i === COUNT - 1, 'Right at the last item stays')
+    await press('ArrowDown')
+    ok((await settle())?.i === COUNT - 1, 'Down in the last line stays')
+
+    // Down from the line above a short last line, in a column the last line lacks, lands on the LAST item.
+    const lastLine = lineOf(C, COUNT - 1) * C
+    const above = lastLine - 1 // the last column of the line above
+    ok(COUNT - lastLine < C, `the last line is short (${COUNT - lastLine} of ${C})`)
+    await win.evaluate((i) => { document.querySelector('[data-testid="browse-list"]').scrollTop -= 400; void i }, above)
+    await sleep(300)
+    const aboveTile = win.locator(`${tilesSel}[data-browse-index="${above}"]`)
+    await aboveTile.click()
+    ok((await settle())?.i === above, `the last tile of the line above has the focus (${above})`)
+    await press('ArrowDown')
+    const short = await settle()
+    ok(short?.i === COUNT - 1, `Down from it lands on the last item, not past the end (${short?.i})`)
+
+    // Page keys: a screen less one line, in whole lines, clamped.
+    await press('Home')
+    await settle()
+    await press('PageDown')
+    const pd = await settle()
+    ok(pd?.i === Math.min(COUNT - 1, lines * C), `PageDown goes ${lines} lines (${pd?.i}, wanted ${Math.min(COUNT - 1, lines * C)})`)
+    ok(pd.inView, 'and the tile is in view')
+    await press('PageUp')
+    ok((await settle())?.i === 0, 'PageUp comes back')
+
+    // Shift+arrow: the marks run over the INDEX RANGE from the anchor.
+    await tile('alpha05.txt').click()
+    await settle()
+    await press('Shift+ArrowDown')
+    await sleep(260)
+    const m1 = await marks()
+    const want1 = Array.from({ length: C + 1 }, (_, k) => 5 + k)
+    ok(m1.join() === want1.join(), `Shift+Down marks 5 to ${5 + C} (${m1.join(' ')})`)
+    await press('Shift+ArrowRight')
+    await sleep(260)
+    const m2 = await marks()
+    ok(m2.length === C + 2 && m2[0] === 5 && m2.at(-1) === 6 + C, `Shift+Right adds the next one (${m2.join(' ')})`)
+    await press('Shift+ArrowUp')
+    await sleep(260)
+    const m3 = await marks()
+    ok(m3.join() === Array.from({ length: 2 }, (_, k) => 5 + k).join(), `Shift+Up shrinks the run back (${m3.join(' ')})`)
+    await press('Shift+ArrowLeft')
+    await sleep(260)
+    ok((await marks()).join() === '5', `Shift+Left back to the anchor alone (${(await marks()).join(' ')})`)
+
+    // Ctrl+arrow moves the focus and marks nothing; Ctrl+Space then marks a tile that is not next to the first.
+    await tile('alpha05.txt').click()
+    await settle()
+    await press('Control+ArrowRight')
+    await press('Control+ArrowRight')
+    await sleep(260)
+    ok((await marks()).join() === '5', `Ctrl+Right twice leaves the marks alone (${(await marks()).join(' ')})`)
+    ok((await cursorIndex()) === 7, `and the focus is on tile 7 (${await cursorIndex()})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === '5,7', `Ctrl+Space marks 7 as well, not 6 (${(await marks()).join(' ')})`)
+    await press('Control+ArrowDown')
+    await sleep(260)
+    ok((await cursorIndex()) === 7 + C && (await marks()).join() === '5,7', `Ctrl+Down moves the focus a line and marks nothing (${await cursorIndex()})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === ['5', '7', String(7 + C)].join(), `and Ctrl+Space marks that one (${(await marks()).join(' ')})`)
+    await press('Control+Space')
+    await sleep(260)
+    ok((await marks()).join() === '5,7', 'Ctrl+Space again unmarks it')
+
+    // Type to jump: the first name starting with "ph".
+    await toTop()
+    await tile('alpha02.txt').click()
+    await settle()
+    await win.keyboard.type('ph', { delay: 60 })
+    const ph = await settle()
+    ok(ph?.name === 'phone.txt', `typing "ph" jumps to the first name that starts so (${ph?.name})`)
+    ok(ph?.inView, 'and scrolls it in')
+
+    // In the grid Left and Right are the grid's: the window never sees them.
+    await press('ArrowRight')
+    await press('ArrowLeft')
+    await sleep(250)
+    const seenGrid = await win.evaluate(() => window.__keysSeen)
+    ok(seenGrid.right === 0 && seenGrid.left === 0, `in the grid Left and Right are taken, the viewer does not get them (${JSON.stringify(seenGrid)})`)
+
+    // Space toggles the preview pane (and is not typed into the jump).
+    const paneOn = () => win.locator('button[aria-label="Preview pane"]').first().getAttribute('aria-pressed')
+    await toTop()
+    await tile('alpha02.txt').click()
+    await settle()
+    await sleep(800)
+    const p0 = await paneOn()
+    await press('Space')
+    await sleep(500)
+    const p1 = await paneOn()
+    ok(p0 !== p1, `Space toggles the preview pane (${p0} -> ${p1})`)
+    await press('Space')
+    await sleep(500)
+    ok((await paneOn()) === p0, 'and again puts it back')
+    await sleep(500)
+    ok((await cols()) === C, `with the columns as they were (${await cols()})`)
+
+    // Enter opens; Up and Down in the opened file walk the folder in order; Back returns with the tile in view.
+    await press('End')
+    await settle()
+    await press('ArrowLeft')
+    const zz2 = await settle()
+    ok(zz2?.name === 'zz2.jpg', `Left from the end is zz2 (${zz2?.name})`)
+    await toTop()
+    await press('Enter')
+    ok(await until(async () => (await viewing(win)).includes('zz2'), 15000), `Enter opens the picked tile (${await viewing(win)})`)
+    await press('ArrowUp')
+    ok(await until(async () => (await viewing(win)).includes('zz1'), 10000), `Up in the opened picture walks to the one before (${await viewing(win)})`)
+    await press('ArrowDown')
+    ok(await until(async () => (await viewing(win)).includes('zz2'), 10000), `and Down walks forward (${await viewing(win)})`)
+    await press('ArrowDown')
+    ok(await until(async () => (await viewing(win)).includes('zz3'), 10000), `in folder order (${await viewing(win)})`)
+    await press('ArrowUp')
+    await press('ArrowUp')
+    ok(await until(async () => (await viewing(win)).includes('zz1'), 10000), `back to zz1 (${await viewing(win)})`)
+    await win.locator('.browse-viewer-toolbar [aria-label="Back"]').click()
+    ok(await until(async () => (await tile('zz1.jpg').count()) === 1, 10000), 'Back is the grid again')
+    await sleep(500)
+    const back = await win.evaluate(() => {
+      const l = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect()
+      const t = document.querySelector('[data-testid="browse-list"] .browse-tile[data-browse-path$="zz1.jpg"]')
+      if (!t) return null
+      const r = t.getBoundingClientRect()
+      return { inView: r.top >= l.top - 1 && r.bottom <= l.bottom + 1, sel: t.hasAttribute('data-selected') }
+    })
+    ok(back?.inView && back.sel, `the opened tile is scrolled into view and picked (${JSON.stringify(back)})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-keys-back.png') })
+    // And the keyboard carries on from it.
+    await press('ArrowLeft')
+    const afterBack = await settle()
+    ok(afterBack?.i === COUNT - 4, `after Back Left goes on from zz1 to the item before it (${afterBack?.name})`)
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.explorer.zoom', 'prism.explorer.size']) localStorage.removeItem(k) }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+/**
+ * THE GRID, STAGE 6 (2026-11-10): sweep, drag, drop, rename, menus, the loading
+ * bar's hold and landing marks, and the phone untouched. Each scenario builds
+ * its own folder, opens it in the Explorer, takes five Ctrl+wheel notches up to
+ * step 6 (the cap is 9 now, no test key) and measures the tiles it finds.
+ */
+const GL = '[data-testid="browse-list"]'
+const gridCtrlWheel = async (win, dy, n) => {
+  const r = await win.evaluate((sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return { x: b.left + 200, y: b.top + 120 } }, GL)
+  await win.mouse.move(r.x, r.y)
+  for (let i = 0; i < n; i++) {
+    await win.keyboard.down('Control')
+    await win.mouse.wheel(0, dy)
+    await win.keyboard.up('Control')
+    await sleep(130)
+  }
+  await sleep(300)
+}
+/** Open `name` (notes.txt plus what `build` makes) in the Explorer, quiet. */
+async function gridEnter(fixtures, name, build, env = {}) {
+  const dir = join(fixtures, name)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'notes')
+  build(dir)
+  const { app, win } = await launchWith({ ...NO_INDEX, ...env }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  await explorerAt(win, dir)
+  return { dir, app, win }
+}
+const gridToStep6 = async (win) => {
+  await gridCtrlWheel(win, -100, 5)
+  const step = await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  ok(step === '6', `five notches up is step 6 (${step})`)
+  await win.waitForSelector(`${GL} .browse-tile`, { timeout: 10000 })
+  await sleep(400)
+}
+const gridClear = (win) =>
+  win.evaluate(() => { for (const k of ['prism.explorer.zoom', 'prism.explorer.size']) localStorage.removeItem(k) }).catch(() => {})
+/** The mounted tiles' boxes (client px) and the list's. */
+const gridGeo = (win) =>
+  win.evaluate((sel) => {
+    const list = document.querySelector(sel)
+    const l = list.getBoundingClientRect()
+    const tiles = [...list.querySelectorAll('.browse-tile')].map((e) => {
+      const r = e.getBoundingClientRect()
+      return { i: Number(e.dataset.browseIndex), name: e.dataset.browsePath.split(/[\\/]/).pop(), x: r.left, y: r.top, r: r.right, b: r.bottom }
+    })
+    return { l: { x: l.left, y: l.top, r: l.right, b: l.bottom, scroll: list.scrollTop }, tiles }
+  }, GL)
+const gridMarks = (win) =>
+  win.evaluate((sel) => [...document.querySelectorAll(`${sel} .browse-tile[data-selected]`)].map((t) => t.dataset.browsePath.split(/[\\/]/).pop()).sort(), GL)
+const gridCols = (g) => g.tiles.filter((t) => Math.abs(t.y - g.tiles[0].y) < 1).length
+const hits = (g, box) =>
+  g.tiles.filter((t) => t.x < box.r && t.r > box.x && t.y < box.b && t.b > box.y).map((t) => t.name).sort()
+const gridTile = (win, name) => win.locator(`${GL} .browse-tile[data-browse-path$="\\\\${name}"]`)
+
+async function gridSweepScenario(fixtures) {
+  console.log('grid sweep')
+  const { dir, app, win } = await gridEnter(fixtures, 'gridsweep', (d) => {
+    for (let i = 0; i < 70; i++) writeFileSync(join(d, `s${String(i).padStart(2, '0')}.txt`), `s ${i}\n`)
+  })
+  const band = () => win.evaluate((sel) => document.querySelectorAll(`${sel} [data-sweep-band]`).length, GL)
+  const drag = async (from, to, { ctrl = false, mid, hold = 0 } = {}) => {
+    if (ctrl) await win.keyboard.down('Control')
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(140 + hold)
+    const during = mid ? await mid() : undefined
+    await win.mouse.up()
+    if (ctrl) await win.keyboard.up('Control')
+    await sleep(220)
+    return during
+  }
+  try {
+    await gridToStep6(win)
+    const g = await gridGeo(win)
+    const C = gridCols(g)
+    ok(C >= 4, `the grid has ${C} columns`)
+    const t = (i) => g.tiles.find((x) => x.i === i)
+    const mid = (x) => ({ x: (x.x + x.r) / 2, y: (x.y + x.b) / 2 })
+
+    // A box from the gap beside tile 0 to the middle of the tile one line down, two over.
+    const from = { x: t(0).r + 2, y: t(0).y + 30 }
+    const to = mid(t(C + 2))
+    const box = { x: from.x, y: from.y, r: to.x, b: to.y }
+    const want = hits(g, box)
+    ok(want.length === 4 && !want.includes(t(0).name), `the box should touch four tiles, not the one it started beside (${want})`)
+    const seen = await drag(from, to, { mid: async () => { await win.screenshot({ path: join(SHOTS, 'grid-sweep.png') }); return { band: await band(), marks: await gridMarks(win) } } })
+    ok(seen.band === 1, `the rectangle is drawn while sweeping (${seen.band})`)
+    ok(seen.marks.join() === want.join(), `and marks exactly the tiles whose rect it touches, live (${seen.marks} / ${want})`)
+    ok((await band()) === 0, 'the rectangle is gone after the release')
+    ok((await gridMarks(win)).join() === want.join(), 'and the marks stay')
+    ok(/4 selected/.test((await win.locator('.browse-status').textContent()) ?? ''), 'the status line counts them')
+
+    // A box that stays in a gap marks nothing (and clears the old marks).
+    const gx = t(1).r + 2
+    const gapMarks = await drag({ x: gx, y: t(1).y + 20 }, { x: gx, y: t(1).y + 90 }, { mid: async () => band() })
+    ok(gapMarks === 1, 'a press in a gap starts a sweep')
+    ok((await gridMarks(win)).length === 0, `a box wholly in a gap marks nothing (${await gridMarks(win)})`)
+
+    // A press on a tile is its own drag, never a sweep.
+    const tm = mid(t(3))
+    const onTile = await drag({ x: tm.x, y: tm.y }, { x: tm.x + 8, y: tm.y + 6 }, { mid: async () => band() })
+    ok(onTile === 0, `a press on a tile starts no sweep (${onTile})`)
+    await win.mouse.move(5, 5)
+
+    // A click picks a file and the preview pane opens beside the list, so the
+    // list is narrower and the columns change: measure again after it settles.
+    const fresh = async () => {
+      await sleep(600)
+      const f = await gridGeo(win)
+      const c = gridCols(f)
+      const tt = (i) => f.tiles.find((x) => x.i === i)
+      return { f, c, tt, from: { x: tt(0).r + 2, y: tt(0).y + 30 }, to: mid(tt(c + 2)) }
+    }
+
+    // Ctrl keeps what was marked, and adds.
+    await gridTile(win, t(C * 2 + 3).name).click()
+    const keep = t(C * 2 + 3).name
+    const k = await fresh()
+    const wantAdd = hits(k.f, { x: k.from.x, y: k.from.y, r: k.to.x, b: k.to.y })
+    await drag(k.from, k.to, { ctrl: true })
+    const added = await gridMarks(win)
+    ok(added.includes(keep) && wantAdd.length === 4 && wantAdd.every((n) => added.includes(n)) && added.length === wantAdd.length + 1, `Ctrl+sweep adds to the marks (${added})`)
+    // And a plain sweep somewhere else drops the lone click that is not touching it.
+    await drag(k.from, k.to)
+    ok(!(await gridMarks(win)).includes(keep) && (await gridMarks(win)).length === 4, 'a plain sweep replaces them')
+
+    // Autoscroll: hold the pointer at the bottom edge and the list moves, marking on.
+    const a = await fresh()
+    const before = a.f.l.scroll
+    const bottom = { x: a.tt(a.c - 1).x + 30, y: a.f.l.b - 6 }
+    const scrolled = await drag(a.from, bottom, {
+      hold: 1100,
+      mid: async () => ({ scroll: (await gridGeo(win)).l.scroll })
+    })
+    ok(scrolled.scroll > before + 100, `holding at the edge scrolls the list (${before} -> ${scrolled.scroll})`)
+    // (The status line counts the marks once the sweep lets go.)
+    const nMarked = Number((((await win.locator('.browse-status').textContent()) ?? '').match(/(\d+) selected/) ?? [])[1])
+    ok(nMarked > 2 * a.c, `and the box keeps marking what it passes (${nMarked} selected)`)
+    await win.screenshot({ path: join(SHOTS, 'grid-sweep-scrolled.png') })
+
+    // Under the last line is blank space too.
+    await win.evaluate((sel) => { const l = document.querySelector(sel); l.scrollTop = l.scrollHeight }, GL)
+    await sleep(350)
+    const end = await gridGeo(win)
+    const last = end.tiles[end.tiles.length - 1]
+    const under = end.l.b - 5
+    ok(under > last.b, `there is blank space under the last line (${under} > ${last.b})`)
+    const underHit = await drag({ x: end.l.x + 40, y: under }, { x: last.x + 20, y: last.y + 20 }, { mid: async () => band() })
+    ok(underHit === 1, 'a press under the last line starts a sweep')
+    ok((await gridMarks(win)).includes(last.name), `and marks the last tile (${await gridMarks(win)})`)
+  } finally {
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function gridDragScenario(fixtures) {
+  console.log('grid drag and drop')
+  const outside = join(fixtures, 'griddrag-out')
+  rmSync(outside, { recursive: true, force: true })
+  mkdirSync(outside, { recursive: true })
+  writeFileSync(join(outside, 'win-copy.txt'), 'from windows\n')
+  const { dir, app, win } = await gridEnter(fixtures, 'griddrag', (d) => {
+    mkdirSync(join(d, 'dest'))
+    mkdirSync(join(d, 'other'))
+    for (let i = 1; i <= 6; i++) writeFileSync(join(d, `a${i}.txt`), `a${i}\n`)
+  })
+  const mid = (b) => ({ x: (b.x + b.width / 2), y: (b.y + b.height / 2) })
+  const box = async (name) => gridTile(win, name).boundingBox()
+  const overState = (name) =>
+    win.evaluate(([sel, n]) => {
+      const t = document.querySelector(`${sel} .browse-tile[data-browse-path$="\\\\${n}"]`)
+      return t ? { over: t.getAttribute('data-drag-over'), shadow: getComputedStyle(t).boxShadow } : null
+    }, [GL, name])
+  try {
+    await gridToStep6(win)
+    ok((await gridTile(win, 'dest').count()) === 1, 'the folder tiles are there')
+
+    // A marked pair is carried onto a folder tile; the hovered folder lights a ring.
+    await gridTile(win, 'a1.txt').click()
+    await gridTile(win, 'a2.txt').click({ modifiers: ['Control'] })
+    await sleep(200)
+    const a1 = mid(await box('a1.txt'))
+    const dest = mid(await box('dest'))
+    const a2 = mid(await box('a2.txt'))
+    await win.mouse.move(a1.x, a1.y)
+    await win.mouse.down()
+    await win.mouse.move(a1.x + 20, a1.y + 20, { steps: 4 })
+    await win.mouse.move(dest.x, dest.y, { steps: 12 })
+    await sleep(250)
+    const ring = await overState('dest')
+    ok(ring?.over === 'true' && ring.shadow !== 'none', `a folder tile under the drag lights its ring (${JSON.stringify(ring)})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-drag-ring.png') })
+    // Over a carried tile: no-drop, no ring.
+    await win.mouse.move(a2.x, a2.y, { steps: 8 })
+    await sleep(200)
+    const carried = await overState('a2.txt')
+    ok(carried?.over !== 'true', `a carried tile takes no drop (${JSON.stringify(carried)})`)
+    await win.mouse.move(dest.x, dest.y, { steps: 8 })
+    await sleep(200)
+    await win.mouse.up()
+    ok(await until(() => existsSync(join(dir, 'dest', 'a1.txt')) && existsSync(join(dir, 'dest', 'a2.txt')), 8000), 'both marked tiles moved into the folder')
+    ok(!existsSync(join(dir, 'a1.txt')) && !existsSync(join(dir, 'a2.txt')), 'and are not left behind')
+    ok(await until(async () => (await gridTile(win, 'a1.txt').count()) === 0, 5000), 'the tiles leave the grid')
+
+    // Ctrl at the drop copies.
+    await gridTile(win, 'a3.txt').click()
+    const a3 = mid(await box('a3.txt'))
+    const other = mid(await box('other'))
+    await win.mouse.move(a3.x, a3.y)
+    await win.mouse.down()
+    await win.mouse.move(a3.x + 20, a3.y + 20, { steps: 4 })
+    await win.mouse.move(other.x, other.y, { steps: 12 })
+    await win.keyboard.down('Control')
+    await win.mouse.move(other.x + 2, other.y + 2, { steps: 2 })
+    await sleep(250)
+    await win.mouse.up()
+    await win.keyboard.up('Control')
+    ok(await until(() => existsSync(join(dir, 'other', 'a3.txt')), 8000), 'Ctrl+drop copies into the folder')
+    ok(existsSync(join(dir, 'a3.txt')), 'and the original stays')
+
+    // A drop on one of the carried tiles does nothing.
+    await gridTile(win, 'a4.txt').click()
+    await gridTile(win, 'a5.txt').click({ modifiers: ['Control'] })
+    await sleep(200)
+    const a4 = mid(await box('a4.txt'))
+    const a5 = mid(await box('a5.txt'))
+    await win.mouse.move(a4.x, a4.y)
+    await win.mouse.down()
+    await win.mouse.move(a4.x + 20, a4.y + 20, { steps: 4 })
+    await win.mouse.move(a5.x, a5.y, { steps: 10 })
+    await sleep(250)
+    await win.mouse.up()
+    await sleep(700)
+    ok(existsSync(join(dir, 'a4.txt')) && existsSync(join(dir, 'a5.txt')), 'a drop onto a carried tile moves nothing')
+
+    // The blank grid takes a drop into the folder on screen.
+    const drop = async (paths) => {
+      await win.evaluate(() => {
+        document.getElementById('e2e-drop-input')?.remove()
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.multiple = true
+        input.id = 'e2e-drop-input'
+        input.style.display = 'none'
+        document.body.append(input)
+      })
+      await win.setInputFiles('#e2e-drop-input', paths)
+      return win.evaluate((sel) => {
+        const input = document.getElementById('e2e-drop-input')
+        const dt = new DataTransfer()
+        for (const f of input.files) dt.items.add(f)
+        dt.effectAllowed = 'copyLink'
+        const list = document.querySelector(sel)
+        const r = list.getBoundingClientRect()
+        // The right margin of the grid: blank space, never a tile.
+        const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.right - 6, clientY: r.top + 40 }
+        const hit = document.elementFromPoint(opts.clientX, opts.clientY)
+        const target = hit ?? list
+        target.dispatchEvent(new DragEvent('dragenter', opts))
+        target.dispatchEvent(new DragEvent('dragover', opts))
+        target.dispatchEvent(new DragEvent('drop', opts))
+        input.remove()
+        return { onTile: !!hit?.closest('.browse-tile') }
+      }, GL)
+    }
+    const dropped = await drop([join(outside, 'win-copy.txt')])
+    ok(dropped.onTile === false, 'the drop point is blank grid')
+    ok(await until(() => existsSync(join(dir, 'win-copy.txt')), 10000), 'a file dropped on the blank grid lands in the folder on screen')
+    ok(await until(async () => (await gridTile(win, 'win-copy.txt').count()) === 1, 8000), 'and gets its tile')
+  } finally {
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+}
+
+async function gridRenameScenario(fixtures) {
+  console.log('grid rename')
+  const { dir, app, win } = await gridEnter(fixtures, 'gridrename', (d) => {
+    for (let i = 1; i <= 8; i++) writeFileSync(join(d, `r0${i}.txt`), `r${i}\n`)
+  })
+  const dialog = '[role="dialog"]'
+  try {
+    await gridToStep6(win)
+    await gridTile(win, 'r03.txt').click()
+    await sleep(250)
+    const before = await gridGeo(win)
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await win.locator(`${dialog} input[aria-label="New name"]`).count()) === 1, 4000), 'F2 on a picked tile opens the rename field')
+    const sel = await win.evaluate(() => { const i = document.querySelector('[role="dialog"] input[aria-label="New name"]'); return { v: i.value, a: i.selectionStart, b: i.selectionEnd, focus: document.activeElement === i } })
+    ok(sel.v === 'r03.txt' && sel.focus, `it holds the tile's name and has the focus (${sel.v})`)
+    // The Explorer's rename selects the whole name (BrowseRename, 'all'): same in a grid.
+    ok(sel.a === 0 && sel.b === sel.v.length, `with the whole name selected, as the list does (${sel.a}-${sel.b})`)
+    const open = await gridGeo(win)
+    ok(JSON.stringify(open.tiles) === JSON.stringify(before.tiles), 'no tile moves while it is open')
+    await win.screenshot({ path: join(SHOTS, 'grid-rename.png') })
+    await win.keyboard.press('Escape')
+    await sleep(250)
+    ok((await win.locator(dialog).count()) === 0 && existsSync(join(dir, 'r03.txt')), 'Escape cancels and renames nothing')
+
+    // A name that sorts in the same place: the tile keeps its place, picked.
+    await win.keyboard.press('F2')
+    await win.locator(`${dialog} input[aria-label="New name"]`).fill('r03b.txt')
+    await win.keyboard.press('Enter')
+    ok(await until(() => existsSync(join(dir, 'r03b.txt')) && !existsSync(join(dir, 'r03.txt')), 8000), 'Enter renames the file')
+    ok(await until(async () => (await gridTile(win, 'r03b.txt').count()) === 1, 6000), 'and the tile wears the new name')
+    await sleep(400)
+    const after = await gridGeo(win)
+    const was = before.tiles.find((t) => t.name === 'r03.txt')
+    const now = after.tiles.find((t) => t.name === 'r03b.txt')
+    ok(!!now && now.i === was.i && Math.abs(now.x - was.x) < 0.5 && Math.abs(now.y - was.y) < 0.5, `it keeps its place in the sort (${was?.i} -> ${now?.i})`)
+    ok(after.tiles.filter((t) => t.name !== 'r03b.txt').every((t) => { const b = before.tiles.find((x) => x.name === t.name); return b && Math.abs(b.x - t.x) < 0.5 && Math.abs(b.y - t.y) < 0.5 }), 'and no other tile moved')
+    ok((await gridMarks(win)).join() === 'r03b.txt', 'it is still the picked one')
+
+    // A name that sorts last: the tile goes to the end, the rest close up, the picked tile stays picked.
+    await win.keyboard.press('F2')
+    await win.locator(`${dialog} input[aria-label="New name"]`).fill('zz-last.txt')
+    await win.keyboard.press('Enter')
+    ok(await until(() => existsSync(join(dir, 'zz-last.txt')), 8000), 'a rename to a late name lands')
+    ok(await until(async () => (await gridTile(win, 'zz-last.txt').count()) === 1, 6000), 'its tile appears')
+    await sleep(400)
+    const moved = await gridGeo(win)
+    const order = moved.tiles.map((t) => t.name)
+    ok(order.join() === ['notes.txt', 'r01.txt', 'r02.txt', 'r04.txt', 'r05.txt', 'r06.txt', 'r07.txt', 'r08.txt', 'zz-last.txt'].join(), `the sort holds (${order})`)
+    ok((await gridMarks(win)).join() === 'zz-last.txt', 'the renamed tile is the picked one')
+  } finally {
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function gridMenusScenario(fixtures) {
+  console.log('grid menus')
+  const { dir, app, win } = await gridEnter(fixtures, 'gridmenus', (d) => {
+    mkdirSync(join(d, 'sub'))
+    for (let i = 1; i <= 10; i++) writeFileSync(join(d, `m${String(i).padStart(2, '0')}.txt`), `m${i}\n`)
+  })
+  const menu = '[role="menu"]'
+  const items = () => win.evaluate((m) => [...document.querySelectorAll(`${m} [role="menuitem"]`)].map((e) => e.textContent.trim()), menu)
+  const menuBox = () => win.evaluate((m) => { const e = document.querySelector(m); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom } }, menu)
+  const zoom = () => win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+  // A row carries its shortcut after the label ("RenameF2").
+  const has = (rows, label) => rows.some((r) => r.startsWith(label))
+  try {
+    await gridToStep6(win)
+    const g = await gridGeo(win)
+    const t = (name) => g.tiles.find((x) => x.name === name)
+
+    // Right-click on a tile: the item menu, and the tile is picked.
+    const m2 = t('m02.txt')
+    await win.mouse.click((m2.x + m2.r) / 2, (m2.y + m2.b) / 2, { button: 'right' })
+    ok(await until(async () => (await win.locator(menu).count()) === 1, 3000), 'a right-click on a tile opens a menu')
+    const rowMenu = await items()
+    ok(has(rowMenu, 'Rename') && has(rowMenu, 'Properties'), `it is the item menu (${rowMenu})`)
+    ok((await gridMarks(win)).join() === 'm02.txt', 'and the tile is picked')
+    await win.screenshot({ path: join(SHOTS, 'grid-menu-tile.png') })
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ok((await win.locator(menu).count()) === 0, 'Escape closes it')
+
+    // Shift+F10 and the Menu key on a focused tile open its menu at the tile.
+    await gridTile(win, 'm05.txt').click()
+    await sleep(250)
+    const m5 = (await gridGeo(win)).tiles.find((x) => x.name === 'm05.txt')
+    await win.keyboard.press('Shift+F10')
+    ok(await until(async () => (await win.locator(menu).count()) === 1, 3000), 'Shift+F10 opens the focused tile\'s menu')
+    const kb = await menuBox()
+    ok(!!kb && kb.x >= m5.x - 2 && kb.x <= m5.r + 2 && kb.y >= m5.y - 2 && kb.y <= m5.b + 2, `at the tile (menu ${JSON.stringify(kb)}, tile ${JSON.stringify([m5.x, m5.y, m5.r, m5.b])})`)
+    ok(has(await items(), 'Rename'), 'it is the same item menu')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    await win.keyboard.press('ContextMenu')
+    ok(await until(async () => (await win.locator(menu).count()) === 1, 3000), 'and so does the Menu key')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+
+    // Right-click in a gap: one row, Show as list.
+    const gap = { x: m2.r + 2, y: m2.y + 30 }
+    await win.mouse.click(gap.x, gap.y, { button: 'right' })
+    ok(await until(async () => (await win.locator(menu).count()) === 1, 3000), 'a right-click in a gap opens the blank-space menu')
+    ok((await items()).join() === 'Show as list', `with one row, Show as list (${await items()})`)
+    ok((await gridMarks(win)).length === 0, 'and picks nothing')
+    await win.screenshot({ path: join(SHOTS, 'grid-menu-blank.png') })
+    await win.getByRole('menuitem', { name: 'Show as list', exact: true }).click()
+    ok(await until(async () => (await zoom()) === '1', 3000), `Show as list goes to Medium (${await zoom()})`)
+    ok(await until(async () => (await win.locator(`${GL} .browse-tile`).count()) === 0 && (await win.locator(`${GL} .browse-row`).count()) > 5, 4000), 'and the rows are back')
+
+    // In the list, blank space under the rows: Show as grid.
+    const lb = await win.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom } }, GL)
+    await win.mouse.click(lb.x + 200, lb.b - 30, { button: 'right' })
+    ok(await until(async () => (await win.locator(menu).count()) === 1, 3000), 'a right-click on the list\'s blank space opens a menu')
+    ok((await items()).join() === 'Show as grid', `with one row, Show as grid (${await items()})`)
+    await win.getByRole('menuitem', { name: 'Show as grid', exact: true }).click()
+    ok(await until(async () => (await zoom()) === '6', 3000), `Show as grid goes to step 6 (${await zoom()})`)
+    ok(await until(async () => (await win.locator(`${GL} .browse-tile`).count()) > 5, 4000), 'and the tiles are back')
+  } finally {
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function gridHoldScenario(fixtures) {
+  console.log('grid hold and landing marks')
+  const src = 'gridhold-src'
+  const srcDir = join(fixtures, src)
+  rmSync(srcDir, { recursive: true, force: true })
+  mkdirSync(srcDir, { recursive: true })
+  writeFileSync(join(srcDir, 'notes.txt'), 'n')
+  const big = join(srcDir, 'big.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  const seed = join(fixtures, 'gridhold-seed.jpg')
+  if (HAS_FFMPEG) execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=1', '-frames:v', '1', seed], { windowsHide: true, stdio: 'ignore' })
+  const { dir, app, win } = await gridEnter(
+    fixtures,
+    'gridhold',
+    (d) => {
+      for (let i = 1; i <= 12; i++) {
+        const p = join(d, `p${String(i).padStart(2, '0')}.jpg`)
+        if (HAS_FFMPEG) copyFileSync(seed, p)
+        else writeFileSync(p, 'not a picture')
+      }
+    },
+    { PRISM_E2E_SLOW_COPY: '3' }
+  )
+  const stats = () => app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+  const BUSYSEL = '[data-busy-bar]'
+  const look = () =>
+    win.evaluate((sel) => {
+      const tile = document.querySelector(`${sel} .browse-tile[data-browse-path$="big.bin"]`)
+      if (!tile) return null
+      const thumb = tile.querySelector('.browse-thumb')?.getBoundingClientRect()
+      const bar = tile.querySelector('.browse-tile-landing')
+      const b = bar?.getBoundingClientRect()
+      const t = tile.getBoundingClientRect()
+      return {
+        landing: tile.hasAttribute('data-landing'),
+        inert: tile.inert === true,
+        busy: tile.getAttribute('aria-busy'),
+        caption: tile.querySelector('.browse-tile-name')?.textContent ?? '',
+        pct: Number(bar?.getAttribute('data-pct') ?? -1),
+        barH: b ? Math.round(b.height) : null,
+        // The fill is the percent of the bar's width (a tick redraws only this).
+        fillMatches: !!(b && b.width > 0 && Math.abs((bar.firstElementChild.getBoundingClientRect().width / b.width) * 100 - Number(bar.getAttribute('data-pct'))) < 3),
+        barInside: !!(b && thumb && b.left >= thumb.left - 0.5 && b.right <= thumb.right + 0.5 && Math.abs(b.bottom - thumb.bottom) < 1.5),
+        tileInside: !!(b && b.top >= t.top && b.bottom <= t.bottom)
+      }
+    }, GL)
+  const rects = () => gridGeo(win).then((g) => JSON.stringify(g.tiles.map((t) => [t.name, t.x, t.y])))
+  try {
+    // Copy the big file from its own folder, then paste it into the grid folder.
+    await explorerAt(win, srcDir)
+    await listRow(win, 'big.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the big file is on the clipboard')
+    await explorerAt(win, dir)
+    await gridToStep6(win)
+    ok(HAS_FFMPEG ? await until(async () => (await win.locator(`${GL} .browse-thumb-img[data-shown]`).count()) >= 3, 30000) : true, 'the photos show their pictures first')
+    const baseWants = (await stats())?.wants ?? 0
+    await win.locator(GL).click({ position: { x: 20, y: 20 } })
+    await win.keyboard.press('Control+v')
+
+    // Landing: an inert, faded tile saying Copying, with the bar across its picture box.
+    let first = null
+    const end = Date.now() + 20000
+    while (Date.now() < end && !first) {
+      const l = await look()
+      if (l?.landing) first = l
+      else await sleep(20)
+    }
+    ok(!!first && first.inert && first.busy === 'true' && first.caption === 'Copying…', `while it copies the file is an inert tile saying Copying (${JSON.stringify(first)})`)
+    ok(first?.barH === 4 && first.barInside && first.tileInside, `with a 4px bar across the bottom of its picture box (${JSON.stringify(first)})`)
+    if (first) await win.screenshot({ path: join(SHOTS, 'grid-landing.png') })
+    // The listing may show the half-written file before the first percent
+    // ticks (the rows drop their landing mark once the real one is listed),
+    // so the fill is held to the percent it shows rather than to a rise.
+    let fillOk = !!first?.fillMatches
+    const end2 = Date.now() + 2500
+    while (Date.now() < end2) {
+      const l = await look()
+      if (!l?.landing) break
+      fillOk = fillOk && l.fillMatches
+      await sleep(40)
+    }
+    ok(fillOk, 'the bar fill is the percent it shows, at every sample while it lands')
+
+    // Past a second the loading bar covers the grid: it stands still and asks for nothing.
+    ok(await win.waitForSelector(BUSYSEL, { timeout: 20000 }).then(() => true, () => false), 'past a second the loading bar comes up')
+    await sleep(300)
+    const frozen = await rects()
+    const w0 = (await stats())?.wants ?? 0
+    ok(await win.evaluate(() => !!document.querySelector('.browse-list-frame').inert), 'the grid is inert behind it')
+    const late = join(dir, 'p99.jpg')
+    if (HAS_FFMPEG) copyFileSync(seed, late)
+    else writeFileSync(late, 'not a picture')
+    await sleep(1200)
+    ok((await rects()) === frozen, 'the tiles stand still while held (a new file does not slide them)')
+    ok((await win.locator(`${GL} .browse-tile[data-browse-path$="p99.jpg"]`).count()) === 0, 'and the new file has no tile yet')
+    ok(((await stats())?.wants ?? 0) === w0, `no thumbnail is asked for while held (${w0} -> ${(await stats())?.wants})`)
+    await win.screenshot({ path: join(SHOTS, 'grid-held.png') })
+
+    // Cancel lifts it: the listing commits once, the new file shows, and pictures resume.
+    await win.locator('[data-busy-cancel]').click()
+    ok(await until(async () => (await win.locator(BUSYSEL).count()) === 0, 8000), 'Cancel lifts the bar')
+    ok(await until(async () => (await win.locator(`${GL} .browse-tile[data-browse-path$="p99.jpg"]`).count()) === 1, 8000), 'the grid then shows the folder as it is')
+    if (HAS_FFMPEG) {
+      ok(await until(async () => (await win.locator(`${GL} .browse-tile[data-browse-path$="p99.jpg"] .browse-thumb-img[data-shown]`).count()) === 1, 20000), 'and the new picture arrives')
+      ok(((await stats())?.wants ?? 0) > baseWants, 'its ask went out after the hold')
+    }
+    await sleep(600)
+    ok(!existsSync(join(dir, 'big.bin')), 'a cancelled copy leaves no partial file')
+  } finally {
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(srcDir, { recursive: true, force: true })
+    rmSync(seed, { force: true })
+  }
+}
+
+async function gridPhoneScenario(fixtures) {
+  console.log('the phone is untouched by the grid')
+  const seed = join(fixtures, 'gridphone-seed.jpg')
+  const { dir, app, win } = await gridEnter(fixtures, 'gridphone', (d) => {
+    if (HAS_FFMPEG) execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x480:rate=1', '-frames:v', '1', join(d, 'ph1.jpg')], { windowsHide: true, stdio: 'ignore' })
+    else writeFileSync(join(d, 'ph1.jpg'), 'not a picture')
+    writeFileSync(join(d, 'ph2.txt'), 'two')
+  })
+  const jpegSize = (buf) => {
+    for (let i = 2; i + 9 < buf.length; ) {
+      if (buf[i] !== 0xff) { i++; continue }
+      const m = buf[i + 1]
+      if (m >= 0xc0 && m <= 0xc3) return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) }
+      i += 2 + buf.readUInt16BE(i + 2)
+    }
+    return null
+  }
+  let paired = ''
+  try {
+    const { base, token, status } = await pairPhone(win, dir)
+    paired = token
+    ok(status === 200, 'a phone pairs')
+    const auth = { authorization: `Bearer ${token}` }
+    const thumbUrl = `${base}/api/thumb?path=${encodeURIComponent(join(dir, 'ph1.jpg'))}`
+    const listing = async () => (await (await fetch(`${base}/api/dir?path=${encodeURIComponent(dir)}`, { headers: auth })).json()).files.map((f) => f.name).sort().join()
+    const l0 = await listing()
+    ok(l0.includes('ph1.jpg') && l0.includes('ph2.txt'), `the phone lists the folder (${l0})`)
+    let t0 = null
+    if (HAS_FFMPEG) {
+      const r0 = await fetch(thumbUrl, { headers: auth })
+      ok(r0.status === 200 && (r0.headers.get('content-type') ?? '') === 'image/jpeg', `its thumbnail is a JPEG (${r0.status} ${r0.headers.get('content-type')})`)
+      t0 = Buffer.from(await r0.arrayBuffer())
+      ok(jpegSize(t0)?.w === 320, `320 wide, the phone's own size (${JSON.stringify(jpegSize(t0))})`)
+    }
+    // The Explorer goes to the biggest tiles, which ask the desktop engine for 640s.
+    await gridToStep6(win)
+    await gridCtrlWheel(win, -100, 3)
+    ok((await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))) === '9', 'the Explorer is at step 9')
+    if (HAS_FFMPEG) ok(await until(async () => (await win.locator(`${GL} .browse-thumb-img[data-shown]`).count()) >= 1, 30000), 'and shows its own picture')
+    ok((await listing()) === l0, 'the phone lists the same folder')
+    if (HAS_FFMPEG) {
+      const r1 = await fetch(thumbUrl, { headers: auth })
+      const t1 = Buffer.from(await r1.arrayBuffer())
+      ok(r1.status === 200 && t1.equals(t0), `and its thumbnail is byte for byte the same (${t0.length} -> ${t1.length})`)
+    }
+  } finally {
+    // The phone it paired is forgotten: `phone` runs later on the same profile
+    // and counts the dialog's rows.
+    if (paired) await win.evaluate((t) => window.prism.phoneForget(t, null), paired).catch(() => {})
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(seed, { force: true })
+  }
+}
+
+/**
+ * THE 10,000-FILE FOLDER (zoom grid, Stage 7). The scenario makes the folder
+ * itself: 9,000 tiny PNGs, each with its own content (so no two share a cache
+ * key), and 1,000 text files between them (every tenth name). It enters the
+ * folder, goes to the grid, scrolls the whole way down, up and down again at
+ * about a screenful a frame, and holds the feature to the rules in the spec:
+ * the folder paints in its budget, no frame where the page works 100 ms or
+ * more, the mounted tiles stay a few hundred however far it scrolls, no more
+ * than 3 ffmpegs at once (the engine's peak, and the OS's own count), the
+ * pictures of the last screen arrive within seconds of stopping, memory does
+ * not climb with the distance, the cache folder is read once and not once per
+ * tile, and closing the tab stops the queue (no ffmpeg a moment later).
+ * Every limit is printed with what was measured, so a slow machine shows how
+ * far over it was.
+ */
+async function gridBigScenario(fixtures) {
+  console.log('grid, 10,000 files')
+  if (!HAS_FFMPEG) {
+    console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the thumbnails are skipped)`)
+    return
+  }
+  const dir = join(fixtures, 'gridbig')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(zlibCrc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  // A 4x3 picture whose twelve pixels come from the index: distinct bytes, a valid PNG.
+  const pngFor = (n) => {
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(4, 0)
+    ihdr.writeUInt32BE(3, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2
+    const rows = Buffer.alloc(13 * 3)
+    for (let y = 0; y < 3; y++)
+      for (let x = 0; x < 4; x++) {
+        const h = Math.imul(n + 1, 2654435761) ^ Math.imul(y * 4 + x + 1, 40503)
+        const o = y * 13 + 1 + x * 3
+        rows[o] = (h >>> 0) & 255
+        rows[o + 1] = (h >>> 8) & 255
+        rows[o + 2] = (h >>> 16) & 255
+      }
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
+  }
+  const t0make = Date.now()
+  writeFileSync(join(dir, 'a-seed.txt'), 'seed')
+  for (let i = 0; i < 10000; i++) {
+    const name = `g${String(i).padStart(5, '0')}`
+    if (i % 10 === 9) writeFileSync(join(dir, `${name}.txt`), `text ${i}\n`)
+    else writeFileSync(join(dir, `${name}.png`), pngFor(i))
+  }
+  console.log(`  (10,000 files made in ${Date.now() - t0make} ms)`)
+
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'a-seed.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  // Playwright now and then drops one app.evaluate ("Resulting promise was garbage
+  // collected") while the app is alive and busy: that is the harness, so ask again.
+  const stats = async () => {
+    for (let tryNo = 0; ; tryNo++) {
+      try {
+        return await app.evaluate(() => globalThis.__e2eThumbs?.() ?? null)
+      } catch (e) {
+        if (tryNo >= 3 || !/garbage collected/.test(String(e.message)) || app.process().exitCode !== null) throw e
+        await sleep(100)
+      }
+    }
+  }
+  const ffmpegs = () => processCount('ffmpeg.exe', '*gridbig*')
+  const visibleImages = () =>
+    win.evaluate((sel) => {
+      const list = document.querySelector(sel)
+      const l = list.getBoundingClientRect()
+      const tiles = [...list.querySelectorAll('.browse-tile[data-browse-path$=".png"]')].filter((t) => {
+        const r = t.getBoundingClientRect()
+        return r.bottom > l.top && r.top < l.bottom
+      })
+      return { n: tiles.length, shown: tiles.filter((t) => t.querySelector('.browse-thumb-img[data-shown]')).length }
+    }, GL)
+  // One pass across the whole folder in `secs`, a screenful or so a frame; what the page did meanwhile.
+  const pass = (to, secs) =>
+    win.evaluate(
+      async ([sel, target, ms]) => {
+        const list = document.querySelector(sel)
+        const max = list.scrollHeight - list.clientHeight
+        const from = list.scrollTop
+        const end = target === 'bottom' ? max : 0
+        const gaps = []
+        const loaf = []
+        const obs = new PerformanceObserver((l) => { for (const e of l.getEntries()) loaf.push(e.duration) })
+        obs.observe({ type: 'long-animation-frame', buffered: false })
+        let mounted = 0
+        let last = performance.now()
+        await new Promise((res) => {
+          const start = performance.now()
+          const tick = (t) => {
+            gaps.push(t - last)
+            last = t
+            const k = Math.min(1, (t - start) / ms)
+            list.scrollTop = from + (end - from) * k
+            mounted = Math.max(mounted, list.querySelectorAll('.browse-tile').length)
+            if (k < 1) requestAnimationFrame(tick)
+            else res()
+          }
+          requestAnimationFrame(tick)
+        })
+        obs.disconnect()
+        return { max, gaps: gaps.slice(2), loaf, mounted, top: list.scrollTop, total: list.scrollHeight }
+      },
+      [GL, to, secs * 1000]
+    )
+  const heap = async () => ({
+    page: await win.evaluate(() => Math.round(performance.memory.usedJSHeapSize / 1048576)),
+    main: await app.evaluate(() => Math.round(process.memoryUsage().heapUsed / 1048576))
+  })
+  try {
+    // Into the folder, as rows: the budget for a 10,000-file listing.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(GL, { timeout: 10000 })
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(dir)
+    const tEnter = Date.now()
+    await win.keyboard.press('Enter')
+    const entered = await until(async () => (await win.locator(`${GL} [data-browse-path$="g00000.png"]`).count()) === 1, 20000, 50)
+    const enterMs = Date.now() - tEnter
+    ok(entered && enterMs < 5000, `entering the folder paints its first rows in ${enterMs} ms (limit 5000)`)
+    const status = ((await win.locator('.browse-status').textContent()) ?? '').trim()
+    ok(/10,?001/.test(status), `the status counts 10,001 (${status.slice(0, 60)})`)
+
+    const tGrid = Date.now()
+    await gridToStep6(win)
+    console.log(`  (the grid up in ${Date.now() - tGrid} ms)`)
+    const g0 = await gridGeo(win)
+    ok(g0.tiles[0]?.name === 'a-seed.txt' && g0.tiles.length < 500, `the grid mounts ${g0.tiles.length} of 10,001 tiles at the top`)
+    const s0 = await stats()
+
+    // Down, up, down: a screenful a frame.
+    const passes = []
+    for (const [to, secs] of [['bottom', 3], ['top', 3], ['bottom', 3]]) {
+      const p = await pass(to, secs)
+      passes.push(p)
+      const worstGap = Math.max(...p.gaps)
+      const worstLoaf = Math.max(0, ...p.loaf)
+      console.log(`  (to ${to}: ${Math.round(p.total)}px of grid, ${p.gaps.length} frames, worst gap ${Math.round(worstGap)} ms, worst frame of work ${Math.round(worstLoaf)} ms, ${p.mounted} tiles mounted)`)
+      ok(Math.abs(p.top - (to === 'bottom' ? p.max : 0)) < 2, `the scroll reached the ${to}`)
+      ok(worstLoaf < 100, `no frame where the page worked 100 ms or more (${Math.round(worstLoaf)} ms) scrolling to the ${to}`)
+      ok(worstGap < 300, `and no gap between frames over 300 ms (${Math.round(worstGap)} ms)`)
+      ok(p.mounted < 500, `and the mounted tiles stayed bounded (${p.mounted})`)
+      if (to === 'bottom' && passes.length === 1) {
+        const s1 = await stats()
+        ok(s1.wants - s0.wants <= 3, `the fast scroll asked for almost nothing (${s1.wants - s0.wants} asks, ${s1.runs - s0.runs} ffmpeg runs)`)
+      }
+      if (passes.length < 3) await sleep(1200)
+    }
+    ok(Math.abs(passes[0].mounted - passes[2].mounted) < 60, `the mounted tiles do not grow with the distance (${passes.map((p) => p.mounted).join(', ')})`)
+
+    // The last screen's pictures arrive soon after the stop, with at most 3 ffmpegs at once.
+    const tStop = Date.now()
+    let seenFfmpeg = 0
+    let lastVis = await visibleImages()
+    await until(async () => (lastVis = await visibleImages()).n > 0, 5000, 100)
+    ok(lastVis.n > 0, `the last screen has ${lastVis.n} picture tiles`)
+    const allShown = await until(async () => {
+      seenFfmpeg = Math.max(seenFfmpeg, await ffmpegs())
+      lastVis = await visibleImages()
+      return lastVis.n > 0 && lastVis.shown === lastVis.n
+    }, 25000, 200)
+    const arriveMs = Date.now() - tStop
+    await win.screenshot({ path: join(SHOTS, 'grid-big.png') })
+    ok(allShown && arriveMs < 15000, `its pictures all arrived ${arriveMs} ms after stopping (${lastVis.shown}/${lastVis.n}, limit 15000)`)
+    ok(seenFfmpeg <= 3, `the OS saw at most 3 ffmpegs at once (${seenFfmpeg})`)
+
+    // Memory: two more passes added nothing like the distance they covered.
+    await sleep(1500)
+    const m3 = await heap()
+    await pass('top', 3)
+    await sleep(1500)
+    await pass('bottom', 3)
+    await sleep(2500)
+    const m5 = await heap()
+    console.log(`  (heap after 3 passes: page ${m3.page} MB, main ${m3.main} MB; after 5: page ${m5.page} MB, main ${m5.main} MB)`)
+    ok(m5.page - m3.page < 40, `the page's heap does not climb with the scroll (${m3.page} -> ${m5.page} MB, limit +40)`)
+    ok(m5.main - m3.main < 40, `and main's heap does not either (${m3.main} -> ${m5.main} MB, limit +40)`)
+
+    const s2 = await stats()
+    ok(s2.peak <= 3, `never more than 3 ffmpegs at once (peak ${s2.peak}, ${s2.runs} runs)`)
+    ok(s2.scans <= 1, `the cache folder was scanned ${s2.scans} time(s) for ${s2.runs} thumbnails, not once per tile`)
+
+    // Closing the tab cancels what it still waits for.
+    const tabRows = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')
+    await win.evaluate((d) => {
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', d)
+    }, dir)
+    const tabsBefore = await tabRows().count()
+    await win.keyboard.press('Control+t')
+    ok(await until(async () => (await tabRows().count()) === tabsBefore + 1, 5000, 100), `Ctrl+T opens one more tab (${tabsBefore} -> ${await tabRows().count()})`)
+    ok(await until(async () => (await win.locator(`${GL} .browse-tile:visible`).count()) > 0, 20000, 100), 'it shows the same folder as a grid')
+    const r0 = (await stats()).runs
+    await win.evaluate((sel) => {
+      const l = [...document.querySelectorAll(sel)].find((e) => e.getBoundingClientRect().width > 0)
+      l.scrollTop = (l.scrollHeight - l.clientHeight) / 2
+    }, GL)
+    const working = await until(async () => ((await stats())?.running ?? 0) > 0, 8000, 20)
+    ok(working, 'a new part of the folder is being made')
+    // Closed at once (no process listing first: that takes a second, enough to finish the work).
+    await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned])').last().locator('[data-tab-close]').click()
+    const closedTab = await until(async () => (await tabRows().count()) === tabsBefore, 3000, 50)
+    ok(closedTab, `the second tab closed (${await tabRows().count()} left: ${JSON.stringify(await win.locator('[role="tablist"] [role="tab"]').allTextContents())})`)
+    ok(await until(async () => ((await stats())?.running ?? 1) === 0, 1500, 50), 'closing the tab stops every ffmpeg within a moment')
+    const runsA = (await stats()).runs
+    await sleep(1500)
+    ok((await stats()).runs === runsA, `and starts no more (${runsA} -> ${(await stats()).runs})`)
+    ok(runsA - r0 < 23, `and the queue was cut short, not finished (${runsA - r0} ffmpeg runs for the new screen)`)
+    ok(await until(async () => (await ffmpegs()) === 0, 4000, 300), 'and no ffmpeg process is left')
+  } finally {
+    await win.evaluate(() => { for (const k of ['prism.newtab.mode', 'prism.newtab.folder']) localStorage.removeItem(k) }).catch(() => {})
+    await gridClear(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function explorerSizeScenario(fixtures) {
   console.log('explorer size')
   const dir = join(fixtures, 'exsize')
@@ -25570,6 +27659,19 @@ await run(sweepOverlayScenario)
 await run(hotkeysScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(zoomListScenario)
+await run(zoomFocusScenario)
+await run(thumbsEngineScenario)
+await run(thumbsListScenario)
+await run(gridBasicScenario)
+await run(gridKeysScenario)
+await run(gridSweepScenario)
+await run(gridDragScenario)
+await run(gridRenameScenario)
+await run(gridMenusScenario)
+await run(gridHoldScenario)
+await run(gridPhoneScenario)
+await run(gridBigScenario)
 await run(sidebarPlacesScenario)
 await run(folderIconsScenario)
 await run(folderIconFileScenario)

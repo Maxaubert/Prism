@@ -22,6 +22,8 @@ export const PREF_KEYS = {
   'prism.explorer.rememberFolders': 'shared',
   'prism.explorer.side': 'shared',
   'prism.explorer.size': 'shared',
+  'prism.explorer.zoom': 'shared',
+  // TEST ONLY (zoom grid, until Stage 6): lifts the zoom ceiling to the tiles.
   'prism.folderIcons': 'shared',
   'prism.newtab.folder': 'shared',
   'prism.newtab.mode': 'shared',

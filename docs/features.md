@@ -448,8 +448,10 @@ draws, so a tile matches what opens.
   URL so the copy it cached for a day is not shown either. `/api/thumb` answers `image/webp` for one.
 - **The tile draws `.p-checker`** (the viewer's class, its theme's pair) behind a thumbnail that keeps alpha,
   once it has arrived (`phone/thumbClass.ts`); until then the tile keeps its plain ground.
-- **Where thumbnails show**: only the phone's grid. The PC's preview pane and viewer already draw the
-  picture itself over `.p-checker` (`ImageView.tsx`); the Explorer has no picture tiles.
+- **Where thumbnails show**: the phone's grid, and (since the zoom grid, 2026-11-09 to 11-10) the Explorer's
+  list rows at zoom steps 3 and 4 and its tiles at steps 5 to 9, from the desktop engine (`thumbsEndpoint.ts`,
+  its own tiers, 320 and 640 wide). The phone's own path and bytes are unchanged (`gridPhone` e2e). The PC's
+  preview pane and viewer still draw the picture itself over `.p-checker` (`ImageView.tsx`).
 - **Held by** `thumbAlpha.test.ts`, `thumbs.test.ts` (the key, the WebP argv and its height cap, `isThumbFile`),
   `server.test.ts` (`/api/thumb`'s type), `api.test.ts` (`a=1`), `thumbClass.test.ts`, and e2e `phone` (a
   PNG with black under its clear corners: the thumbnail's corner is alpha 0 and the tile's corner, read
@@ -2032,6 +2034,124 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps Font size. `explorerSize` e2e.
+  **CTRL+SCROLL ZOOMS THE EXPLORER** (owner, 2026-11-09: "ctrl scroll to adjust the size of the
+  list view", "smooth, like Explorer", "one size everywhere"; spec
+  `docs/superpowers/specs/2026-11-09-explorer-zoom-grid.md`). ONE saved step for every folder
+  (`lib/explorerZoom.ts`, `prism.explorer.zoom`, seeded from `prism.explorer.size` when never
+  set). Steps 0 to 2 are Small, Medium, Large; 3 and 4 are 56px and 76px rows with a bigger
+  icon and a 40px and a 60px picture box (Stage 3); steps 5 to 9 are the grid, below. Ctrl+wheel up
+  is bigger: a mouse notch is a step, a pinch about three (`lib/zoomWheel.ts`); Ctrl+Plus,
+  Ctrl+Minus and Ctrl+0 (Medium) do the same while the list has focus. The row under the pointer
+  stays under it, the list's own move included (`lib/zoomAnchor.ts`, measured after render:
+  Large's header band is 4px taller than Medium's). Quick access and the header keep Large from
+  step 2 up. The Settings row writes steps 0 to 2 and lights none above, saying "Set by zooming
+  the list" (the copy rule bans key names). `zoomList` e2e.
+  **THE DESKTOP'S THUMBNAIL ENGINE** (zoom grid Stage 2, 2026-11-09; main only, no tile draws it yet).
+  `thumbs.ts` (the phone's code path, argv and keys unchanged to the byte at 320) gains `makeFor` /
+  `lookup`; `thumbQueue.ts` schedules (a tab's new ask replaces its waiting list, 3 of the 4 ffmpegs,
+  1 on 4 cores or fewer or while a film plays, tabs take turns, one job per key, a running job nobody
+  wants is killed only past 1.5 s); `thumbsEndpoint.ts` + `ipc/thumbs.ts` are `thumbs:want` /
+  `thumbs:ready` / `thumbs:cancel` / `thumbs:film` (`window.prism.thumbs`), walled by `readable` AND
+  `ownsDirectly(tab, path)` after the paths are warmed off main's thread, photos and films only (SVG
+  is the page's). Pictures go back as `fsmedia://thumb/<40 hex>.jpg|webp`, answered by
+  `mediaProtocol.ts` from the cache folder before the root wall. Two tiers (320 shared with the phone,
+  640 keyed `|640`); a desktop film frame (`-noaccurate_seek -threads 2`) is keyed `|k`, so the phone
+  never gets a keyframe frame; 15 s timeout (desktop only); failures remembered in memory (5,000
+  keys, desktop only, not for a cancel); a hit touched at most once a day; cache 500 MB trimmed to
+  450; stale `.part` files swept at startup. HDR film: pass 1 reads ffmpeg's own input line, HLG or PQ
+  gets a second pass that scales then tone-maps (the phone's chain; scaled first so the float work is on
+  a small frame). **HEIC ROUTE, MEASURED**: ffmpeg decodes HEIC itself: `gradient.heic` (640x480) works
+  and a 4032x3024 single-image HEIC (pillow-heif) takes 0.47 to 0.53 s to a 320 or 640 JPEG, against
+  1.49 to 1.63 s for `heic-convert` alone (before the scale), so ffmpeg is the route. An iPhone stores
+  a photo as a GRID of 512px tiles, which no sample here could be made to reproduce (no encoder writes
+  one), so a HEIC whose ffmpeg report says "Stream group ... Tile Grid" or shows a square 256, 512 or
+  1024 first stream, or that ffmpeg fails on, goes to `heicClient` and is scaled after (`inputNeedsHeifDecoder`).
+  NOT verified on a real iPhone HEIC. A film on the 640x360 HEVC fixture: 63 to 87 ms with
+  `-noaccurate_seek`, 61 to 76 ms accurate (too small to tell apart; the saving is for 4K). The HDR
+  pass was not measured (no HDR sample and no encoder to make one). 200 asks for distinct files: all
+  made in about 4 s, never over 3 ffmpegs, page gaps 22 ms, main round trips 6 ms. Held by
+  `thumbs.tier.test.ts`, `thumbs.engine.test.ts`, `thumbs.ffmpeg.test.ts` (real ffmpeg: EXIF turn,
+  clear PNG, HEIC, HEVC .mov), `thumbQueue.test.ts`, `thumbsEndpoint.test.ts`, `mediaProtocol.test.ts`
+  and the `thumbsEngine` e2e.
+  **PICTURES IN THE LIST ROWS** (zoom grid Stage 3, 2026-11-09). At steps 3 and 4 the Name column's
+  picture slot is 40px and 60px. A photo, camera raw, HEIC or film row draws a `ThumbImage` box (the
+  kind icon at half the box on a quiet raised ground, the thumbnail fading in over it in 120 ms, none
+  for reduced motion; whole, never cropped; a format that can be clear sits on `.p-checker` once in;
+  a film wears a play glyph once its frame shows; "no picture" is the icon with no mark). A small SVG
+  (2 MB at most) is drawn by the page from the file; every other row, and a folder, keeps its icon
+  centred in a slot of the SAME width so the names line up. Only a plain folder listing gets pictures:
+  a search, an Everything window and an archive's members keep icons, and a file still landing from a
+  paste asks for nothing. `lib/useThumbs.ts` is the page's half: the mounted rows (nearest the middle
+  first) go to `thumbs:want` only after 120 ms with no change in what is mounted, so a fast scroll
+  asks for nothing; answers of an older generation are ignored; a path is remembered once answered (a
+  null is never asked again in the folder); a loading-bar hold, a hidden window, a step below 3 and a
+  folder change cancel and ask nothing, and a feed that never asked sends no IPC at all (Medium costs
+  nothing). The tier is tile edge x devicePixelRatio (`tierFor`, now in `@shared/thumbTypes`): a 60px
+  box on a 225% screen is 135 px, so the 320 tier. Held by `thumbKind.test.ts`, `useThumbs.test.ts`,
+  `thumbImageState.test.ts` and the `thumbsList` e2e (box sizes, 320 wide pictures, the .mov frame
+  not black, play glyph, checker, slot widths, name alignment, no ask during a fast scroll over 400
+  files, no ask at Medium).
+  **THE GRID** (zoom grid Stage 4, 2026-11-09; reachable since Stage 6). Steps 5 to 9 are tiles of 96, 128, 168, 216 and 272px (`ZOOM_STEPS`, `kind:
+  'tile'`; their row fields stay Large's, so a search, an archive or an Everything window keeps 40px
+  rows there). A plain folder listing at a tile step is `BrowseGrid` + `GridTile`: a square picture
+  box (the Stage 3 `ThumbImage`, or the kind icon at 40% of the box) with the name under it in two
+  lines, whole and never cropped. Geometry is pure (`lib/gridLayout.ts`): cells `edge + 12` wide,
+  fixed and left-aligned, 4px apart, 12px of padding, `cols = floor((width - 24 + 4) / (cellW + 4))`;
+  only the lines in view plus two each way are mounted (a 10,000-file folder is about 60 tiles), keyed
+  by path. The list's own arithmetic is kept: a "line" is a row of `cols` cells, so the scroll space,
+  the 4,000,000px compression, scroll-into-view and the keys' paging all work in lines. A press, drag,
+  drop, double click and right-click on a tile are the row's own (`entryHandlers`, pulled out of the
+  row unchanged), so the two cannot disagree. Downloads' date groups are not drawn in a grid. The
+  header band keeps its height and shows the same four sort buttons packed left (`gridHeader.ts`:
+  Name, Date modified, Size, Type; Type then Size hide under 360px). The zoom anchor now keeps the
+  ITEM under the pointer across list and grid (`col` and `lead` in `zoomAnchor.ts`), and a width
+  change that changes the columns keeps the first item in view. Not yet: sweep box, grid arrow keys,
+  rename in the tile, landing bars, the menu row (Stages 5 and 6). Known and not changed here:
+  toggling the preview pane re-reads the folder and puts any list back at the top. Held by
+  `gridLayout.test.ts`, `gridHeader.test.ts`, `zoomAnchor.test.ts`, `explorerZoom.test.ts` and the
+  `gridBasic` e2e.
+  **THE GRID'S KEYBOARD** (zoom grid Stage 5, 2026-11-09; spec 5.2). `lib/gridNav.ts` (pure): Left and Right
+  step one item and do not wrap, Up and Down a whole line, Down from the line above a short last line lands
+  on the last item (Explorer's rule), Page keys go the visible lines less one, Home and End the ends, and
+  with nothing focused Down and Right land on the first, Up and Left on the last. Shift+arrow marks the INDEX
+  RANGE from the anchor, Ctrl+arrow moves the focus without marking, Ctrl+Space marks it; type-ahead, Space
+  (the preview pane), Enter and the common keys are the list's own, untouched. **Left and Right are the
+  grid's only**: in the list they still reach the viewer (owner, 2026-09-01); `gridKey(e, false)` is null for
+  them. A rename box's keys are never taken. Back from the viewer in a grid quietly picks the file that was
+  on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; rows
+  keep the pick and scroll they had. Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
+  **THE GRID IS REACHABLE** (zoom grid Stage 6, 2026-11-10; spec 5.4, 5.5, 5.7): `ZOOM_MAX_AVAILABLE` is 9 and the
+  test-only `prism.explorer.zoomMax` key is gone. **Sweep**: a press on blank space (a gap, the right margin,
+  under the last line) draws the box; a press on a tile is the tile's own drag. `lib/cellsInBox.ts` (pure)
+  finds the tiles whose rect (cell minus gap, name band included) the box touches by column and line spans,
+  never by a scan; one pixel of overlap counts, a box wholly in a gap marks nothing; Ctrl adds; autoscroll
+  is the list's. **Drag and drop** were already the rows' own handlers (Stage 4): the grid adds a 2px ring
+  on a folder tile under a drag (`grid.css`) and a carried tile takes no drop. **Rename** stays the
+  Explorer's dialog (the whole name selected, as the list does; owner's call whether it goes inline), opened
+  by F2 on the picked tile; the tile keeps its place in the sort. **Menus**: a tile opens the item menu
+  (Shift+F10 and the Menu key at the tile); the blank space of a plain folder opens ONE row, "Show as grid"
+  (step 6) from a list, "Show as list" (Medium) from a grid (`menus/zoomMenu.ts`, `docs/menus.md`); a
+  search keeps rows and shows no menu. **Hold and landing**: the grid sits inside the inert frame, so a hold
+  freezes it and asks for no pictures; a file still copying is an inert faded tile saying "Copying..." with
+  the rows' fill bar, 4px, across the bottom of its picture box (`lib/landingGrid.ts`). Held by
+  `cellsInBox.test.ts`, `landingGrid.test.ts`, `zoomMenu.test.ts` and the `gridSweep`, `gridDrag`,
+  `gridRename`, `gridMenus`, `gridHold` and `gridPhone` e2e (the phone's thumbnail is byte for byte the same
+  with the Explorer at step 9).
+  **THE 10,000-FILE FOLDER** (zoom grid Stage 7, 2026-11-10; spec 7 and 9). The `gridBig` e2e makes a folder of
+  10,000 files itself (9,000 tiny PNGs, each with its own bytes so no two share a cache key, and a text file at
+  every tenth name), enters it, goes to the grid and scrolls from the top to the bottom, back and down again in
+  three seconds a pass (a screenful or more a frame). Held, with each number printed next to its limit: the first
+  rows paint in under 5 s (98 ms measured); no frame where the page works 100 ms or more and no gap between
+  frames over 300 ms; about 60 tiles mounted whatever the distance (limit 500, equal on all three passes); the
+  fast scroll makes no thumbnail ask (at most 3); no more than 3 ffmpegs at once (the engine's peak, and a
+  process count when one can be seen); the pictures of the last screen all arrive within 15 s of stopping
+  (about half a second measured); the page's and main's heap do not climb by 40 MB over two more passes; the
+  cache folder is scanned once for the whole run, not once per tile (`Thumbs.stats().scans`, held in
+  `thumbs.engine.test.ts` too); a second tab closed while its screen is being made stops every ffmpeg within
+  1.5 s, starts no more, and leaves no process. The numbers are of the owner's PC (a fast one): a slow machine
+  will show how far over a limit it lands in the printed line. Not tested: a spinning disk, a network share, a
+  folder of real photographs (the PNGs are 4x3 pixels, so decode time is ~nil and ffmpeg's start is what the run
+  measures).
   **THE PLACES PANEL IS THE THEMES MOCKUP'S** (#296; owner, 2026-10-06: "i really like the
   sidebar from here, so use that, with the icons and the disks with a bar showing how much is in
   use"). Quick access is the pins that ARE a Known Folder (`BrowseShortcut.known`), each with its

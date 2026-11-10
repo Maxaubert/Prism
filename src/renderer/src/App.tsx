@@ -112,7 +112,9 @@ const WARM_COOLDOWN_MS = 60_000
 import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
-import { explorerHeadVars, useExplorerSize } from './lib/explorerSize'
+import { explorerHeadVars } from './lib/explorerSize'
+import { atStep, explorerZoom, headSizeOf, setExplorerZoom, useExplorerZoom } from './lib/explorerZoom'
+import { zoomBlankMenu } from './menus/zoomMenu'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
@@ -831,7 +833,14 @@ export default function App(): JSX.Element {
     }
     if (viewerDirectory && active && !sameRoot(viewerDirectory, active.browse.path))
       void browsing.navigate(viewerDirectory)
-    else browsing.showFolder()
+    else {
+      // A GRID COMES BACK TO THE FILE ON SHOW (Stage 5, spec 5.2): Up and Down
+      // in the viewer walk the folder without moving the list's pick, so the
+      // grid is told which tile that was (a quiet pick, nothing opens) and
+      // scrolls it into view. Rows keep the pick they had, as they always did.
+      if (file && atStep(explorerZoom()).kind === 'tile') browsing.select(file.path, true)
+      browsing.showFolder()
+    }
   }, [viewerDirectory, active, browsing, file])
   const [browseMenu, setBrowseMenu] = useState<{
     x: number
@@ -919,7 +928,7 @@ export default function App(): JSX.Element {
   // floats in that band at the right. Text read as source only; a Markdown
   // page, a picture or a film keeps the button's own strip above it.
   const previewFlush = !!file && file.kind === 'text' && !isMarkdown(file.name) && !editMode
-  const headVars = explorerHeadVars(useExplorerSize())
+  const headVars = explorerHeadVars(headSizeOf(useExplorerZoom()))
   const explorerWidths = useExplorerWidths(
     placesVisible,
     previewSlide.widthShown
@@ -2012,6 +2021,15 @@ export default function App(): JSX.Element {
           y={emptyMenu.y}
           onClose={() => setEmptyMenu(null)}
           items={archiveActions.menu({ entry: null }, browseArchive, active.browse.path) ?? []}
+        />
+      )}
+      {emptyMenu && !browseArchive && active && (
+        // A plain folder's blank space: Show as grid / Show as list (Stage 6).
+        <ContextMenu
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          items={zoomBlankMenu({ step: explorerZoom(), setStep: setExplorerZoom })}
         />
       )}
       {archiveActions.dialogs}
