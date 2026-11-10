@@ -1,7 +1,9 @@
 import { lstat, readFile, readdir, rename, unlink } from 'fs/promises'
-import { extname, join, parse } from 'path'
+import { extname, join } from 'path'
 import { exists } from './fsUtil'
-import { execFile } from './spawnWorker'
+import { binDirsFor, ownSid, sidOf } from './binRoots'
+
+export { ownSid, sidOf }
 
 /**
  * UNDO'S RESTORE READS THE BIN ITSELF (2026-11-06). Undoing a delete used to
@@ -23,11 +25,12 @@ import { execFile } from './spawnWorker'
  */
 
 /** What an `$I` file says: the path the item was deleted from, and when
- *  (a FILETIME, larger is later). Version 1 (Vista, 7) has a fixed 260-char
+ *  (a FILETIME, larger is later) and its size in bytes (a folder's total on Windows 10 and later). Version 1 (Vista, 7) has a fixed 260-char
  *  path at 24; version 2 (8 and later) a char count at 24 and the path at 28. */
-export function parseInfo(buf: Buffer): { path: string; deletedAt: bigint } | null {
+export function parseInfo(buf: Buffer): { path: string; deletedAt: bigint; size: bigint } | null {
   if (buf.length < 24) return null
   const version = buf.readBigInt64LE(0)
+  const size = buf.readBigInt64LE(8)
   const deletedAt = buf.readBigInt64LE(16)
   let raw: string
   if (version === 1n) {
@@ -41,37 +44,14 @@ export function parseInfo(buf: Buffer): { path: string; deletedAt: bigint } | nu
   } else return null
   const end = raw.indexOf('\0')
   const path = end < 0 ? raw : raw.slice(0, end)
-  return path ? { path, deletedAt } : null
-}
-
-/** The SID out of `whoami /user /fo csv /nh` ("pc\name","S-1-5-..."). */
-export function sidOf(out: string): string | null {
-  return /"(S-1-[\d-]+)"/.exec(out)?.[1] ?? null
-}
-
-let sid: Promise<string | null> | null = null
-/** This user's SID, asked once. Null when whoami could not say, and then
- *  every restore goes the shell's way. */
-function ownSid(): Promise<string | null> {
-  sid ??= new Promise((resolve) => {
-    try {
-      const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe')
-      execFile(exe, ['/user', '/fo', 'csv', '/nh'], { windowsHide: true, timeout: 5000 }, (error, stdout) =>
-        resolve(error ? null : sidOf(String(stdout)))
-      )
-    } catch {
-      resolve(null)
-    }
-  })
-  return sid
+  return path ? { path, deletedAt, size } : null
 }
 
 /** THIS USER'S bin on the path's drive, never another user's: a folder
  *  another account could read (a FAT drive, loose ACLs) must not hand its
  *  file back in place of ours. */
-async function binsOf(path: string): Promise<string[]> {
-  const own = await ownSid()
-  return own ? [join(parse(path).root, '$Recycle.Bin', own)] : []
+function binsOf(path: string): Promise<string[]> {
+  return binDirsFor(path)
 }
 
 /** What the bin holds for a set of paths, read once (below). */
