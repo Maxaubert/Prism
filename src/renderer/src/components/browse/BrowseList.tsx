@@ -1580,7 +1580,11 @@ export function BrowseList(props: Props): JSX.Element {
                           {entry.isFolder
                             ? (() => {
                                 const own = folderIconOf(folderIcons, entry.path)
-                                const folder = <FolderIcon color="var(--p-tree-folder)" />
+                                // At the picture steps (3, 4) a folder is as big as a file's
+                                // icon (owner, 2026-11-10); steps 0 to 2 keep the row icon.
+                                const folder = (
+                                  <FolderIcon color="var(--p-tree-folder)" size={look.thumb ? look.icon : undefined} />
+                                )
                                 // A picked glyph wears the folder colour (D4).
                                 const glyph = own ? (
                                   <FolderGlyph
