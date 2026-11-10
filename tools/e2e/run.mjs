@@ -10083,14 +10083,15 @@ async function hotkeysScenario(fixtures) {
     await click('alpha.txt')
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'New folder')), 8000), 'explorer: Ctrl+Shift+N makes "New folder" in the folder shown')
+    const exNew = win.locator('input[aria-label="Name"]')
     const exRename = win.locator('input[aria-label="New name"]')
-    ok(await until(async () => (await exRename.count()) === 1, 5000), 'explorer: and asks for its name')
-    ok((await exRename.inputValue()) === 'New folder', 'explorer: starting from "New folder"')
+    ok(await until(async () => (await exNew.count()) === 1, 5000), 'explorer: and asks for its name')
+    ok((await exNew.inputValue()) === 'New folder', 'explorer: starting from "New folder"')
     await win.keyboard.press('Control+d')
     await win.keyboard.press('Control+Shift+N')
     await sleep(500)
     ok(!existsSync(join(dir, 'New folder (2)')) && existsSync(join(dir, 'New folder')), 'explorer: no key in the rename field reaches the list')
-    await exRename.fill('made-ex')
+    await exNew.fill('made-ex')
     await win.keyboard.press('Enter')
     ok(await back('made-ex'), 'explorer: the name lands')
     await sleep(800)
@@ -10258,7 +10259,7 @@ async function hotkeysScenario(fixtures) {
       await member.focus()
       await win.keyboard.press(k)
       await sleep(500)
-      ok((await dialogs()) === 0 && (await win.locator('input[aria-label="New name"]').count()) === 0, `zip: ${k} does nothing`)
+      ok((await dialogs()) === 0 && (await win.locator('input[aria-label="Name"]').count()) === 0, `zip: ${k} does nothing`)
     }
     ok(!existsSync(join(dir, 'New folder')) && new AdmZip(join(dir, 'kilo.zip')).getEntries().length === 1, 'zip: no folder was made and the member is still there')
   } finally {
@@ -27523,6 +27524,317 @@ function collectStalls(scenario) {
   }
 }
 
+/**
+ * THE NEW FOLDER SAYS "NEW FOLDER" (owner, 2026-11-10: "when you ctrl shift n
+ * to create a new folder it says rename"). Ctrl+Shift+N makes the folder and
+ * asks for its name in the dialog F2 uses, but worded for what it is: the
+ * title "New folder", the field "Name", the button "Done". Cancel and Escape
+ * keep the folder named "New folder", as File Explorer does. F2 stays Rename.
+ */
+async function newFolderTitleScenario(fixtures) {
+  console.log('the new folder dialog says New folder')
+  const dir = join(fixtures, 'nftitle')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['alpha.txt', 'bravo.txt']) writeFileSync(join(dir, n), `${n}\n`)
+  const { app, win } = await launch(join(dir, 'alpha.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const dialog = win.locator('[role="dialog"]')
+  const words = () =>
+    win.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]')
+      return {
+        title: d?.querySelector('h2')?.textContent ?? '',
+        label: d?.querySelector('label')?.firstChild?.textContent?.trim() ?? '',
+        field: d?.querySelector('input')?.getAttribute('aria-label') ?? '',
+        buttons: [...(d?.querySelectorAll('button') ?? [])].map((b) => b.textContent),
+        primary: d?.querySelector('button[data-primary="true"]')?.textContent ?? ''
+      }
+    })
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+    await listRow(win, 'alpha.txt').click()
+    await sleep(300)
+
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'New folder')), 8000), 'Ctrl+Shift+N makes "New folder"')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and asks for its name')
+    let w = await words()
+    ok(w.title === 'New folder', `the title is "New folder" (${w.title})`)
+    ok(w.label === 'Name' && w.field === 'Name', `the field is "Name" (${w.label} / ${w.field})`)
+    ok(JSON.stringify(w.buttons) === JSON.stringify(['Cancel', 'Done']) && w.primary === 'Done', `the buttons are Cancel and Done, Done primary (${w.buttons})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await dialog.count()) === 0, 4000), 'Escape closes it')
+    ok(existsSync(join(dir, 'New folder')), 'and the folder stays named "New folder"')
+
+    await listRow(win, 'alpha.txt').click()
+    await sleep(300)
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'New folder (2)')), 8000), 'again makes "New folder (2)"')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and asks')
+    await dialog.locator('input').fill('made-title')
+    await win.locator('[role="dialog"] button:has-text("Done")').click()
+    ok(await until(async () => existsSync(join(dir, 'made-title')) && !existsSync(join(dir, 'New folder (2)')), 8000), 'Done gives it the typed name')
+
+    await listRow(win, 'bravo.txt').click()
+    await sleep(300)
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'F2 asks')
+    w = await words()
+    ok(w.title === 'Rename' && w.field === 'New name' && w.primary === 'Rename', `F2 stays Rename (${JSON.stringify(w)})`)
+    await win.keyboard.press('Escape')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * CTRL+SHIFT+N FROM THE SIDEBAR (owner, 2026-11-10: "if i click the left
+ * sidebar and click documents then ctrl shift n it doesnt open the new folder
+ * panel i have to click into the file list"). The folder keys answered only
+ * from the list. New folder acts on the folder shown, so it answers from
+ * anywhere in the folder browser except a text field; the keys that act on
+ * the SELECTED rows (Delete, Ctrl+Shift+C, Alt+Enter) stay the list's, since
+ * from the sidebar the user is looking at a place. After the name is given
+ * the keyboard is on the list with the new folder selected.
+ */
+async function newFolderSidebarScenario(fixtures) {
+  console.log('Ctrl+Shift+N after a sidebar click')
+  const dir = join(fixtures, 'nfside')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'pinme'), { recursive: true })
+  writeFileSync(join(dir, 'one.txt'), 'one\n')
+  writeFileSync(join(dir, 'pinme', 'inside.txt'), 'inside\n')
+  const { app, win } = await launch(join(dir, 'one.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const places = win.locator('.folder-browser .browse-places')
+  const dialog = win.locator('[role="dialog"]')
+  const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
+  const leaf = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
+  const where = () =>
+    win.evaluate(() => {
+      const a = document.activeElement
+      return {
+        inList: !!a?.closest?.('.browse-list'),
+        inPlaces: !!a?.closest?.('.browse-places'),
+        selected: [...document.querySelectorAll('.browse-row[data-browse-path][aria-selected="true"]')].map((r) => r.getAttribute('data-browse-path'))
+      }
+    })
+  const pinRow = places.locator('.quick-access-pin[data-quick-access-path$="\\\\pinme" i]')
+  let pinned = false
+  try {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await win.locator('.browse-path-form input').fill(dir)
+    await win.keyboard.press('Enter')
+    await sleep(900)
+    await listRow(win, 'pinme').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    pinned = true
+    ok(await until(async () => (await pinRow.count()) === 1, 5000), 'the fixture folder is pinned')
+    await pinRow.click()
+    ok(await until(async () => (await listRow(win, 'inside.txt').count()) === 1, 8000), 'a click on the place opens the folder')
+    ok((await where()).inPlaces, 'and the keyboard is on the sidebar, not the list')
+
+    // The keys that act on rows stay inert from here.
+    await win.keyboard.press('Delete')
+    await win.keyboard.press('Control+Shift+C')
+    await win.keyboard.press('Alt+Enter')
+    await sleep(500)
+    ok((await dialog.count()) === 0, 'Delete and Alt+Enter from the sidebar open nothing')
+    ok((await clip()) === '', `Ctrl+Shift+C from the sidebar copies nothing (${JSON.stringify(await clip())})`)
+
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'pinme', 'New folder')), 8000), 'Ctrl+Shift+N from the sidebar makes "New folder" in the folder shown')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and opens the name panel')
+    await dialog.locator('input').fill('side-made')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => existsSync(join(dir, 'pinme', 'side-made')), 8000), 'the name lands')
+    ok(await until(async () => (await dialog.count()) === 0, 4000), 'the panel closes')
+    ok(
+      await until(async () => {
+        const at = await where()
+        return at.inList && at.selected.length === 1 && leaf(at.selected[0]) === 'side-made'
+      }, 5000),
+      `the keyboard ends on the list with the new folder selected (${JSON.stringify(await where())})`
+    )
+
+    // A toolbar button holds the keyboard: the same.
+    await win.locator('.folder-browser [aria-label="Preview pane"]').click()
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => existsSync(join(dir, 'pinme', 'New folder')), 8000), 'from a toolbar button too')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'it asks')
+    await win.keyboard.press('Escape')
+    await win.locator('.folder-browser [aria-label="Preview pane"]').click()
+
+    // A text field keeps it.
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await sleep(300)
+    await win.keyboard.press('Control+Shift+N')
+    await sleep(600)
+    ok(!existsSync(join(dir, 'pinme', 'New folder (2)')) && (await dialog.count()) === 0, 'in the address field the chord makes nothing')
+  } finally {
+    if (pinned) {
+      await win.keyboard.press('Escape').catch(() => {})
+      await pinRow.click({ button: 'right' }).catch(() => {})
+      await win.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click({ timeout: 3000 }).catch(() => {})
+    }
+    await app.close()
+  }
+}
+
+/**
+ * THE CARET A MAGNIFIER FOLLOWS (owner, 2026-11-10: "the caret dont seem to be
+ * tracked in the input field it doesnt work with my magnifier"). Proven from
+ * inside Chromium (focus, a collapsed selection at the end of what was typed,
+ * no select() or setSelectionRange() on a keystroke, no transform on the box)
+ * and from outside, through UI Automation as a magnifier reads it
+ * (tools/e2e/uiaCaret.ps1): the selection is ONE collapsed range, not the
+ * text from its start to the cursor.
+ */
+async function caretTracksScenario(fixtures) {
+  console.log('the caret in the name field is where a magnifier looks')
+  const dir = join(fixtures, 'caret')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'alpha.txt'), 'alpha\n')
+  const { app, win } = await launch(join(dir, 'alpha.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const dialog = win.locator('[role="dialog"]')
+  const hwnd = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigInt64LE(0).toString()
+  )
+  const uia = (name) => {
+    try {
+      const out = execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(dirname(fileURLToPath(import.meta.url)), 'uiaCaret.ps1'), '-Hwnd', hwnd, '-Name', name],
+        { encoding: 'utf8', windowsHide: true, timeout: 60000 }
+      )
+      return JSON.parse(out.trim().split('\n').pop())
+    } catch (e) {
+      return { found: false, error: String(e.message ?? e).slice(0, 200) }
+    }
+  }
+  const inside = (field) =>
+    win.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      const a = document.activeElement
+      const box = el.closest('[role="dialog"]') ?? el
+      let transformed = ''
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        const s = getComputedStyle(n)
+        if (s.transform !== 'none' || s.zoom !== '1' || n.getAnimations().length) transformed += `${n.tagName}.${n.className} `
+      }
+      const r1 = el.getBoundingClientRect()
+      return {
+        focused: a === el,
+        start: el.selectionStart,
+        end: el.selectionEnd,
+        len: el.value.length,
+        transformed,
+        rect: [r1.x, r1.y, r1.width, r1.height],
+        dpr: window.devicePixelRatio,
+        box: !!box
+      }
+    }, field)
+  const probe = async (field, name, what) => {
+    await win.evaluate(() => {
+      window.__selCalls = 0
+      for (const m of ['select', 'setSelectionRange']) {
+        const orig = HTMLInputElement.prototype[m]
+        HTMLInputElement.prototype[m] = function (...a) {
+          window.__selCalls++
+          return orig.apply(this, a)
+        }
+      }
+    })
+    await win.keyboard.type('abc', { delay: 60 })
+    await sleep(300)
+    const d = await inside(field)
+    ok(d.focused, `${what}: the field has the focus`)
+    ok(d.start === d.end && d.end === d.len, `${what}: the caret is collapsed at the end of the text (${d.start}-${d.end} of ${d.len})`)
+    ok((await win.evaluate(() => window.__selCalls)) === 0, `${what}: no select() or setSelectionRange() on a keystroke (${await win.evaluate(() => window.__selCalls)})`)
+    ok(d.transformed === '', `${what}: no transform, zoom or animation on the box or above it (${d.transformed})`)
+    const text = await win.evaluate((sel) => document.querySelector(sel).value, field)
+    const u = uia(name)
+    console.log(`  uia ${what}: ${JSON.stringify(u)}`)
+    await win.keyboard.type('d', { delay: 60 })
+    await sleep(500)
+    const u2 = uia(name)
+    console.log(`  uia ${what} after one more key: ${JSON.stringify(u2)}`)
+    ok(u.found, `${what}: UI Automation finds the field (${u.error ?? ''})`)
+    if (!u.found) return
+    ok(Array.isArray(u.selection) && u.selection.length === 1, `${what}: one selection range (${u.selection?.length})`)
+    const s = u.selection?.[0]
+    ok(s && s.text === '', `${what}: and it is collapsed, not the text so far (${JSON.stringify(s?.text)} of ${JSON.stringify(text)})`)
+    const [bx, by, bw, bh] = u.box
+    const rect = (x) => x?.selection?.[0]?.rects?.[0]
+    const caretRects = (s?.rects ?? []).filter((r) => r)
+    ok(caretRects.length === 1, `${what}: the caret has a rectangle (${JSON.stringify(s?.rects)})`)
+    ok(
+      caretRects.every((r) => r[0] >= bx - 2 && r[0] <= bx + bw + 2 && r[1] >= by - 2 && r[1] + r[3] <= by + bh + 2 && r[2] <= 4),
+      `${what}: it is a thin bar lying inside the field (${JSON.stringify(caretRects)} in ${JSON.stringify(u.box)})`
+    )
+    ok(!!rect(u2) && !!rect(u) && rect(u2)[0] > rect(u)[0], `${what}: and it moves right with the next key (${rect(u)?.[0]} to ${rect(u2)?.[0]})`)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(700)
+    // The first ask wakes Chromium's accessibility tree, so it finds nothing.
+    uia('warm up')
+    await listRow(win, 'alpha.txt').click()
+    await sleep(300)
+    await win.keyboard.press('Control+Shift+N')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'the new folder dialog is up')
+    await sleep(600)
+    await probe('[role="dialog"] input', 'Name', 'new folder')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await listRow(win, 'alpha.txt').click()
+    await sleep(300)
+    await win.keyboard.press('F2')
+    ok(await until(async () => (await dialog.count()) === 1, 5000), 'the rename dialog is up')
+    await sleep(600)
+    await probe('[role="dialog"] input', 'New name', 'rename')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    // The address field and the search popup, the other boxes of the Explorer.
+    await win.locator('[data-testid="browse-edit-path"]').click()
+    await sleep(500)
+    await probe('.browse-path-form input', 'Folder path', 'address')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await listRow(win, 'alpha.txt').click()
+    await sleep(300)
+    await win.keyboard.press('Control+f')
+    ok(await until(async () => (await win.locator('[data-search-popup] input').count()) === 1, 5000), 'the search popup is up')
+    await sleep(500)
+    await probe('[data-search-popup] input', 'Search this folder and subfolders', 'search')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    // The control: a plain input in the same window, no dialog.
+    await win.evaluate(() => {
+      const i = document.createElement('input')
+      i.setAttribute('aria-label', 'Control')
+      i.id = 'caret-control'
+      i.style.cssText = 'position:fixed;left:40px;top:120px;width:300px;z-index:9999'
+      document.body.appendChild(i)
+      i.focus()
+    })
+    await probe('#caret-control', 'Control', 'control')
+  } finally {
+    await app.close()
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
@@ -27742,6 +28054,9 @@ await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
 await run(opensInWindowsScenario)
 await run(openGuardsScenario)
+await run(newFolderTitleScenario)
+await run(newFolderSidebarScenario)
+await run(caretTracksScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).
