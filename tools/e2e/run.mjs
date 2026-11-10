@@ -28652,6 +28652,54 @@ async function binUndoScenario(fixtures) {
 }
 
 /**
+ * UNDO OF A RESTORE INTO A FOLDER NO TAB HAS OPENED (review, 2026-11-10). The
+ * usual Restore: the bin is opened straight from the sidebar and the item goes
+ * back to a folder nobody browsed this run. Ctrl+Z must still put it back in
+ * the bin and Ctrl+Y restore it again; the old guards asked only for folders a
+ * tab had visited, so the undo said "1 of 1 could not be moved back".
+ */
+async function binUndoAwayScenario(fixtures) {
+  console.log('recycle bin: undo of a restore into a folder no tab has opened')
+  const base = join(fixtures, 'bin-undo-away')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  const away = join(base, 'away', 'deep')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(away, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'), ['C'])
+  const dir = bin.dirs[0]
+  const target = join(away, 'far.txt')
+  bin.put(dir, 'AW1.txt', target, Date.now() - 1000, 'far away')
+  const inBin = () => binPairs(dir).filter((n) => readFileSync(join(dir, n), 'utf8') === 'far away').length
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, home))
+    await binOpen(win, 1)
+    await binRowOf(win, 'far.txt').click()
+    await binVerb(win, 'restore').click()
+    ok(await until(() => existsSync(target) && inBin() === 0, 8000, 100), 'Restore puts far.txt back in a folder no tab has opened')
+    await win.locator(BIN_LIST).focus()
+    await win.keyboard.press('Control+z')
+    ok(
+      await until(() => !existsSync(target) && inBin() === 1, 10000, 100),
+      `Ctrl+Z puts it back in the bin (${JSON.stringify(await binDialogText(win))})`
+    )
+    ok((await binDialog(win).count()) === 0, 'and nothing says it failed')
+    await sleep(500)
+    await win.keyboard.press('Control+y')
+    ok(
+      await until(() => existsSync(target) && inBin() === 0, 10000, 100),
+      `Ctrl+Y restores it again (${JSON.stringify(await binDialogText(win))})`
+    )
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
  * A BIG RESTORE (stage 5, D17). 500 pairs written by the scenario and
  * PRISM_E2E_SLOW_BIN (ms per item, --e2e only) so the job lasts: the loading bar
  * appears after about a second and shows a count, Cancel stops it with
@@ -28971,6 +29019,7 @@ await run(binClashScenario)
 await run(binDeleteScenario)
 await run(binEmptyScenario)
 await run(binUndoScenario)
+await run(binUndoAwayScenario)
 await run(binBigScenario)
 await run(binLiveScenario)
 
