@@ -374,3 +374,47 @@ describe('emptyBin', () => {
     expect(dirname(binC)).toContain('$Recycle.Bin')
   })
 })
+
+// A BIG BIN (review, 2026-11-10: "a 10,000-item bin stalling the app"). Real
+// pairs written fast, by hand, so the two tests below are about the bin's size.
+function bulk(dir: string, n: number, from: (i: number) => string): string[] {
+  const rs: string[] = []
+  for (let i = 0; i < n; i++) {
+    const id = `B${String(i).padStart(6, '0')}.txt`
+    writeFileSync(join(dir, `$R${id}`), 'x')
+    writeFileSync(join(dir, `$I${id}`), record(from(i)))
+    rs.push(join(dir, `$R${id}`))
+  }
+  return rs
+}
+
+describe('a big bin', () => {
+  it('restores 9,000 items at once without running out of file handles', async () => {
+    // Every `$I` read at once opened 9,000 files together; the Windows C
+    // runtime stops near 8,190 (EMFILE), and those items "could not be put back".
+    const rs = bulk(binC, 9000, (i) => join(orig, `r${i}.txt`))
+    const r = await restoreItems(env(), rs, 'keep-both')
+    expect(r.failed.length).toBe(0)
+    expect(r.restored).toHaveLength(9000)
+  }, 120_000)
+
+  it('empties 10,000 pairs without holding main for seconds', async () => {
+    // The scan matched each `$I` to its `$R` by walking the whole folder list
+    // again (names.find): 10,000 pairs held main's loop for about 2 s at once.
+    bulk(binC, 10_000, (i) => join(orig, `e${i}.txt`))
+    let worst = 0
+    let last = performance.now()
+    const probe = setInterval(() => {
+      const now = performance.now()
+      worst = Math.max(worst, now - last)
+      last = now
+    }, 5)
+    try {
+      const r = await emptyBin(env({ remove: async () => {} }))
+      expect(r.deleted).toBe(10_000)
+    } finally {
+      clearInterval(probe)
+    }
+    expect(worst).toBeLessThan(500)
+  }, 120_000)
+})

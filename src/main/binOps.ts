@@ -66,6 +66,8 @@ async function accept(env: BinEnv, paths: readonly unknown[]): Promise<{ ok: Ent
 }
 
 const infoPath = (e: Entry): string => join(e.dir, `$I${e.id}`)
+/** `$I` records read together, as the bin reader does. */
+const READ_AT_ONCE = 64
 const pause = (env: BinEnv): Promise<void> => (env.slowMs ? sleep(env.slowMs) : Promise.resolve())
 
 /** Where the record says the item came from, or null when it cannot be trusted:
@@ -103,7 +105,12 @@ export async function restoreItems(
     failed: []
   }
   if (refused.length) out.refused = true
-  const origins = await Promise.all(entries.map(originOf))
+  // The records a few at a time (review, 2026-11-10): all at once opened every
+  // `$I` together, and past about 8,190 open files Windows' C runtime answers
+  // EMFILE, so a big Restore left hundreds "could not be put back".
+  const origins: Array<string | null> = []
+  for (let i = 0; i < entries.length; i += READ_AT_ONCE)
+    origins.push(...(await Promise.all(entries.slice(i, i + READ_AT_ONCE).map(originOf))))
   const todo: Array<{ e: Entry; target: string }> = []
   for (const [i, e] of entries.entries()) {
     const target = origins[i]
@@ -225,10 +232,14 @@ export async function emptyBin(env: BinEnv, signal?: AbortSignal, tick?: BinTick
     const found: Entry[] = []
     for (const dir of dirs) {
       const names = await readdir(dir).catch(() => [] as string[])
-      const lower = new Set(names.map((n) => n.toLowerCase()))
+      // One map from a name's lower case to its spelling (review, 2026-11-10):
+      // finding each `$R` by walking the whole list again held main's loop for
+      // seconds at 10,000 pairs.
+      const spelled = new Map(names.map((n) => [n.toLowerCase(), n]))
       for (const n of names) {
-        if (!n.startsWith('$I') || !lower.has(`$r${n.slice(2)}`.toLowerCase())) continue
-        const real = names.find((x) => x.toLowerCase() === `$r${n.slice(2)}`.toLowerCase())!
+        if (!n.startsWith('$I')) continue
+        const real = spelled.get(`$r${n.slice(2)}`.toLowerCase())
+        if (!real) continue
         const e: Entry = { r: join(dir, real), dir, id: real.slice(2) }
         if (!failed.has(e.r)) found.push(e)
       }
