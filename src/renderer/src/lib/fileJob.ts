@@ -23,8 +23,9 @@ export interface FileJob {
   id: string
   signal: AbortSignal
   stopped: () => boolean
-  /** How many items are through (and, when it changed, of how many). */
-  count: (done: number, total?: number) => void
+  /** How many items are through (and, when it changed, of how many), and
+   *  the file being worked on, for the card's quiet line. */
+  count: (done: number, total?: number, file?: string) => void
   /** The quiet line said when it is over (how much was done, on Cancel). */
   note: (text: string) => void
 }
@@ -50,8 +51,12 @@ export async function withFileJob<T>(
     id,
     signal: stop.signal,
     stopped: () => stop.signal.aborted,
-    count: (done, total) =>
-      holdProgress(id, { done, ...(total !== undefined ? { total } : {}) }),
+    count: (done, total, file) =>
+      holdProgress(id, {
+        done,
+        ...(total !== undefined ? { total } : {}),
+        ...(file !== undefined ? { file } : {})
+      }),
     note: (text) => {
       note = text
     }

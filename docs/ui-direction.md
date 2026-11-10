@@ -19,10 +19,23 @@ The look and its rules (themes, colour picker, panels, toolbar), moved verbatim 
   `grid-landing.png` and `grid-drag-ring.png` (the e2e's screenshots).
 - **THE LOADING BAR** (owner, 2026-11-09: "it shoudl show a loading bar", `docs/features.md`, A JOB OVER A
   SECOND HOLDS ITS LIST): quiet chrome, nothing new. The list stands still under a wash of its own panel colour
-  (`--p-side-flat` at 62%) and one panel in `--p-raised`, a hairline `--p-divider`, `--p-radius`: the line in
-  `--p-text` at 12.5px with tabular figures, the % in `--p-dim`, a 3px `--p-track` with the `--p-accent-solid`
-  fill, and the dialog's quiet Cancel. One moment only: the wash fades in and the panel rises 6px together
+  (`--p-side-flat` at 62%) and one panel in `--p-raised`, a hairline `--p-divider`, `--p-radius`, holding the
+  one progress card (next entry). One moment only: the wash fades in and the panel rises 6px together
   (200 ms, the panels' curve); reduced motion has neither. `components/browse/BusyBar.tsx`, `browse.css`.
+- **ONE PROGRESS CARD AND ONE BAR** (owner, 2026-11-10, #501 and #504: "extracting a zip has its own loading bar
+  and pasting a large number of files has its own; they should share one"; mockup B "Progress popup", cut down
+  to minimal text). Every long file job (paste, copy, move, delete, restore, empty, extract) draws
+  `components/JobCard.tsx`: the title (14.5px semibold, "Copying 12 items" or the one name), ONE bar, one line
+  with the file being worked on (`--p-dim` 12.5px, ellipsis) and a small count at its right ("3 of 12", or the
+  percentage for one item; 12px, tabular), and Cancel on the right (Close, after a failure). No big
+  percentage, no bytes, no time left: no job reports those cheaply. Row heights are fixed (20, 8, 18, 32px)
+  so a tick moves nothing. The card is content, not a surface: `BusyBar` centres it in a panel over that tab's
+  list only, `ExtractWindow` puts it in its own sheet (still unclosable). `components/ProgressBar.tsx` is the
+  only bar: a `--p-control` track with a `--p-dim2` edge (so it reads in the high-contrast themes), the
+  `--p-accent-solid` fill, the theme's radius; 8px thick in the card, 4px thin in a landing row or tile; a
+  failed job's fill is hatched in `--p-dim`; no value slides. Held by `JobCard.test.ts`, the e2e `progressCard`
+  (geometry, three themes: `progress-card-<theme>.png`), `extractWindow`, `extractCancel` and the `busy*`
+  scenarios. Supersedes #336's unnamed sheet: the extract card's title names the archive.
 - **THE PREVIEW WINDOW'S CHROME** (owner, 2026-11-08, the Quick Look style window,
   `docs/features.md`): the quiet chrome of the app, nothing new. One 36px bar in `--p-side` with
   the hairline `--p-divider` under it, the file's name in `--p-text-soft` at 13px, and the title
