@@ -14,7 +14,9 @@
 export interface Anchor {
   /** The item under the pointer, or the nearest one over blank space. */
   index: number
-  /** How far down its cell the pointer is, 0 to 1. */
+  /** How far down its cell the pointer is: 0 to 1, or a little below 0 for a
+   *  pointer on the padding above the first line, so a grid at its very top
+   *  stays there through a resize (the padding is part of the view). */
   within: number
 }
 
@@ -37,7 +39,7 @@ export function anchorAt(a: {
   const row = Math.max(0, Math.floor(y / a.cellH))
   const index = clamp(row * cols + clamp(a.col ?? 0, 0, cols - 1), 0, Math.max(0, a.count - 1))
   const itemRow = Math.floor(index / cols)
-  return { index, within: clamp((y - itemRow * a.cellH) / a.cellH, 0, 1) }
+  return { index, within: Math.min(1, (y - itemRow * a.cellH) / a.cellH) }
 }
 
 /** The scroll offset that puts `index` back under `pointerY` once cells are
