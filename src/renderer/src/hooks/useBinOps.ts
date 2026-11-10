@@ -52,23 +52,23 @@ export interface BinOps {
  * (`unbin`, D18): Delete permanently and Empty are final and never on the stack.
  */
 export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps): BinOps {
-  const fromOf = useCallback(
-    (path: string): string | undefined => rows().find((r) => r.path === path)?.from,
-    [rows]
-  )
-
   const runRestore = useCallback(
     async (paths: string[], mode: MoveOnClash): Promise<void> => {
       setAsk(null)
       if (!paths.length) return
-      const one = paths.length === 1 ? namesOfBinPaths(paths, rows())[0] : undefined
+      // The list read ONCE per job (review, 2026-11-10): asking for it and
+      // searching it per item froze the page for about a second on a Restore
+      // of 10,000 rows.
+      const listed = rows()
+      const fromByPath = new Map(listed.map((r) => [r.path, r.from]))
+      const one = paths.length === 1 ? namesOfBinPaths(paths, listed)[0] : undefined
       await withFileJob(
         {
           kind: 'bin',
           verb: 'Restoring',
           name: one,
           total: paths.length,
-          dirs: binHoldDirs(paths, fromOf)
+          dirs: binHoldDirs(paths, (p) => fromByPath.get(p))
         },
         async (job) => {
           noteGoing(paths)
@@ -88,7 +88,8 @@ export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps)
             return
           }
           noteStayed(r.left)
-          noteBinned(r.restored.length ? paths.filter((p) => !r.left.includes(p)) : [])
+          const stayed = new Set(r.left)
+          noteBinned(r.restored.length ? paths.filter((p) => !stayed.has(p)) : [])
           setRefreshKey((n) => n + 1)
           if (r.restored.length) {
             // Marked where they land (#101). They are on disk already; the list
@@ -106,7 +107,7 @@ export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps)
         }
       )
     },
-    [fromOf, noteUndo, rows, setAsk, setRefreshKey]
+    [noteUndo, rows, setAsk, setRefreshKey]
   )
 
   const restore = useCallback((paths: string[]): void => void runRestore(paths, 'ask'), [runRestore])
@@ -137,7 +138,8 @@ export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps)
             return
           }
           noteStayed(r.left)
-          noteBinned(paths.filter((p) => !r.left.includes(p)))
+          const stayed = new Set(r.left)
+          noteBinned(paths.filter((p) => !stayed.has(p)))
           setRefreshKey((n) => n + 1)
           if (r.cancelled) {
             job.note(binStopped('Deleted', r.deleted, r.total))
