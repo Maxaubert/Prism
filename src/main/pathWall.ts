@@ -67,6 +67,16 @@ export interface PathWall {
   /** Is this exactly an entry (file or folder) the last bin listing returned,
    *  which Restore, Delete permanently and Empty may act on? */
   binActs(p: unknown): boolean
+  /**
+   * WHAT THE BIN VIEW PUT BACK (review, 2026-11-10). Restore lands items in
+   * their original folders, usually ones no tab has opened, so undo's "back to
+   * the bin" (`file:trash`) and redo's restore (`file:restore`), which ask the
+   * wall, refused them. These exact paths, which main itself restored this
+   * run, may be sent to the bin again and restored by path; nothing else is
+   * widened (not readable, not editable, not movable).
+   */
+  grantPutBack(paths: readonly string[]): void
+  putBack(p: unknown): boolean
   /** A READ: inside the wall, or something main extracted itself. */
   readable(p: unknown): p is string
   /** A CLIPBOARD OR DRAG-OUT source (review, 2026-11-10): `readable` without
@@ -122,6 +132,8 @@ export function createPathWall(deps: WallDeps): PathWall {
   let binReads = new Set<string>()
   /** The bin's FOLDER entries: acted on, never read (D10). */
   let binFolders = new Set<string>()
+  /** Paths the bin view's Restore landed this run (`grantPutBack`). */
+  const putBackPaths = new Set<string>()
   const keyOf = (p: string): string => resolve(p).toLowerCase()
   const binGranted = (p: unknown): boolean => typeof p === 'string' && !!p && binReads.has(keyOf(p))
   const binActs = (p: unknown): boolean =>
@@ -162,6 +174,10 @@ export function createPathWall(deps: WallDeps): PathWall {
     },
     binGranted,
     binActs,
+    grantPutBack: (paths) => {
+      for (const p of paths) if (typeof p === 'string' && isAbsolute(p)) putBackPaths.add(keyOf(p))
+    },
+    putBack: (p) => typeof p === 'string' && isAbsolute(p) && putBackPaths.has(keyOf(p)),
     setComicsDir: (dir) => {
       comics = dir
     },

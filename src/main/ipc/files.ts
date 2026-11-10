@@ -165,7 +165,9 @@ export function registerFilesIpc(ctx: MainCtx, ready: ReadyCtx): void {
     }
   )
   ipcMain.handle(CALL.fileTrash, async (_e, p: string): Promise<boolean> => {
-    if (!editable(p)) return false
+    // Or something the bin view put back this run: undo of a Restore sends it
+    // back to the bin from a folder no tab may have opened (pathWall `putBack`).
+    if (!editable(p) && !wall.putBack(p)) return false
     try {
       await trashItem(p)
       return true
@@ -703,7 +705,9 @@ export function registerShellIpc(ctx: MainCtx): void {
   // got, stops between paths on Cancel, and answers what came back.
   ipcMain.handle(CALL.fileRestore, async (e, all: string[], jobId?: unknown): Promise<boolean | RestoreOutcome> => {
     const job = typeof jobId === 'string' ? jobId : ''
-    if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p)))
+    // A path the bin view put back is restored by path too: redo of a Restore
+    // that was undone (pathWall `putBack`).
+    if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p) || ctx.wall.putBack(p)))
       return job ? { ok: false, restored: [], left: Array.isArray(all) ? all : [], cancelled: false } : false
     const stop = job ? startCopies(job) : null
     const paths: string[] = []
@@ -797,6 +801,8 @@ export function registerShellIpc(ctx: MainCtx): void {
       const stop = startCopies(job)
       try {
         const r = await restoreItems(binEnv(), strings(paths), mode, stop.signal, binTick(e, job))
+        // Undo and redo of this Restore may bin and restore exactly these.
+        ctx.wall.grantPutBack(r.restored)
         if (r.restored.length || r.replaced.length) binReader.clear()
         await written(...r.restored, ...r.replaced)
         return r

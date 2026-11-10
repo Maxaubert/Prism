@@ -228,6 +228,24 @@ describe('the bin grant (D12)', () => {
     expect(wall().binGranted(undefined)).toBe(false)
   })
 
+  // Review, 2026-11-10: undo of a Restore sends the item back to the bin, and
+  // it usually lands in a folder no tab opened. Exactly what main put back.
+  it('a path the bin view put back may be binned again, and nothing else is widened', () => {
+    const w = wall()
+    const back = 'C:\\Elsewhere\\far.txt'
+    expect(w.putBack(back)).toBe(false)
+    w.grantPutBack([back, 'relative\\x.txt'])
+    expect(w.putBack(back)).toBe(true)
+    expect(w.putBack('c:\\elsewhere\\FAR.txt')).toBe(true)
+    expect(w.putBack('C:\\Elsewhere\\other.txt')).toBe(false)
+    expect(w.putBack('C:\\Elsewhere')).toBe(false)
+    expect(w.putBack('relative\\x.txt')).toBe(false)
+    expect(w.putBack(undefined)).toBe(false)
+    expect(w.readable(back)).toBe(false)
+    expect(w.editable(back)).toBe(false)
+    expect(w.movable(back)).toBe(false)
+  })
+
   // Review, 2026-11-10: the clipboard (Copy, Cut) and the drag out asked only
   // `readable`, which the bin grant answers, so a renderer could hand a `$R` to
   // Windows as a CUT: pasted in File Explorer it moves out of the bin and
