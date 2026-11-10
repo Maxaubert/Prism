@@ -1,4 +1,5 @@
 import { dirname } from 'path'
+import { inBinFolder } from '@shared/binPath'
 import { canonicalPath, forgetCanonical, warmCanonical, withinCanonical } from './dirList'
 import { closeAllBrowseWatches, closeBrowseWatch } from './browseWatch'
 import { diagMain } from 'prism-term-core/main/diagLog'
@@ -39,9 +40,17 @@ export function desktopClosed(tabId: string): boolean {
 
 export function grantDesktopDirectory(tabId: string, path: string): void {
   if (desktopClosed(tabId)) return
+  // The Recycle Bin is never a granted FOLDER (Recycle Bin feature, D12): its
+  // files reach the wall only as the exact `$R` entries of a bin listing
+  // (pathWall `grantBin`). Refused by the spelling here and by where the path
+  // really points below, so a link into the bin grants nothing either.
+  if (inBinFolder(path)) return
   let grants = directories.get(tabId)
   if (!grants) directories.set(tabId, (grants = { byPath: new Map(), canon: new Map() }))
-  if (!grants.byPath.has(path)) hold(grants, path, canonicalPath(path))
+  if (grants.byPath.has(path)) return
+  const resolved = canonicalPath(path)
+  if (inBinFolder(resolved)) return
+  hold(grants, path, resolved)
 }
 
 function hold(grants: Grants, path: string, resolved: string): void {
@@ -206,9 +215,9 @@ function extendNow(root: string, paths: string[]): void {
   const owners = [...directories.values()].filter((grants) => grants.canon.has(owner))
   if (!owners.length) return
   for (const path of paths) {
-    if (!path) continue
+    if (!path || inBinFolder(path)) continue
     const target = canonicalPath(path)
-    if (!withinCanonical(owner, target)) continue
+    if (!withinCanonical(owner, target) || inBinFolder(target)) continue
     for (const grants of owners) if (!grants.byPath.has(path)) hold(grants, path, target)
   }
 }

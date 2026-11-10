@@ -76,6 +76,11 @@ export const LONG_WAIT_CHANNELS: readonly string[] = [
   CALL.fileDuplicate,
   // Undoing a delete: a PowerShell child walks the Recycle Bin (20 s cap).
   CALL.fileRestore,
+  // The bin view's Restore, Delete permanently and Empty: counted jobs that
+  // last as long as the bin is big.
+  CALL.binRestore,
+  CALL.binDelete,
+  CALL.binEmpty,
   // ffmpeg or FluidSynth decoding a whole track in a child process: as long as
   // the file is.
   CALL.mediaPeaks,

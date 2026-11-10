@@ -56,7 +56,7 @@ export function opResult(r: unknown): Record<string, unknown> & { ok: boolean } 
   const canceled = o.canceled === true || o.reason === 'cancelled' ? true : undefined
   // What landed: a paste's `pasted`, a move's `moved`, an add's `added`,
   // Save copies' `saved`, an extraction's `written`.
-  const landedRaw = typeof o.pasted === 'number' ? o.pasted : Array.isArray(o.moved) ? o.moved : Array.isArray(o.added) ? o.added : Array.isArray(o.saved) ? o.saved : o.written
+  const landedRaw = typeof o.pasted === 'number' ? o.pasted : Array.isArray(o.moved) ? o.moved : Array.isArray(o.added) ? o.added : Array.isArray(o.saved) ? o.saved : Array.isArray(o.restored) ? o.restored : typeof o.deleted === 'number' ? o.deleted : o.written
   const landed = count(landedRaw)
   const failed = o.failed === true ? undefined : count(o.failed)
   const fields = defined({
@@ -90,6 +90,9 @@ export const OP_CHANNELS: Record<string, { op: (a: unknown[]) => string; args: (
   [CALL.fileNewFolder]: { op: () => 'new-folder', args: (a) => defined({ in: str(a[0]), name: str(a[1]) }) },
   [CALL.fileBinIfEmpty]: { op: () => 'undo-new-folder', args: (a) => defined({ path: str(a[0]) }) },
   [CALL.fileRestore]: { op: () => 'restore', args: (a) => defined({ ...pathsField(a[0]) }) },
+  [CALL.binRestore]: { op: () => 'bin-restore', args: (a) => defined({ ...pathsField(a[0]), onClash: str(a[1]) }) },
+  [CALL.binDelete]: { op: () => 'bin-delete', args: (a) => defined({ ...pathsField(a[0]) }) },
+  [CALL.binEmpty]: { op: () => 'bin-empty', args: () => ({}) },
   [CALL.fileWrite]: {
     op: () => 'save-text',
     args: (a) => defined({ path: str(a[0]), chars: typeof a[1] === 'string' ? a[1].length : undefined })

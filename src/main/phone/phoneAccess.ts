@@ -1,6 +1,7 @@
 import { realpath } from 'fs'
 import { isAbsolute } from 'path'
 import { promisify } from 'util'
+import { inBinFolder } from '@shared/binPath'
 
 const finalPath = promisify(realpath.native)
 import { grantDesktopDirectory, ownsDirectly, releaseDesktop } from '../desktopAccess'
@@ -23,9 +24,19 @@ import { grantDesktopDirectory, ownsDirectly, releaseDesktop } from '../desktopA
  */
 const owner = (token: string): string => `phone:${token}`
 
-/** An absolute drive-letter path, never a share or a device path. */
+/** An absolute drive-letter path, never a share or a device path, and never
+ *  through a Recycle Bin folder (owner, 2026-11-10: the phone browses the PC
+ *  like the Explorer, but not `<drive>\$Recycle.Bin` as a plain path). Every
+ *  phone gate asks this, and `phoneOnThisPc` asks it of the resolved path too,
+ *  so a link into the bin is refused as well. */
 export function localPath(p: unknown): p is string {
-  return typeof p === 'string' && /^[A-Za-z]:[\\/]/.test(p) && isAbsolute(p) && !p.includes('\0')
+  return (
+    typeof p === 'string' &&
+    /^[A-Za-z]:[\\/]/.test(p) &&
+    isAbsolute(p) &&
+    !p.includes('\0') &&
+    !inBinFolder(p)
+  )
 }
 
 /**

@@ -23,6 +23,19 @@ describe('binDirs', () => {
     expect(await binDirs()).not.toContain('C:\\fx\\a\\$Recycle.Bin\\S-1')
   })
 
+  it('PRISM_E2E_SLOW_BIN is a per-item delay under --e2e only, capped', async () => {
+    process.env.PRISM_E2E_SLOW_BIN = '40'
+    process.argv = argv.filter((a) => a !== '--e2e')
+    expect((await import('./binRoots')).slowBinMs()).toBe(0)
+    process.argv = [...argv, '--e2e']
+    expect((await import('./binRoots')).slowBinMs()).toBe(40)
+    process.env.PRISM_E2E_SLOW_BIN = '999999'
+    expect((await import('./binRoots')).slowBinMs()).toBe(5000)
+    process.env.PRISM_E2E_SLOW_BIN = 'abc'
+    expect((await import('./binRoots')).slowBinMs()).toBe(0)
+    delete process.env.PRISM_E2E_SLOW_BIN
+  })
+
   it('drops a seam entry that is not absolute', async () => {
     process.argv = [...argv, '--e2e']
     process.env.PRISM_E2E_BIN_DIRS = 'relative\\bin|C:\\fx\\ok'
