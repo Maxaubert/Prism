@@ -3,7 +3,8 @@ import { ROW_BUTTON, Segmented, Select, Switch } from 'prism-term-core/renderer/
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
 import { DRIVE_STYLES, setDriveStyle, useDriveStyle } from '../../lib/prefs/driveStylePrefs'
-import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../../lib/explorerSize'
+import { EXPLORER_SIZES, setExplorerSize, type ExplorerSize } from '../../lib/explorerSize'
+import { setExplorerZoom, useExplorerZoom } from '../../lib/explorerZoom'
 import { setRememberFolders, useRememberFolders } from '../../lib/prefs/listingCachePrefs'
 import { setNewTabMode, useNewTabFolder, useNewTabMode } from '../../lib/prefs/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../../lib/prefs/openPrefs'
@@ -30,7 +31,7 @@ const row = (id: string): { icon: string; label: string; sub: string } => {
 }
 
 function LayoutSection(): JSX.Element {
-  const size = useExplorerSize()
+  const zoom = useExplorerZoom()
   const drives = useDriveStyle()
   const side = useExplorerSide()
   const previewIn = usePreviewOpensIn()
@@ -56,8 +57,18 @@ function LayoutSection(): JSX.Element {
       </SettingRow>
       {/* The Explorer's rows alone (owner, 2026-10-03): the rest of the app
           keeps Font size. */}
-      <SettingRow id="explorer-size" {...row('explorer-size')}>
-        <Segmented value={size} onChange={setExplorerSize} options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))} />
+      {/* Ctrl and scroll moves a zoom step (2026-11-09); these three are its
+          steps 0 to 2. From step 3 up none is lit and the row says how it
+          was set. The old size stays written for a downgrade. */}
+      <SettingRow id="explorer-size" {...row('explorer-size')} sub={zoom > 2 ? 'Set by zooming the list.' : row('explorer-size').sub}>
+        <Segmented
+          value={zoom > 2 ? '' : EXPLORER_SIZES[zoom].id}
+          onChange={(id) => {
+            setExplorerSize(id as ExplorerSize)
+            setExplorerZoom(EXPLORER_SIZES.findIndex((s) => s.id === id))
+          }}
+          options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))}
+        />
       </SettingRow>
       {/* This PC's rows in the sidebar (#296; owner, 2026-10-06: "option A,
           D and E as options in settings, with A being default"). */}

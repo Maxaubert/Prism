@@ -98,7 +98,9 @@ export interface SweepOptions<G> {
   hitsIn: (
     box: SweepBox,
     pointerY: number,
-    across: RowAcross | null
+    across: RowAcross | null,
+    /** The pointer's x too, for a grid, whose nearest tile needs both. */
+    pointerX?: number
   ) => { paths: string[]; near: string | null }
   /** Where a drawn row runs across, in the list's own x, or null while no row
    *  is drawn. Measured once per sweep (a row cannot change width under a
@@ -216,7 +218,8 @@ export function useSweep<G>(options: SweepOptions<G>): {
           bottom: Math.max(start.y, at.y)
         },
         at.y,
-        across
+        across,
+        at.x
       )
       near = next.near
       if (!sameHits(hits, next.paths)) {

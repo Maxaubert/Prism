@@ -1,0 +1,114 @@
+/* THE GRID (zoom steps 5 to 9, Stage 4, 2026-11-09). Fixed-size, left-aligned
+   cells, each absolutely placed by BrowseGrid from lib/gridLayout.ts; a tile is
+   a square picture box with the name under it in two lines. The look is the
+   rows' own tokens (selection tint and edge, cut, landing), only on the whole
+   tile; quiet chrome so the picture is the star (docs/ui-direction.md). */
+
+.browse-tile {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* gridLayout's cell: TILE_PAD above and at the sides, 4px under the picture,
+     two name lines, 4px under them. */
+  padding: 6px 6px 4px;
+  gap: 4px;
+  border-radius: 6px;
+  text-align: center;
+  color: var(--p-text);
+  overflow: hidden;
+}
+.folder-browser .browse-tile {
+  font-size: var(--browse-tile-font, 12px);
+}
+.browse-tile .browse-thumb {
+  position: relative;
+  display: block;
+  flex: none;
+  overflow: hidden;
+  border-radius: 4px;
+  /* Quiet, so the picture is the star: the raised ground at low strength. */
+  background-color: color-mix(in srgb, var(--p-raised) 55%, transparent);
+}
+.browse-tile .browse-thumb.p-checker {
+  background-color: var(--p-checker-a);
+}
+.browse-tile-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: var(--p-text);
+}
+/* A MARKED TILE IS THE ROW'S TINT with its faint edge, on the whole tile
+   (a tile is its own block: no joining with a neighbour). Background-color,
+   never the shorthand (browse.css, #272). */
+.folder-browser .browse-tile[data-selected],
+.folder-browser .browse-tile[data-selected]:hover {
+  background-color: var(--p-sel-tint);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line);
+}
+.folder-browser[data-active-area='places'] .browse-tile[data-selected],
+.folder-browser[data-active-area='places'] .browse-tile[data-selected]:hover {
+  background-color: var(--p-sel-tint-dim);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line-dim);
+}
+.folder-browser .browse-tile[data-selected][data-cut],
+.folder-browser .browse-tile[data-selected][data-cut]:hover {
+  background-color: var(--p-sel-tint-dim);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line-dim);
+}
+.browse-tile[data-cut] .browse-thumb,
+.browse-tile[data-cut] .browse-tile-name {
+  opacity: 0.55;
+}
+.browse-tile[data-landing] .browse-thumb,
+.browse-tile[data-landing] .browse-tile-name {
+  opacity: 0.55;
+}
+
+/* THE SORT STRIP (spec 5.6): in a grid the columns mean nothing, so the same
+   sort buttons pack to the left at their natural width, 16px between (8px of
+   padding each side, so the hover fill still reaches the next button). The
+   band keeps its height. Which buttons show is gridHeader.ts, so the width
+   rules that hide a column in a list are overridden here. */
+.browse-list-area[data-grid] .browse-columns {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+.browse-list-area[data-grid] .browse-columns button {
+  display: flex !important;
+  flex: none;
+  margin: 0;
+  padding: 0 8px;
+}
+.browse-list-area[data-grid] .browse-columns button:first-child {
+  padding-left: var(--browse-row-pad, 8px);
+}
+.browse-list-area[data-grid] .browse-columns button:last-child {
+  padding-right: 8px;
+}
+
+/* A LANDING TILE BAR (Stage 6, spec 5.7): the rows fill bar, 4px, across the
+   bottom of the picture box. Its left, top and width are set by the tile from
+   the cell, so it follows the tile size. */
+.browse-tile .browse-tile-landing {
+  position: absolute;
+  height: 4px;
+  margin: 0;
+  z-index: 1;
+}
+
+/* A FOLDER TILE UNDER A DRAG lights a ring as well as the hover fill, so the
+   target reads at a glance among tiles (Stage 6). */
+.browse-tile[data-folder-drop][data-drag-over='true'] {
+  box-shadow: inset 0 0 0 2px var(--p-sel-line) !important;
+}
