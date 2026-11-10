@@ -27788,6 +27788,383 @@ async function binRowScenario(fixtures) {
   }
 }
 
+/**
+ * THE RECYCLE BIN'S LIST (Recycle Bin feature, stage 4; owner, 2026-11-10:
+ * newest deleted first). Against a FAKE bin of twelve items on two fake
+ * drives (the real bin is never touched): the header reads Name, Original
+ * location, Date deleted, Size, Type; the cells say where each item was and
+ * when; the default order is newest deleted first; every header sorts, in both
+ * directions, with the folders-first rule for Name and Original location and
+ * files and folders mixed by Date deleted; a binned folder never opens; the
+ * strip is there; nothing in the bin can be searched, renamed, dragged or
+ * made; the rows' menu is read-only; an empty bin says so. Screenshots:
+ * bin-list.png and bin-list-empty.png.
+ */
+async function binListScenario(fixtures) {
+  console.log('recycle bin: columns, cells, default and header sorts, read-only keys, the strip, the empty line')
+  const base = join(fixtures, 'bin-list')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'))
+  const now = Date.now()
+  const H = 3600e3
+  // dir: which fake drive (0 is C, 1 is D). ago: hours before now.
+  const items = [
+    { id: 'A01.jpg', name: 'cat.jpg', from: 'C:\\Users\\m\\Pictures', ago: 1, dir: 0, body: 'jpegjpegjpeg' },
+    { id: 'A02', name: 'notes', from: 'C:\\Users\\m\\Docs', ago: 2, dir: 0, body: 'dir' },
+    { id: 'A03.pdf', name: 'report.pdf', from: 'C:\\Work\\Q3', ago: 5, dir: 0, body: 'pdf' },
+    { id: 'A04.txt', name: 'todo.txt', from: 'C:\\Users\\m\\Desktop', ago: 26, dir: 0, body: 'todo' },
+    { id: 'A05', name: 'old-logs', from: 'C:\\Temp', ago: 72, dir: 0, body: 'dir' },
+    { id: 'A06.md', name: 'readme.md', from: 'C:\\Users\\m\\Docs', ago: 3, dir: 0, body: '# hi' },
+    { id: 'B01.png', name: 'holiday.png', from: 'D:\\Photos\\2026', ago: 0.5, dir: 1, body: 'pngpng' },
+    { id: 'B02.csv', name: 'data.csv', from: 'D:\\work', ago: 8, dir: 1, body: 'a,b' },
+    { id: 'B03', name: 'backup', from: 'D:\\Archive', ago: 200, dir: 1, body: 'dir' },
+    { id: 'B04.mp3', name: 'song.mp3', from: 'D:\\Music', ago: 48, dir: 1, body: 'mp3mp3mp3mp3' },
+    { id: 'B05.exe', name: 'setup.exe', from: 'D:\\Downloads', ago: 12, dir: 1, body: 'exe' },
+    { id: 'B06.docx', name: 'draft.docx', from: 'D:\\work', ago: 4, dir: 1, body: 'docx' }
+  ]
+  for (const it of items) bin.put(bin.dirs[it.dir], it.id, `${it.from}\\${it.name}`, now - it.ago * H, it.body)
+  const BIN = 'shell:RecycleBinFolder'
+  const list = '[data-testid="browse-list"]'
+  const cells = (win) =>
+    win.evaluate(
+      (sel) =>
+        [...document.querySelectorAll(`${sel} .browse-row`)].map((r) => ({
+          name: r.querySelector('.browse-name-text')?.textContent ?? '',
+          from: r.querySelector('.browse-column-from')?.textContent ?? null,
+          fromTitle: r.querySelector('.browse-column-from')?.getAttribute('title') ?? null,
+          deleted: r.querySelector('.browse-column-deleted')?.textContent ?? null,
+          size: r.querySelector('.browse-column-size')?.textContent ?? null,
+          type: r.querySelector('.browse-column-type')?.textContent ?? null,
+          draggable: r.getAttribute('draggable')
+        })),
+      list
+    )
+  const order = async (win) => (await cells(win)).map((c) => c.name)
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  const isDir = (it) => it.body === 'dir'
+  const folderFirst = (cmp) => (a, b) => (isDir(b) - isDir(a)) || cmp(a, b)
+  const byName = (a, b) => collator.compare(a.name, b.name)
+  const byFrom = (a, b) => collator.compare(a.from, b.from) || byName(a, b)
+  const byAgo = (a, b) => a.ago - b.ago || byName(a, b)
+  const names = (arr) => arr.map((i) => i.name)
+  const want = {
+    newest: names([...items].sort(byAgo)),
+    oldest: names([...items].sort((a, b) => byAgo(b, a) || byName(a, b))),
+    nameAsc: names([...items].sort(folderFirst(byName))),
+    nameDesc: names([...items].sort(folderFirst((a, b) => byName(b, a)))),
+    fromAsc: names([...items].sort(folderFirst(byFrom))),
+    // A tie keeps the list's own rule: folders by name ascending, files with the direction.
+    fromDesc: names(
+      [...items].sort(
+        folderFirst((a, b) => collator.compare(b.from, a.from) || (isDir(a) ? byName(a, b) : byName(b, a)))
+      )
+    )
+  }
+  const header = (win, label) => win.locator(`.browse-columns button[aria-label^="Sort by ${label.toLowerCase()}"]`)
+  const sameOrder = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  const settle = async (win, wanted, what) => {
+    const got = await until(async () => sameOrder(await order(win), wanted), 5000, 100)
+    ok(got, `${what} (${JSON.stringify(await order(win))})`)
+  }
+  let app
+  let win
+  try {
+    ;({ app, win } = await launchWith({ ...bin.env, ...NO_INDEX }, join(home, 'a-file.txt')))
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${list} .browse-row`, { timeout: 10000 })
+    await typePath(win, 'Recycle Bin')
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 50), 'typing Recycle Bin opens the bin')
+    ok(await until(async () => (await order(win)).length === items.length, 8000, 100), `the list holds the ${items.length} items`)
+
+    // THE HEADER: five columns in this order, none of the folder list's.
+    const heads = await win.locator('.folder-browser .browse-columns button').allTextContents()
+    ok(
+      JSON.stringify(heads.map((h) => h.trim())) === JSON.stringify(['Name', 'Original location', 'Date deleted', 'Size', 'Type']),
+      `the header reads Name, Original location, Date deleted, Size, Type (${JSON.stringify(heads)})`
+    )
+    // THE CELLS: where it was (the folder only, the full path as the title), when, how big, what.
+    const rows = await cells(win)
+    const cat = rows.find((r) => r.name === 'cat.jpg')
+    ok(cat?.from === 'C:\\Users\\m\\Pictures', `Original location is the folder only (${cat?.from})`)
+    ok(cat?.fromTitle === 'C:\\Users\\m\\Pictures\\cat.jpg', `and its title is the full original path (${cat?.fromTitle})`)
+    ok(/\d/.test(cat?.deleted ?? '') && (cat?.deleted ?? '').length > 4, `Date deleted is a date (${cat?.deleted})`)
+    ok(cat?.size === '12 B', `Size is the record's number (${cat?.size})`)
+    ok(/jpe?g/i.test(cat?.type ?? ""), `Type is read from the ORIGINAL name (${cat?.type})`)
+    const notes = rows.find((r) => r.name === 'notes')
+    ok(notes?.type === 'Folder' && notes?.from === 'C:\\Users\\m\\Docs', `a binned folder reads Folder and its place (${notes?.type}, ${notes?.from})`)
+    ok(rows.every((r) => r.draggable === 'false'), 'no row can be dragged out')
+    ok(
+      rows.every((r) => !/\$R|\$I/.test(r.name)),
+      'no row shows a $R or $I name'
+    )
+
+    // THE DEFAULT: newest deleted first, folders and files mixed.
+    await settle(win, want.newest, 'the default order is newest deleted first')
+    ok(
+      (await header(win, 'Date deleted').getAttribute('aria-label'))?.includes('descending'),
+      'and the Date deleted header says descending'
+    )
+
+    // EACH HEADER SORTS, both ways.
+    await header(win, 'Date deleted').click()
+    await settle(win, want.oldest, 'Date deleted again turns it round, oldest first')
+    await header(win, 'Original location').click()
+    await settle(win, want.fromAsc, 'Original location sorts by place, folders first, ties by name')
+    await header(win, 'Original location').click()
+    await settle(win, want.fromDesc, 'and again the other way')
+    await header(win, 'Name').click()
+    await settle(win, want.nameAsc, 'Name sorts, folders first')
+    await header(win, 'Name').click()
+    await settle(win, want.nameDesc, 'and again the other way')
+    await header(win, 'Date deleted').click()
+    await settle(win, want.newest, 'a first click on Date deleted is newest first')
+    // Size and Type: the click marks the header and the order changes.
+    const before = await order(win)
+    await header(win, 'Size').click()
+    ok((await header(win, 'Size').getAttribute('aria-label'))?.includes('ascending'), 'Size sorts ascending on a first click')
+    const sizes = (await cells(win)).filter((r) => r.type !== 'Folder').map((r) => r.size)
+    ok(sizes.length > 2 && !sameOrder(await order(win), before), `and the files come in size order (${JSON.stringify(sizes)})`)
+    await header(win, 'Type').click()
+    ok((await header(win, 'Type').getAttribute('aria-label'))?.includes('ascending'), 'Type sorts too')
+    await header(win, 'Date deleted').click()
+    await settle(win, want.newest, 'back to newest first')
+
+    // A BINNED FOLDER HAS NO OPEN: a double-click and Enter leave the bin where it is.
+    const folderRow = win.locator(`${list} .browse-row`, { hasText: 'notes' }).first()
+    await folderRow.dblclick()
+    await sleep(500)
+    ok((await shownDir(win)) === BIN, 'a double-click on a binned folder opens nothing')
+    await win.keyboard.press('Enter')
+    await sleep(500)
+    ok((await shownDir(win)) === BIN && (await win.locator('[role="dialog"]').count()) === 0, 'neither does Enter')
+
+    // THE STRIP: three buttons, Restore and Delete off until something is marked.
+    const strip = win.locator('[data-bin-strip]')
+    ok((await strip.count()) === 1, 'the strip is there')
+    const verbs = await strip.locator('button').evaluateAll((bs) => bs.map((b) => [b.getAttribute('data-bin-verb'), b.textContent.trim(), b.disabled]))
+    ok(
+      JSON.stringify(verbs.map((v) => v[1])) === JSON.stringify(['Restore', 'Delete permanently', 'Empty Recycle Bin']),
+      `its buttons are Restore, Delete permanently, Empty Recycle Bin (${JSON.stringify(verbs)})`
+    )
+    ok(verbs[2][2] === false, 'Empty is on: the bin holds items')
+    ok(verbs[0][2] === false, 'Restore is on with the folder row picked')
+    await win.keyboard.press('Control+Shift+a')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+
+    // NO SEARCH, NO WRITE: the keys and buttons that make or change things stand down.
+    ok((await win.locator('[data-testid="browse-search-button"]').count()) === 0, 'there is no search button in the bin')
+    await win.locator(list).focus()
+    await win.keyboard.press('Control+f')
+    await sleep(300)
+    ok((await win.locator('[role="dialog"]').count()) === 0 && (await win.locator('input[aria-label*="earch"]').count()) === 0, 'Ctrl+F opens no search')
+    await win.locator(`${list} .browse-row`, { hasText: 'todo.txt' }).first().click()
+    await win.keyboard.press('Control+Shift+n')
+    await win.keyboard.press('F2')
+    await win.keyboard.press('Control+v')
+    await sleep(500)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'New folder, Rename and Paste open nothing')
+    ok((await order(win)).length === items.length, 'and add nothing to the list')
+    ok(
+      items.every((it) => existsSync(join(bin.dirs[it.dir], `$R${it.id}`)) && existsSync(join(bin.dirs[it.dir], `$I${it.id}`))),
+      'every pair is still on disk: no key changed the bin'
+    )
+
+    // THE ROW MENU: read-only. A file: Open, Show in preview, Copy original path; a folder: Copy original path.
+    const menuOf = async (name) => {
+      await win.locator(`${list} .browse-row`, { hasText: name }).first().click({ button: 'right' })
+      await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+      // The label without its key hint ("OpenEnter" is Open, hint Enter).
+      const labels = await win.evaluate(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((e) => e.textContent.trim().replace(/Enter$/, '')))
+      await win.keyboard.press('Escape')
+      await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000, 50)
+      return labels
+    }
+    const fileMenu = await menuOf('todo.txt')
+    ok(JSON.stringify(fileMenu) === JSON.stringify(['Open', 'Show in preview', 'Copy original path']), `a file's menu is read-only (${JSON.stringify(fileMenu)})`)
+    const folderMenu = await menuOf('old-logs')
+    ok(JSON.stringify(folderMenu) === JSON.stringify(['Copy original path']), `a folder's menu is Copy original path only (${JSON.stringify(folderMenu)})`)
+
+    // THE LOOK: screenshot, to be LOOKED at.
+    await win.locator(`${list} .browse-row`, { hasText: 'cat.jpg' }).first().click()
+    await win.screenshot({ path: join(SHOTS, 'bin-list.png') })
+    await sleep(900)
+  } finally {
+    await app?.close()
+  }
+
+  // AN EMPTY BIN says so, and Empty is off.
+  const empty = fakeBin(join(base, 'fake-empty'))
+  let again
+  try {
+    ;({ app: again, win } = await launchWith({ ...empty.env, ...NO_INDEX }, join(home, 'a-file.txt')))
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${list} .browse-row`, { timeout: 10000 })
+    await typePath(win, 'Recycle Bin')
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 50), 'an empty bin opens too')
+    ok(
+      await until(async () => ((await win.locator(`${list} .browse-message`).textContent().catch(() => '')) ?? '').trim() === 'The Recycle Bin is empty.', 6000, 100),
+      `it says The Recycle Bin is empty. (${await win.locator(`${list} .browse-message`).textContent().catch(() => '')})`
+    )
+    ok(await win.locator('[data-bin-verb="empty"]').isDisabled(), 'and Empty Recycle Bin is off')
+    ok(await win.locator('[data-bin-verb="restore"]').isDisabled(), 'with Restore off too')
+    await win.screenshot({ path: join(SHOTS, 'bin-list-empty.png') })
+  } finally {
+    await again?.close()
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * VIEWING A BINNED FILE (Recycle Bin feature, stage 4, D12). Read-only, through
+ * a wall grant for exactly the entries the listing returned: a binned .txt and
+ * .png preview in the pane, Enter opens the text in the full viewer under its
+ * ORIGINAL name, the editor cannot type or save, a kind Prism cannot show gets
+ * its card with the original location and no Open, a request for the `$I`
+ * file and for a path outside the grant is refused, and the app's own bin
+ * folders (`__prismBinDirs`) are exactly the seam's: the real bin was not read.
+ */
+async function binViewScenario(fixtures) {
+  console.log('recycle bin: preview, open read-only, the wall, and the real bin never read')
+  const base = join(fixtures, 'bin-view')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const outside = join(base, 'outside')
+  mkdirSync(outside, { recursive: true })
+  writeFileSync(join(outside, 'secret.txt'), 'not in the grant')
+  const bin = fakeBin(join(base, 'fake'), ['C'])
+  const now = Date.now()
+  const text = 'hello from the bin\nline two\n'
+  bin.put(bin.dirs[0], 'V01.txt', 'C:\\Users\\m\\Docs\\note.txt', now - 3600e3, text)
+  // A real, valid picture (64 x 48), written as the $R body.
+  const png = greyPng(64, 48)
+  const pngDir = bin.dirs[0]
+  bin.put(pngDir, 'V02.png', 'C:\\Users\\m\\Pictures\\pic.png', now - 7200e3, 'x')
+  writeFileSync(join(pngDir, '$RV02.png'), png)
+  bin.put(bin.dirs[0], 'V03.zzqq', 'C:\\Users\\m\\Stuff\\odd.zzqq', now - 9000e3, 'odd bytes')
+  const BIN = 'shell:RecycleBinFolder'
+  const list = '[data-testid="browse-list"]'
+  const rowOf = (win, name) => win.locator(`${list} .browse-row`, { hasText: name }).first()
+  let app
+  let win
+  try {
+    ;({ app, win } = await launchWith({ ...bin.env, ...NO_INDEX }, join(home, 'a-file.txt')))
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${list} .browse-row`, { timeout: 10000 })
+
+    // THE REAL BIN WAS NEVER READ: the app's bin folders are the seam's.
+    const dirs = await app.evaluate(async () => (await globalThis.__prismBinDirs?.()) ?? null)
+    ok(JSON.stringify(dirs) === JSON.stringify(bin.dirs), `the app reads exactly the seam's bin folders (${JSON.stringify(dirs)})`)
+
+    await typePath(win, 'Recycle Bin')
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 50), 'the bin opens')
+    await rowOf(win, 'note.txt').waitFor({ timeout: 8000 })
+
+    // PREVIEW IN THE PANE: a text file, then a picture.
+    // The profile is shared by scenarios: only switch the pane on when it is off.
+    const paneButton = win.locator('[data-testid="folder-browser"] button[aria-label="Preview pane"]').first()
+    if ((await paneButton.getAttribute('aria-pressed')) !== 'true') await paneButton.click()
+    await rowOf(win, 'note.txt').click()
+    // The editors that show the binned text (another tab's editor is not ours).
+    const binEditors = () =>
+      win.evaluate(() =>
+        [...document.querySelectorAll('.cm-content')]
+          .filter((c) => c.textContent.includes('hello from the bin'))
+          .map((c) => c.getAttribute('contenteditable'))
+      )
+    ok(
+      await until(async () => (await binEditors()).length >= 1, 10000, 150),
+      'a binned .txt previews in the pane with its text'
+    )
+    ok(
+      (await binEditors()).every((e) => e === 'false'),
+      `and the pane cannot edit it (${JSON.stringify(await binEditors())})`
+    )
+    await rowOf(win, 'pic.png').click()
+    ok(
+      await until(
+        () =>
+          win.evaluate(() => {
+            const img = document.querySelector('[data-browse-preview] img')
+            return !!img && img.naturalWidth > 0
+          }),
+        10000,
+        150
+      ),
+      'a binned .png previews in the pane as a picture'
+    )
+    await win.screenshot({ path: join(SHOTS, 'bin-view-preview.png') })
+
+    // THE WALL: the picture's own url loads; a $I record and a path outside the grant do not.
+    const status = (path) =>
+      win.evaluate(async (p) => {
+        try {
+          const r = await fetch(window.prism.mediaUrl(p))
+          return r.status
+        } catch {
+          return 'refused'
+        }
+      }, path)
+    const granted = await status(join(bin.dirs[0], '$RV02.png'))
+    ok(granted === 200 || granted === 206, `a granted $R entry is served (${granted})`)
+    const info = await status(join(bin.dirs[0], '$IV02.png'))
+    ok(info !== 200 && info !== 206, `the $I record of the same item is refused (${info})`)
+    const away = await status(join(outside, 'secret.txt'))
+    ok(away !== 200 && away !== 206, `a path outside the grant is refused (${away})`)
+    const readOf = (path) => win.evaluate((p) => window.prism.readText(p), path)
+    const t1 = await readOf(join(bin.dirs[0], '$RV01.txt'))
+    ok(JSON.stringify(t1).includes('hello from the bin'), 'file:text reads a granted entry')
+    const t2 = await readOf(join(bin.dirs[0], '$IV01.txt'))
+    ok(!JSON.stringify(t2).includes('C:\\\\Users'), 'file:text refuses its $I record')
+
+    // ENTER OPENS IT IN THE VIEWER, under its ORIGINAL name, read-only.
+    await rowOf(win, 'note.txt').click()
+    await win.locator(list).focus()
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    ok(
+      await until(async () => ((await win.textContent('.cm-content')) ?? '').includes('hello from the bin'), 8000, 150),
+      'Enter opens the binned text in the viewer'
+    )
+    const title = await win.locator('.browse-viewer-toolbar').textContent()
+    ok(/note\.txt/.test(title ?? '') && !/\$R/.test(title ?? ''), `the viewer is titled with the original name (${title})`)
+    ok(
+      (await binEditors()).length >= 1 && (await binEditors()).every((e) => e === 'false'),
+      `the editor is not editable (${JSON.stringify(await binEditors())})`
+    )
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.type('zzz')
+    await win.keyboard.press('Control+s')
+    await sleep(600)
+    ok(!((await win.textContent('.cm-content')) ?? '').includes('zzz'), 'typing changes nothing')
+    ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 0, 'no unsaved dot')
+    ok(readFileSync(join(bin.dirs[0], '$RV01.txt'), 'utf8') === text, 'Ctrl+S wrote nothing: the binned file is byte for byte as it was')
+    await win.screenshot({ path: join(SHOTS, 'bin-view-viewer.png') })
+    await toList(win)
+    ok(await until(async () => (await shownDir(win)) === BIN, 6000, 100), 'Back returns to the bin list')
+
+    // A KIND PRISM CANNOT SHOW: its card says where it was deleted from and has no Open.
+    await rowOf(win, 'odd.zzqq').click()
+    await win.locator(list).focus()
+    await win.keyboard.press('Enter')
+    ok(
+      await until(async () => ((await win.locator('[data-bin-from]').textContent().catch(() => '')) ?? '').includes('C:\\Users\\m\\Stuff'), 8000, 150),
+      'an unknown kind shows its card with Deleted from <original folder>'
+    )
+    const buttons = await win.evaluate(() => [...document.querySelectorAll('button')].map((b) => b.textContent.trim()))
+    ok(!buttons.includes('Open'), 'and the card has no Open button: nothing is handed to Windows')
+    await toList(win)
+  } finally {
+    await app?.close()
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
 await seedProfile()
 await run(startupScenario)
 await run(mdScenario)
@@ -27988,6 +28365,8 @@ await run(unsupportedScenario)
 await run(opensInWindowsScenario)
 await run(openGuardsScenario)
 await run(binRowScenario)
+await run(binListScenario)
+await run(binViewScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).

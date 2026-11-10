@@ -226,3 +226,49 @@ describe('the Packed column (#300)', () => {
     expect(rows.filter((r) => !r.isFolder).map((r) => r.name)).toEqual(['c.txt', 'a.txt', 'b.txt'])
   })
 })
+
+describe('the Recycle Bin listing (D7)', () => {
+  const binned = (name: string, from: string, at: number): ViewerFile => ({
+    ...file(name, 'text', 1),
+    path: `C:\\$Recycle.Bin\\S-1\\$R${name}`,
+    binned: { from, at }
+  })
+  const bin: DirListing = {
+    bin: true,
+    folders: [
+      { path: 'C:\\$Recycle.Bin\\S-1\\$Rd1', name: 'docs', size: 900, binned: { from: 'C:\\b', at: 50 } },
+      { path: 'C:\\$Recycle.Bin\\S-1\\$Rd2', name: 'art', size: 20, binned: { from: 'C:\\a', at: 10 } }
+    ],
+    files: [binned('x.txt', 'C:\\a', 30), binned('b.txt', 'D:\\z', 30), binned('a.txt', 'C:\\c', 70)]
+  }
+  const order = (key: 'from' | 'deleted' | 'name' | 'modified' | 'size', direction: 'asc' | 'desc'): string[] =>
+    browseEntries(bin, '', { key, direction }).map((e) => e.name)
+
+  it('Date deleted newest first mixes folders and files, ties by name', () => {
+    expect(order('deleted', 'desc')).toEqual(['a.txt', 'docs', 'b.txt', 'x.txt', 'art'])
+  })
+  it('Date deleted oldest first, the same ties', () => {
+    expect(order('deleted', 'asc')).toEqual(['art', 'b.txt', 'x.txt', 'docs', 'a.txt'])
+  })
+  it('Original location keeps folders first, then orders by folder, ties by name, both ways', () => {
+    expect(order('from', 'asc')).toEqual(['art', 'docs', 'x.txt', 'a.txt', 'b.txt'])
+    expect(order('from', 'desc')).toEqual(['docs', 'art', 'b.txt', 'a.txt', 'x.txt'])
+  })
+  it('a folder row in the bin sorts by Size from the record, not from a walk', () => {
+    const sizes = Object.fromEntries(bin.folders.map((f) => [f.path, { bytes: f.size ?? 0 }]))
+    const names = browseEntries(bin, '', { key: 'size', direction: 'desc' }, sizes as never).map((e) => e.name)
+    expect(names.slice(0, 2)).toEqual(['docs', 'art'])
+  })
+  it('outside the bin the two keys read as Name and Date modified, so a sort never leaks', () => {
+    const plain: DirListing = {
+      folders: [],
+      files: [
+        { ...file('b.txt', 'text', 1), mtimeMs: 5 },
+        { ...file('a.txt', 'text', 1), mtimeMs: 9 }
+      ]
+    }
+    // from reads as name, deleted as modified (b is the older).
+    expect(browseEntries(plain, '', { key: 'from', direction: 'asc' }).map((e) => e.name)).toEqual(['a.txt', 'b.txt'])
+    expect(browseEntries(plain, '', { key: 'deleted', direction: 'asc' }).map((e) => e.name)).toEqual(['b.txt', 'a.txt'])
+  })
+})

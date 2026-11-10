@@ -705,9 +705,21 @@ export function useFolderBrowsing(
         ? await window.prism.browseDirectory(id, parent, { details: false }).catch(() => null)
         : true
       if (serial.current.get(id) !== request) return
-      const payload = granted
-        ? await window.prism.openWithin(root, filePath).catch(() => null)
-        : null
+      // A BINNED FILE (Recycle Bin, D12) is shown from the bin's own listing:
+      // its neighbours are the bin's files, the wall's grant for exactly those
+      // entries came with the listing, and no folder is asked for or granted
+      // (`openWithin` would refuse a path inside `$Recycle.Bin`).
+      const binRows =
+        !fromTree && file.binned
+          ? result?.tabId === id && result.listing.bin && result.listing.files.some((f) => f.path === filePath)
+            ? result.listing.files
+            : [file]
+          : null
+      const payload = binRows
+        ? { files: binRows, index: Math.max(0, binRows.findIndex((f) => f.path === filePath)), root: path }
+        : granted
+          ? await window.prism.openWithin(root, filePath).catch(() => null)
+          : null
       if (serial.current.get(id) !== request) return
       if (!payload) {
         if (visibleId.current === id)
@@ -742,7 +754,7 @@ export function useFolderBrowsing(
       }))
       return true
     },
-    [active, id, path, setState]
+    [active, id, path, result, setState]
   )
   useLayoutEffect(() => {
     openFileRef.current = openFile

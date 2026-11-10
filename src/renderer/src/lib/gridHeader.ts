@@ -7,7 +7,9 @@
 /** Under this list width the strip hides Type and Size. */
 export const STRIP_NARROW = 360
 
-const ORDER = ['name', 'modified', 'size', 'type']
+// The bin's Date deleted stands where Date modified does; its Original location
+// comes last (Recycle Bin, D7).
+const ORDER = ['name', 'modified', 'deleted', 'size', 'type', 'from']
 
 export function gridHeaderColumns<T extends { key: string }>(columns: readonly T[], width: number): T[] {
   const rank = (key: string): number => {

@@ -12,6 +12,7 @@ import type { TransportStyle } from '../../lib/transport'
 import { LoadingState } from '../LoadingState'
 import type { UndoEntry } from '../../lib/undo'
 import { extractAll } from '../../lib/extractAll'
+import { readOnlyFile } from '../../lib/readOnlyFile'
 
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
@@ -136,7 +137,9 @@ export function Viewer({
     <ViewerSwitch
       file={file}
       mode="full"
-      unsupported={unpacked ? () => <UnsupportedView file={file} openable={false} /> : undefined}
+      unsupported={
+        unpacked || file.binned ? () => <UnsupportedView file={file} openable={false} /> : undefined
+      }
       loading={<EditorLoading />}
       onToggleFullscreen={onToggleFullscreen}
       fullscreen={fullscreen}
@@ -150,7 +153,7 @@ export function Viewer({
       background={background}
       volumeKey={volumeKey}
       onOpenLocal={onOpenLocal}
-      readOnly={readOnly}
+      readOnly={readOnly || readOnlyFile(file)}
       onBuffer={onBuffer}
       getPending={getPending}
       onExternalChange={onExternalChange}

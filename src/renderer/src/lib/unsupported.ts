@@ -3,7 +3,8 @@
 // naming the extension is friendlier ("Prism can't show ZIP files") but only
 // when there is an extension worth naming.
 
-import type { FileKind } from '@shared/types'
+import type { BinnedFrom, FileKind } from '@shared/types'
+import { readOnlyFile } from './readOnlyFile'
 
 /** Longest extension we will shout back at the user. Past this it stops being
  *  an extension and starts being the tail of a filename with a dot in it. */
@@ -32,6 +33,8 @@ export function unsupportedMessage(ext: string): string {
  * woudl"). Only the kind Prism has no viewer for, and never a member of a zip:
  * that is no file on disk, and the copy of it is Prism's own temp file.
  */
-export function goesToWindows(file: { kind: FileKind; member?: true }): boolean {
-  return file.kind === 'other' && !file.member
+export function goesToWindows(file: { kind: FileKind; member?: true; binned?: BinnedFrom }): boolean {
+  // A binned file is no program to start either: its path is Windows' own bin
+  // entry, shown on the card with the original location (Recycle Bin, D12).
+  return file.kind === 'other' && !readOnlyFile(file)
 }

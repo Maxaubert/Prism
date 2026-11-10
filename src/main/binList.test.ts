@@ -204,4 +204,22 @@ describe('binListing (stage 2: the bin as a DirListing)', () => {
     expect(listing).toEqual({ folders: [], files: [], bin: true })
     rmSync(b.root, { recursive: true, force: true })
   })
+
+  it('grants the wall exactly the file entries it returned (D12): no folder, no $I', async () => {
+    const b = bin()
+    b.put('AAA.jpg', 'C:\\Users\\m\\Pictures\\cat.jpg', 1_700_000_000_000)
+    b.put('BBB', 'C:\\Users\\m\\Docs\\notes', 1_700_000_100_000, 'dir')
+    const granted: string[][] = []
+    await binListing([b.dir], createBinReader(), async (paths) => void granted.push([...paths]))
+    expect(granted).toEqual([[join(b.dir, '$RAAA.jpg')]])
+    rmSync(b.root, { recursive: true, force: true })
+  })
+
+  it('an empty bin still replaces the grant, so it shrinks with the bin', async () => {
+    const b = bin()
+    const granted: string[][] = []
+    await binListing([b.dir], createBinReader(), async (paths) => void granted.push([...paths]))
+    expect(granted).toEqual([[]])
+    rmSync(b.root, { recursive: true, force: true })
+  })
 })
