@@ -252,6 +252,20 @@ describe('restoreItems', () => {
     expect(readFileSync(target, 'utf8')).toBe('secret')
   })
 
+  // A junction needs no admin right, so this one runs on every machine (the
+  // symlink case above returned early on the dev PC and only CI ran it).
+  it('does not restore a junction in the bin', async () => {
+    const folder = join(orig, 'real-folder')
+    mkdirSync(folder, { recursive: true })
+    const link = join(binC, '$RJUNCXX')
+    symlinkSync(folder, link, 'junction')
+    writeFileSync(join(binC, '$IJUNCXX'), record(join(orig, 'came-back')))
+    const r = await restoreItems(env(), [link], 'ask')
+    expect(r.ok).toBe(false)
+    expect(existsSync(join(orig, 'came-back'))).toBe(false)
+    expect(existsSync(folder)).toBe(true)
+  })
+
   it('waits the seam delay per item', async () => {
     const rs = [1, 2, 3].map((n) => put(binC, `SL000${n}`, join(orig, `s${n}.txt`)))
     const t0 = Date.now()

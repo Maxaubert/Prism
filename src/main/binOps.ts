@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, unlink } from 'fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, unlink } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import type { BinDeleteResult, BinRestoreResult, MoveClash, MoveOnClash } from '@shared/ipcTypes'
 import { inBinFolder } from '@shared/binPath'
@@ -62,7 +62,16 @@ async function accept(env: BinEnv, paths: readonly unknown[]): Promise<{ ok: Ent
     if (good) ok.push({ r: p, dir: dirname(p), id: basename(p).slice(2) })
     else if (typeof p === 'string') refused.push(p)
   }
-  return { ok, refused }
+  // A link or junction in the bin is never acted on, here as well as in the
+  // wall's grant (CI, 2026-11-10: with no grant in the way, Restore moved a
+  // link out). A few at a time, as the records are read.
+  const plain: Entry[] = []
+  for (let i = 0; i < ok.length; i += READ_AT_ONCE) {
+    const batch = ok.slice(i, i + READ_AT_ONCE)
+    const links = await Promise.all(batch.map((e) => lstat(e.r).then((s) => s.isSymbolicLink(), () => true)))
+    batch.forEach((e, n) => (links[n] ? refused.push(e.r) : plain.push(e)))
+  }
+  return { ok: plain, refused }
 }
 
 const infoPath = (e: Entry): string => join(e.dir, `$I${e.id}`)
