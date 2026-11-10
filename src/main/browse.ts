@@ -12,6 +12,9 @@ import {
 } from './desktopAccess'
 import { closeBrowseWatch, setBrowseWatch } from './browseWatch'
 import type { DirChange } from '@shared/types'
+import { isBinPlace } from '@shared/binPlace'
+import { binDirs } from './binRoots'
+import { closeBinWatch, setBinWatch } from './binWatch'
 
 /** Each tab's newest watch ask: an older one still waiting on its archive
  *  check must not land over it. */
@@ -33,9 +36,21 @@ export async function browseWatch(
   watchTurns.set(tabId, turn)
   if (path === null) {
     closeBrowseWatch(tabId)
+    closeBinWatch(tabId)
     return true
   }
+  // The Recycle Bin (D9): its own watch on the bin folders, ahead of the
+  // ownership check (the sentinel is no folder and nothing is granted for it).
+  // Not for a closed tab, as no other watch is.
+  if (isBinPlace(path)) {
+    if (desktopClosed(tabId)) return false
+    closeBrowseWatch(tabId)
+    const dirs = await binDirs()
+    if (watchTurns.get(tabId) !== turn) return true
+    return setBinWatch(tabId, dirs, emit)
+  }
   if (typeof path !== 'string' || !isAbsolute(path)) return false
+  closeBinWatch(tabId)
   // Inside an archive (#300): the folder holding the zip is watched, and only
   // a change to the zip itself reports the place on screen.
   const outer = containerCandidates(path).length ? await container(path) : null

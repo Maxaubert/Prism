@@ -2,6 +2,7 @@ import { dirname } from 'path'
 import { inBinFolder } from '@shared/binPath'
 import { canonicalPath, forgetCanonical, warmCanonical, withinCanonical } from './dirList'
 import { closeAllBrowseWatches, closeBrowseWatch } from './browseWatch'
+import { closeAllBinWatches, closeBinWatch } from './binWatch'
 import { diagMain } from 'prism-term-core/main/diagLog'
 
 // Desktop exploration is not a phone share. A visited directory grants its
@@ -60,6 +61,7 @@ function hold(grants: Grants, path: string, resolved: string): void {
 
 export function releaseDesktop(tabId: string): void {
   closeBrowseWatch(tabId)
+  closeBinWatch(tabId)
   directories.delete(tabId)
   revisions.set(tabId, desktopRevision(tabId) + 1)
 }
@@ -225,6 +227,7 @@ function extendNow(root: string, paths: string[]): void {
 export function resetDesktopAccess(): void {
   forgetCanonical()
   closeAllBrowseWatches()
+  closeAllBinWatches()
   directories.clear()
   revisions.clear()
 }

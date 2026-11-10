@@ -5,6 +5,7 @@ import { type SavedTabs } from './tabs'
 import { latestWriter } from './latestWrite'
 import { createSessionModel, type SavedBounds, type SessionEntry } from './session'
 import { userPaths } from './paths'
+import { isBinPlace } from '@shared/binPlace'
 import type { BrowseDirectory } from '@shared/browse'
 import type { OpenPayload } from '@shared/types'
 
@@ -18,6 +19,8 @@ import type { OpenPayload } from '@shared/types'
 export interface TabsSessionDeps {
   cachedListing: (path: string) => Promise<BrowseDirectory | null>
   archiveRead: (tabId: string, path: string) => Promise<BrowseRead | null | undefined>
+  /** The Recycle Bin's listing, for a tab saved inside it (D5). */
+  binRead: (tabId: string, path: string) => Promise<BrowseDirectory | null>
   buildPayload: (p: string, root?: string) => Promise<OpenPayload | null>
 }
 
@@ -73,6 +76,17 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
   ): Promise<BrowseDirectory | null> {
     const shown = t.browse?.path && t.browse.path !== t.root ? t.browse.path : null
     for (const path of shown ? [shown, t.root] : [t.root]) {
+      // A tab left in the Recycle Bin comes back there: a direct read of the
+      // bin (never cached on disk), with the same time limit as the shown
+      // folder. Past it the root stands in and the page reads the bin itself.
+      if (isBinPlace(path)) {
+        const read = await Promise.race([
+          deps.binRead(tabId, path),
+          new Promise<null>((done) => setTimeout(() => done(null), SHOWN_FOLDER_LIMIT_MS))
+        ])
+        if (read && !read.listing.unreadable) return read
+        continue
+      }
       const cached = await deps.cachedListing(path)
       if (cached) return cached
       // THE SHOWN FOLDER GETS A TIME LIMIT, THE ROOT DOES NOT (review of #271).
@@ -129,9 +143,10 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
       const restoreTabId = ids[i]
       grantDesktopDirectory(restoreTabId, t.root)
       if (t.file) grantDesktopDirectory(restoreTabId, dirname(t.file))
+      // The Recycle Bin is no folder and is granted nothing (D5).
       for (const location of t.browse?.history ?? [])
-        grantDesktopDirectory(restoreTabId, location.path)
-      if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
+        if (!isBinPlace(location.path)) grantDesktopDirectory(restoreTabId, location.path)
+      if (t.browse && !isBinPlace(t.browse.path)) grantDesktopDirectory(restoreTabId, t.browse.path)
     }
     const finish = async (
       i: number,

@@ -27543,6 +27543,131 @@ async function run(fn, gap = 900) {
   await sleep(gap) // let the single-instance lock go
 }
 
+/**
+ * A FAKE RECYCLE BIN for a scenario (Recycle Bin feature, D22). One folder per
+ * fake drive, named like the real thing (`<drive>\$Recycle.Bin\<SID>`, so the
+ * `$Recycle.Bin` segment guard is exercised), under the scenario's own
+ * fixtures and on the same drive as them, so `rename` works as in life. The
+ * app is told about them by `PRISM_E2E_BIN_DIRS` (read only under `--e2e`);
+ * with it the real bin is never read, listed or written. `put` writes a REAL
+ * version 2 `$I` record beside its `$R` (a folder when `body` is 'dir').
+ */
+function fakeBin(base, drives = ['C', 'D']) {
+  const dirs = drives.map((d) => {
+    const dir = join(base, d, '$Recycle.Bin', 'S-1-5-21-1-2-3-1001')
+    mkdirSync(dir, { recursive: true })
+    return dir
+  })
+  const filetime = (ms) => (BigInt(ms) + 11644473600000n) * 10000n
+  const put = (dir, id, from, ms, body = 'x') => {
+    const head = Buffer.alloc(28)
+    head.writeBigInt64LE(2n, 0)
+    head.writeBigInt64LE(BigInt(body === 'dir' ? 0 : Buffer.byteLength(body)), 8)
+    head.writeBigInt64LE(filetime(ms), 16)
+    head.writeInt32LE(from.length + 1, 24)
+    writeFileSync(join(dir, `$I${id}`), Buffer.concat([head, Buffer.from(from + '\0', 'utf16le')]))
+    if (body === 'dir') mkdirSync(join(dir, `$R${id}`))
+    else writeFileSync(join(dir, `$R${id}`), body)
+  }
+  return { dirs, env: { PRISM_E2E_BIN_DIRS: dirs.join('|') }, put }
+}
+
+/**
+ * THE RECYCLE BIN IS A PLACE (Recycle Bin feature, stage 2; owner, 2026-11-10:
+ * "add recycle bin to the bottom of the explorer page"). Held, against a FAKE
+ * bin of three items on two fake drives (the real bin is never touched):
+ * typing `Recycle Bin` in the address field opens it as a list of exactly
+ * those items (their ORIGINAL names), the address bar shows one crumb named
+ * Recycle Bin, Up is off, Back returns to the folder and Forward to the bin,
+ * the tab is titled Recycle Bin, and a restart brings the bin tab back.
+ * (The sidebar row is stage 3, the columns stage 4.)
+ */
+async function binRowScenario(fixtures) {
+  console.log('recycle bin: the place, its crumb, history, the tab title and a restart')
+  const base = join(fixtures, 'bin-row')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'))
+  const now = Date.now()
+  bin.put(bin.dirs[0], 'AAA.jpg', 'C:\\Users\\m\\Pictures\\cat.jpg', now - 3600e3)
+  bin.put(bin.dirs[0], 'BBB', 'C:\\Users\\m\\Docs\\notes', now - 7200e3, 'dir')
+  bin.put(bin.dirs[1], 'CCC.txt', 'D:\\work\\todo.txt', now - 86400e3, 'todo')
+  const BIN = 'shell:RecycleBinFolder'
+  const list = '[data-testid="browse-list"]'
+  const names = (win) =>
+    win.evaluate(
+      (sel) => [...document.querySelectorAll(`${sel} .browse-row .browse-name-text`)].map((e) => e.textContent).sort(),
+      list
+    )
+  let app
+  let win
+  try {
+    ;({ app, win } = await launchWith({ ...bin.env, ...NO_INDEX }, join(home, 'a-file.txt')))
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector(`${list} .browse-row`, { timeout: 10000 })
+
+    await typePath(win, 'Recycle Bin')
+    ok(await until(async () => (await shownDir(win)) === BIN, 8000, 50), `typing Recycle Bin opens the bin place (${await shownDir(win)})`)
+    const want = ['cat.jpg', 'notes', 'todo.txt']
+    ok(
+      await until(async () => JSON.stringify(await names(win)) === JSON.stringify(want), 8000, 100),
+      `the list holds exactly the fake bin's items under their original names (${JSON.stringify(await names(win))})`
+    )
+    const crumbs = await win.locator('.folder-browser .browse-crumb').allTextContents()
+    ok(crumbs.length === 1 && crumbs[0].trim() === 'Recycle Bin', `one crumb, named Recycle Bin (${JSON.stringify(crumbs)})`)
+    ok(await win.locator('button[aria-label="Up"]').isDisabled(), 'Up is off: there is nowhere above the bin')
+    const label = await win.locator('[role="tablist"] [data-pinned] [role="tab"]').textContent()
+    ok(/Recycle Bin/.test(label ?? ''), `the tab is titled Recycle Bin (${label})`)
+
+    // BACK AND FORWARD: the bin is an ordinary history entry.
+    await win.locator('button[aria-label="Back"]').click()
+    ok(await until(async () => (await shownDir(win)) !== BIN, 6000, 50), 'Back leaves the bin for the folder before it')
+    await win.locator('button[aria-label="Forward"]').click()
+    ok(await until(async () => (await shownDir(win)) === BIN, 6000, 50), 'Forward returns to the bin')
+    ok(
+      await until(async () => JSON.stringify(await names(win)) === JSON.stringify(want), 6000, 100),
+      'and the bin lists its items again'
+    )
+    // THE WATCH: a pair binned while the bin is open shows within two seconds,
+    // and one removed disappears (the full live scenario, binLive, is stage 5).
+    bin.put(bin.dirs[1], 'DDD.png', 'D:\\work\\new.png', Date.now())
+    ok(
+      await until(async () => (await names(win)).includes('new.png'), 2500, 100),
+      'a pair binned while the bin is open appears within two seconds'
+    )
+    rmSync(join(bin.dirs[1], '$IDDD.png'), { force: true })
+    rmSync(join(bin.dirs[1], '$RDDD.png'), { force: true })
+    ok(
+      await until(async () => !(await names(win)).includes('new.png'), 2500, 100),
+      'and when it leaves the bin it leaves the list'
+    )
+    // The strip is saved on a 400 ms debounce.
+    await sleep(900)
+  } finally {
+    await app?.close()
+  }
+
+  // A RESTART brings the bin tab back, in the bin, with its items.
+  let again
+  try {
+    await sleep(900)
+    again = await startApp({ env: { ...bin.env, ...NO_INDEX } })
+    const w = await again.firstWindow()
+    await w.waitForLoadState('domcontentloaded')
+    await offscreen(again)
+    ok(await until(async () => (await shownDir(w)) === BIN, 15000, 100), `after a restart the tab is back in the bin (${await shownDir(w)})`)
+    ok(
+      await until(async () => JSON.stringify(await names(w)) === JSON.stringify(['cat.jpg', 'notes', 'todo.txt']), 8000, 100),
+      'with its items listed'
+    )
+  } finally {
+    await again?.close()
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
 await seedProfile()
 await run(startupScenario)
 await run(mdScenario)
@@ -27742,6 +27867,7 @@ await run(busyUndoMoveScenario)
 await run(unsupportedScenario)
 await run(opensInWindowsScenario)
 await run(openGuardsScenario)
+await run(binRowScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
 // zero scenarios is the most confident lie a suite can tell (2026-08-28).

@@ -302,3 +302,41 @@ describe('the tab strip is saved off the main thread (owner, 2026-10-12)', () =>
     expect(readdirSync(dir)).toEqual(['tabs.json'])
   })
 })
+
+describe('the Recycle Bin place (stage 2, D5)', () => {
+  const bin = 'shell:RecycleBinFolder'
+  const at = (path: string, sort: object = { key: 'name', direction: 'asc' }): object => ({
+    path,
+    selected: null,
+    scrollTop: 0,
+    query: '',
+    sort
+  })
+
+  it('keeps a bin history entry and a bin browse path; the root stays a real folder', () => {
+    const root = folder('home')
+    const sort = { key: 'deleted', direction: 'desc' }
+    const browse = { path: bin, history: [at(root), at(bin, sort)], cursor: 1, surface: 'folder', preview: true }
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'explorer', browse }], active: 0 }))
+    expect(parsed.tabs[0].root).toBe(root)
+    expect(parsed.tabs[0].browse?.path).toBe(bin)
+    expect(parsed.tabs[0].browse?.history.map((h) => h.path)).toEqual([root, bin])
+    expect(parsed.tabs[0].browse?.cursor).toBe(1)
+    // The new sort keys survive a restart.
+    expect(parsed.tabs[0].browse?.history[1].sort).toEqual(sort)
+  })
+
+  it('keeps the other new sort key, from', () => {
+    const root = folder('home2')
+    const browse = { path: bin, history: [at(bin, { key: 'from', direction: 'asc' })], cursor: 0, surface: 'folder', preview: true }
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'explorer', browse }], active: 0 }))
+    expect(parsed.tabs[0].browse?.history[0].sort.key).toBe('from')
+  })
+
+  it('a bin ROOT is not a tab and a bin FILE is not kept (only the browse place may be the bin)', () => {
+    const root = folder('home3')
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root: bin, role: 'explorer' }, { root, file: bin }], active: 0 }))
+    expect(parsed.tabs).toHaveLength(1)
+    expect(parsed.tabs[0].file).toBeUndefined()
+  })
+})

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { createBinReader } from './binList'
+import { createBinReader, binListing } from './binList'
 
 const EPOCH_DELTA = 11644473600000n
 const ft = (ms: number): bigint => (BigInt(ms) + EPOCH_DELTA) * 10000n
@@ -164,4 +164,44 @@ describe('createBinReader', () => {
     expect(coldMs).toBeLessThan(5000)
     rmSync(b.root, { recursive: true, force: true })
   }, 60_000)
+})
+
+describe('binListing (stage 2: the bin as a DirListing)', () => {
+  it('is a complete listing flagged bin, files and folders split, each carrying where from and when', async () => {
+    const b = bin()
+    b.put('AAA.jpg', 'C:\\Users\\m\\Pictures\\cat.jpg', 1_700_000_000_000)
+    b.put('BBB', 'C:\\Users\\m\\Docs\\notes', 1_700_000_100_000, 'dir')
+    b.put('CCC.zzqq', 'C:\\x\\odd.zzqq', 1_700_000_200_000)
+    const { listing, skipped } = await binListing([b.dir], createBinReader())
+    expect(skipped).toBe(0)
+    expect(listing.bin).toBe(true)
+    expect(listing.complete).toBeUndefined()
+    expect(listing.folders).toHaveLength(1)
+    expect(listing.folders[0]).toMatchObject({
+      path: join(b.dir, '$RBBB'),
+      name: 'notes',
+      mtimeMs: 1_700_000_100_000,
+      binned: { from: 'C:\\Users\\m\\Docs', at: 1_700_000_100_000 }
+    })
+    const cat = listing.files.find((f) => f.name === 'cat.jpg')!
+    expect(cat).toMatchObject({
+      path: join(b.dir, '$RAAA.jpg'),
+      ext: '.jpg',
+      kind: 'image',
+      size: 5,
+      mtimeMs: 1_700_000_000_000,
+      binned: { from: 'C:\\Users\\m\\Pictures', at: 1_700_000_000_000 }
+    })
+    // A kind Prism cannot show is still a row: it can be restored or deleted.
+    expect(listing.files.map((f) => f.name)).toContain('odd.zzqq')
+    expect(listing.hidden).toBeUndefined()
+    rmSync(b.root, { recursive: true, force: true })
+  })
+
+  it('an empty bin is an empty bin listing', async () => {
+    const b = bin()
+    const { listing } = await binListing([b.dir], createBinReader())
+    expect(listing).toEqual({ folders: [], files: [], bin: true })
+    rmSync(b.root, { recursive: true, force: true })
+  })
 })
