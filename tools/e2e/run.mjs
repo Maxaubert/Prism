@@ -29085,12 +29085,50 @@ async function binBigScenario(fixtures) {
     // run (seen once in a full run, never alone in 18 loaded runs, 2026-11-10)
     // then says whether the list was stale (the old count), empty or still held.
     let stripSaid = ''
+    let stripCount = null
     const listed = await until(async () => {
       stripSaid = await win.locator('[data-bin-strip]').innerText().catch(() => '')
-      return new RegExp(`${N - n} items`).test(stripSaid)
+      stripCount = await win.locator('[data-bin-strip]').getAttribute('data-bin-count').catch(() => null)
+      return stripCount === String(N - n)
     }, 8000, 150)
     const bars = await win.locator('[data-busy-bar]').count().catch(() => -1)
-    ok(listed, `and the list still holds them (strip said ${JSON.stringify(stripSaid.replace(/\s+/g, ' ').slice(0, 60))}, want ${N - n} items, bars ${bars})`)
+    const rows = await win.locator(`${BIN_LIST} .browse-row`).count().catch(() => -1)
+    const width = await win.locator('[data-bin-strip]').evaluate((e) => Math.round(e.getBoundingClientRect().width)).catch(() => -1)
+    ok(listed, `and the list still holds them (strip said ${JSON.stringify(stripSaid.replace(/\s+/g, ' ').slice(0, 60))}, count ${stripCount}, want ${N - n}, rows ${rows}, bars ${bars}, ${width} px wide)`)
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE STRIP'S COUNT SURVIVES A NARROW WINDOW (#508). Under 560 px the strip
+ * hides its "N items" text (a container query, like the zip strip), so a check
+ * that reads the strip's innerText sees no count while the list is right. The
+ * strip carries the count as data-bin-count, and the check reads that.
+ */
+async function binNarrowScenario(fixtures) {
+  console.log('recycle bin: the strip keeps its count as data when a narrow window hides the text')
+  const base = join(fixtures, 'bin-narrow')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  const orig = join(base, 'orig')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(orig, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'))
+  const now = Date.now()
+  for (let i = 0; i < 7; i += 1) bin.put(bin.dirs[0], `N${i}.txt`, join(orig, `n${i}.txt`), now - i * 1000, 'n')
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, home))
+    await mainWin(app, 'setSize', 520, 600)
+    await binOpen(win, 7)
+    const shown = await until(async () => (await win.locator('[data-bin-strip]').getAttribute('data-bin-count').catch(() => null)) === '7', 6000, 100)
+    const text = await win.locator('[data-bin-strip]').innerText().catch(() => '')
+    const width = await win.locator('[data-bin-strip]').evaluate((e) => e.getBoundingClientRect().width).catch(() => -1)
+    ok(shown, `the count is on the strip as data (${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 60))}, ${Math.round(width)} px wide)`)
   } finally {
     await app?.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })
@@ -29361,6 +29399,7 @@ await run(binEmptyScenario)
 await run(binUndoScenario)
 await run(binUndoAwayScenario)
 await run(binBigScenario)
+await run(binNarrowScenario)
 await run(binLiveScenario)
 await run(newFolderTitleScenario)
 await run(newFolderSidebarScenario)
