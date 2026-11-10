@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
-import { OVERLAY } from '../../lib/focusGuards'
+import { FIELD, OVERLAY } from '../../lib/focusGuards'
+import { listKey } from '../../lib/listKeys'
 import { menuOrDialogUp } from '../../lib/pageDocuments'
 
 const TAB_STRIP = '[role="tablist"]'
@@ -66,7 +67,15 @@ export function useListKeyboard(
         return
       }
       if (target.closest(ON_A_QUESTION)) return
-      home.current = !!target.closest('.browse-list')
+      // NEW FOLDER FROM THE SIDEBAR (owner, 2026-11-10): the chord is heard
+      // from anywhere in the browser but a field, and the name that follows
+      // ends with the keyboard on the list, the new folder selected.
+      const newFolder =
+        event.type === 'keydown' &&
+        !target.closest(FIELD) &&
+        listKey(event as KeyboardEvent) === 'new-folder' &&
+        !!target.closest('.folder-browser')
+      home.current = newFolder || !!target.closest('.browse-list')
     }
     // A press on the tab already in front commits nothing, so the effect below
     // would never run for it.
