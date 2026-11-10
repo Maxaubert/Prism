@@ -177,3 +177,11 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   the item, above it when there is no room, inside the window, after Windows' own 450 ms. Elements
   keep plain `title`s; while hovered the title sits in `data-tip-title`. An ancestor's
   `data-tip-side` puts tips beside the item (unused in Prism so far). The `placedTips` e2e holds it.
+
+## The delete question (owner, 2026-11-10, #504)
+
+A small card: a bin icon (a warning for what cannot come back), a title, one quiet line, buttons on the right. The red
+solid button deletes; the red outline is "Delete permanently"; Cancel is plain. The red is mixed with the theme's text
+colour, so it reads on light and high-contrast themes (measured in the `deleteQuestion` e2e). Empty Recycle Bin adds a
+thin bar per drive: used in a soft text tint, what it frees in the accent. No explaining sentences. See
+`docs/dialogs.md`.

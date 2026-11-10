@@ -1468,8 +1468,8 @@ async function deleteFastScenario(fixtures) {
     await sleep(120)
     const text = await asked()
     ok(!text.includes(name), `a second Delete does not ask about ${name}, already on its way (${text.slice(0, 70)})`)
-    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
-      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    if (await win.locator('[role="dialog"] button:text-is("Delete")').count()) {
+      await win.locator('[role="dialog"] button:text-is("Delete")').click()
     }
     await sleep(2200)
     const after = await asked()
@@ -1497,7 +1497,8 @@ async function deleteZipScenario(fixtures) {
   const rows = () => win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').count()
   const confirm = async () => {
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    // A zip member is always permanent: the question has no middle button.
+    await win.locator('[role="dialog"] button:text-is("Delete permanently")').click()
   }
   try {
     await inZip(win, join(dir, 'pack.zip'))
@@ -1728,7 +1729,7 @@ async function deleteAgainScenario(fixtures) {
     await win.keyboard.press('Delete')
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
     ok(true, 'Delete on a focused row asks first')
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     await sleep(900)
     ok((await rows()) === before - 1, 'and the row goes')
 
@@ -1740,8 +1741,8 @@ async function deleteAgainScenario(fixtures) {
       await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 3000),
       'Delete again asks again with no click between, rather than doing nothing'
     )
-    if (await win.locator('[role="dialog"] button:has-text("Delete")').count()) {
-      await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    if (await win.locator('[role="dialog"] button:text-is("Delete")').count()) {
+      await win.locator('[role="dialog"] button:text-is("Delete")').click()
       ok(await until(async () => (await rows()) === before - 2, 5000), 'and that second Delete really takes a row')
     } else ok(false, 'and that second Delete really takes a row (no question to answer)')
   } finally {
@@ -2155,7 +2156,7 @@ async function deleteLastScenario(fixtures) {
     await sleep(400)
     await win.keyboard.press('Delete')
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     await sleep(1500)
 
     ok(!win.isClosed(), 'the window survives deleting the only file')
@@ -2200,7 +2201,7 @@ async function deleteFocusScenario(fixtures) {
   const dialogs = () => win.locator('[role="dialog"]').count()
   const asks = () => until(async () => (await dialogs()) === 1, 4000)
   const closed = () => until(async () => (await dialogs()) === 0, 4000)
-  const button = (label) => win.locator(`[role="dialog"] button:has-text("${label}")`)
+  const button = (label) => win.locator(`[role="dialog"] button:text-is("${label}")`)
   const leaf = (p) => /[^\\]*$/.exec(p ?? '')?.[0] ?? ''
   const where = () =>
     win.evaluate(() => {
@@ -7226,9 +7227,9 @@ async function landingMarksScenario(fixtures) {
     await sleep(300)
     await row(last).locator('.browse-name-text').click()
     await win.keyboard.press('Delete')
-    const ask = win.getByRole('dialog', { name: 'Move to the Recycle Bin?' })
+    const ask = win.getByRole('dialog', { name: `Delete ${last}?`, exact: true })
     ok(await until(async () => (await ask.count()) === 1, 5000), 'Del asks')
-    await win.getByRole('button', { name: /^(Delete|Move to the Recycle Bin|Yes)/ }).first().click()
+    await win.getByRole('button', { name: 'Delete', exact: true }).click()
     ok(await until(() => !existsSync(join(dir, last)), 10000), `${last} goes to the Recycle Bin`)
     await sleep(500)
     await toTop()
@@ -7371,7 +7372,7 @@ async function escapeKeepsOpenScenario(fixtures) {
     // A DIALOG: Escape answers Cancel.
     await row('two.txt').locator('.browse-name-text').click()
     await win.keyboard.press('Delete')
-    const ask = win.getByRole('dialog', { name: 'Move to the Recycle Bin?' })
+    const ask = win.getByRole('dialog', { name: 'Delete two.txt?', exact: true })
     ok(await until(async () => (await ask.count()) === 1, 5000), 'Del asks to delete')
     await press(1)
     ok(await until(async () => (await ask.count()) === 0, 3000), 'Escape closes the dialog')
@@ -8499,7 +8500,7 @@ async function pauseScenario(fixtures) {
     // in the fixtures, where the tree would count it) and put it back once
     // the app has let go.
     copyFileSync(join(fixtures, 'ep2.mp4'), join(PROFILE, 'ep2.stash'))
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     for (let i = 0; i < 40 && existsSync(join(fixtures, 'ep2.mp4')); i++) await sleep(200)
     ok(!existsSync(join(fixtures, 'ep2.mp4')), 'and a film that was playing is really in the bin')
     ok(
@@ -9983,7 +9984,7 @@ async function hotkeysScenario(fixtures) {
     })
   const confirmDelete = async () => {
     ok(await until(async () => (await dialogs()) === 1, 5000), 'the bin key asks first, as Delete does')
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     await sleep(300)
   }
   const back = (rel) => until(async () => existsSync(join(dir, rel)), 10000)
@@ -10145,7 +10146,7 @@ async function hotkeysScenario(fixtures) {
     await sleep(300)
     ok(
       (await exMarked()).length === marksBefore &&
-        (await win.locator('[role="dialog"] button:has-text("Delete")').count()) === 0,
+        (await win.locator('[role="dialog"] button:text-is("Delete")').count()) === 0,
       'explorer: Ctrl+A and Ctrl+D in the search field act on no rows'
     )
     await win.keyboard.press('Escape')
@@ -14974,7 +14975,7 @@ async function busyQuickScenario(fixtures) {
     ok(await until(() => existsSync(join(dir, 'f0000 (2).txt')), 8000), 'a one-file paste lands')
     await listRow(win, 'f0001.txt').locator('.browse-name-text').click()
     await win.keyboard.press('Delete')
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     ok(await until(() => !existsSync(join(dir, 'f0001.txt')), 8000), 'a one-file delete goes')
     await sleep(1500)
     ok((await win.evaluate(() => window.__busy.up)) === 0, 'neither showed the bar on any frame')
@@ -15015,7 +15016,7 @@ async function busyHoldScenario(fixtures) {
     await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
     await win.keyboard.press('Control+a')
     await win.keyboard.press('Delete')
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     ok(await busyUp(win), 'a delete over one second shows the bar')
     if (!(await win.locator(BUSY).count())) return
     const label = await win.locator('[data-busy-label]').textContent()
@@ -15160,7 +15161,7 @@ async function busyCancelScenario(fixtures) {
     await listRow(win, 'f0000.txt').locator('.browse-name-text').click()
     await win.keyboard.press('Control+a')
     await win.keyboard.press('Delete')
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     ok(await busyUp(win, 20000), 'the delete shows the bar')
     await sleep(400)
     await win.keyboard.press('Escape')
@@ -15197,7 +15198,7 @@ async function busyFailScenario(fixtures) {
     // it says so.
     rmSync(join(dir, 'f0000.txt'))
     rmSync(join(dir, 'f0001.txt'))
-    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await win.locator('[role="dialog"] button:text-is("Delete")').click()
     ok(await busyUp(win, 8000), 'a failing job over one second shows the bar')
     ok(await busyGone(win, 15000), 'and still lifts it')
     ok(await until(async () => /could not be moved to the Recycle Bin/.test(await win.locator('[role="dialog"]').textContent().catch(() => '')), 6000), 'and the failure says so')
@@ -15635,13 +15636,13 @@ async function explorerVerbsScenario(fixtures) {
     // Del asks before anything goes to the Recycle Bin; Cancel keeps it.
     await row('alpha (2).txt').locator('.browse-name-text').click()
     await win.keyboard.press('Delete')
-    ok(await until(async () => (await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).count()) === 1, 5000), 'Del asks to delete')
+    ok(await until(async () => (await win.getByRole('dialog', { name: 'Delete alpha (2).txt?', exact: true }).count()) === 1, 5000), 'Del asks to delete')
     await win.getByRole('button', { name: 'Cancel', exact: true }).click()
     ok(existsSync(join(dir, 'alpha (2).txt')), 'and Cancel keeps the file')
 
     // The same verbs from the right-click menu.
     await menu('alpha (2).txt', 'Delete')
-    ok(await until(async () => (await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).count()) === 1, 5000), 'the menu\'s Delete asks too')
+    ok(await until(async () => (await win.getByRole('dialog', { name: 'Delete alpha (2).txt?', exact: true }).count()) === 1, 5000), 'the menu\'s Delete asks too')
     await win.keyboard.press('Escape')
     await menu('gamma.txt', 'Rename')
     ok(await until(async () => (await name.count()) === 1, 5000), 'the menu\'s Rename asks for a name')
@@ -15954,7 +15955,7 @@ async function searchPopupScenario(fixtures) {
     // ONE LAYER: it does not open over a question, and leaves with its tab.
     await win.locator('[data-testid="browse-list"] [data-browse-path$="notes.txt"] .browse-name-text').click()
     await win.keyboard.press('Delete')
-    await win.getByRole('dialog', { name: 'Move to the Recycle Bin?' }).waitFor({ timeout: 5000 })
+    await win.getByRole('dialog', { name: 'Delete notes.txt?', exact: true }).waitFor({ timeout: 5000 })
     await win.locator('[data-testid="browse-search-button"]').evaluate((b) => b.click())
     await sleep(300)
     ok((await popup.count()) === 0, 'it does not open over a question')
@@ -25270,14 +25271,15 @@ async function zipWritesScenario(fixtures) {
     // Delete asks the no-Recycle-Bin question, then the entry is gone.
     await zipRow(win, 'pkg.json').click()
     await win.keyboard.press('Delete')
-    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
-    await win.locator('[role="dialog"] button', { hasText: 'Delete' }).click()
+    await win.getByRole('dialog', { name: 'Delete pkg.json permanently?', exact: true }).waitFor({ timeout: 5000 })
+    ok((await win.locator('[role="dialog"] button').allTextContents()).join('|') === 'Cancel|Delete permanently', 'a zip member has no middle button: it is always permanent')
+    await win.locator('[role="dialog"] button:text-is("Delete permanently")').click()
     ok(await until(() => !names().includes('Wind/pkg.json')), 'Delete took it out of the zip')
     // A folder takes its subtree.
     await zipRow(win, 'Wind\\docs').click()
     await win.keyboard.press('Delete')
-    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
-    await win.locator('[role="dialog"] button', { hasText: 'Delete' }).click()
+    await win.getByRole('dialog', { name: 'Delete docs permanently?', exact: true }).waitFor({ timeout: 5000 })
+    await win.locator('[role="dialog"] button:text-is("Delete permanently")').click()
     ok(await until(() => !names().some((n) => n.startsWith('Wind/docs/'))), 'deleting a folder takes its subtree')
     // Add files here lands in that folder.
     await zipRow(win, 'Wind\\src').click({ button: 'right' })
@@ -28725,7 +28727,7 @@ async function binClashScenario(fixtures) {
  * ask too; and none of it is on the undo stack. Screenshot bin-delete-dialog.png.
  */
 async function binDeleteScenario(fixtures) {
-  console.log('recycle bin: Delete permanently asks plainly, Cancel keeps, Delete removes for good')
+  console.log('recycle bin: Delete permanently asks in the shared delete question, Cancel keeps, Delete permanently removes for good')
   const base = join(fixtures, 'bin-delete')
   rmSync(base, { recursive: true, force: true })
   const home = join(base, 'home')
@@ -28751,27 +28753,27 @@ async function binDeleteScenario(fixtures) {
     // ONE ITEM: the wording, Cancel the primary.
     await binRowOf(win, 'a.txt').click()
     await win.keyboard.press('Delete')
-    ok(await binDialogUp(win, /Delete permanently\?/), `Delete opens the final question (${await binDialogText(win)})`)
+    ok(await binDialogUp(win, /Delete a\.txt permanently\?/), `Delete opens the final question (${await binDialogText(win)})`)
     const text = await binDialogText(win)
-    ok(text.includes('"a.txt" is deleted for good. Windows cannot put it back.'), `with the name and the plain words (${text})`)
+    ok(text === 'Delete a.txt permanently?3 BCancelDelete permanently', `the name and the size, no explaining words (${text})`)
     const buttons = await binDialog(win).locator('button').allTextContents()
-    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Delete']), `Cancel, then Delete (${JSON.stringify(buttons)})`)
-    ok((await binDialog(win).getByRole('button', { name: 'Cancel', exact: true }).getAttribute('data-primary')) === 'true', 'Cancel is the primary: the safe answer is the one Enter picks')
-    ok((await binDialog(win).getByRole('button', { name: 'Delete', exact: true }).getAttribute('data-primary')) === null, 'and Delete is not')
+    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Delete permanently']), `Cancel, then Delete permanently (${JSON.stringify(buttons)})`)
+    ok((await binDialog(win).getByRole('button', { name: 'Cancel', exact: true }).getAttribute('data-primary')) === 'true', 'Cancel is the default: the safe answer is the one Enter picks')
+    ok((await binDialog(win).getByRole('button', { name: 'Delete permanently', exact: true }).getAttribute('data-primary')) === null, 'and Delete permanently is not')
     await win.screenshot({ path: join(SHOTS, 'bin-delete-dialog.png') })
     await win.keyboard.press('Enter')
     ok(await binNoDialog(win), 'Enter closes it')
     await sleep(400)
     ok(existsSync(join(bin.dirs[0], '$RD01.txt')) && existsSync(join(bin.dirs[0], '$ID01.txt')), 'and kept the item: Enter is Cancel')
     await win.keyboard.press('Delete')
-    ok(await binDialogUp(win, /Delete permanently\?/), 'asked again')
+    ok(await binDialogUp(win, /Delete a\.txt permanently\?/), 'asked again')
     await binAnswer(win, 'Cancel')
     ok(await binNoDialog(win), 'Cancel closes it')
     await sleep(400)
     ok(existsSync(join(bin.dirs[0], '$RD01.txt')), 'Cancel keeps it too')
     await win.keyboard.press('Delete')
-    ok(await binDialogUp(win, /Delete permanently\?/), 'asked a third time')
-    await binAnswer(win, 'Delete')
+    ok(await binDialogUp(win, /Delete a\.txt permanently\?/), 'asked a third time')
+    await binAnswer(win, 'Delete permanently')
     ok(await until(() => binIsGone(bin.dirs[0], 'D01.txt'), 8000, 100), 'Delete removes the $R and the $I from disk')
     ok(!existsSync(join(orig, 'a.txt')), 'and restores nothing')
     ok(await until(async () => !(await binNames(win)).includes('a.txt'), 6000, 100), 'its row left the list')
@@ -28783,8 +28785,8 @@ async function binDeleteScenario(fixtures) {
     ok((await binVerbText(win, 'delete')) === 'Delete 3 items permanently', `the strip says Delete 3 items permanently (${await binVerbText(win, 'delete')})`)
     await win.keyboard.press('Delete')
     ok(await binDialogUp(win, /Delete 3 items permanently\?/), `the question counts them (${await binDialogText(win)})`)
-    ok((await binDialogText(win)).includes('Everything selected is deleted for good. Windows cannot put it back.'), 'and says everything selected goes')
-    await binAnswer(win, 'Delete')
+    ok(/ 6 B$|6 BCancel/.test(await binDialogText(win)), `and says how big they are together (${await binDialogText(win)})`)
+    await binAnswer(win, 'Delete permanently')
     ok(
       await until(() => binIsGone(bin.dirs[0], 'D02.txt') && binIsGone(bin.dirs[1], 'D03.txt') && binIsGone(bin.dirs[1], 'D04'), 8000, 100),
       'all three are gone from disk, the folder with its whole tree'
@@ -28795,14 +28797,14 @@ async function binDeleteScenario(fixtures) {
     // THE STRIP AND THE ROW MENU ask too; Cancel keeps.
     await binRowOf(win, 'keep.txt').click()
     await binVerb(win, 'delete').click()
-    ok(await binDialogUp(win, /Delete permanently\?/), 'the strip button asks')
+    ok(await binDialogUp(win, /Delete keep\.txt permanently\?/), 'the strip button asks')
     await binAnswer(win, 'Cancel')
     await binRowOf(win, 'keep.txt').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     const items = await win.evaluate(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((e) => e.textContent.trim()))
     ok(items[items.length - 1] === 'Delete permanently', `the row menu ends with Delete permanently (${JSON.stringify(items)})`)
     await win.getByRole('menuitem', { name: 'Delete permanently', exact: true }).click()
-    ok(await binDialogUp(win, /Delete permanently\?/), 'the menu row asks')
+    ok(await binDialogUp(win, /Delete keep\.txt permanently\?/), 'the menu row asks')
     await binAnswer(win, 'Cancel')
     await sleep(300)
     ok(existsSync(join(bin.dirs[1], '$RD05.txt')), 'and Cancel keeps keep.txt')
@@ -28854,11 +28856,50 @@ async function binEmptyScenario(fixtures) {
     await binVerb(win, 'empty').click()
     ok(await binDialogUp(win, /Empty the Recycle Bin\?/), `the strip asks (${await binDialogText(win)})`)
     const text = await binDialogText(win)
-    ok(text.includes('Everything in it (5 items), on every drive, is deleted for good. Windows cannot put it back.'), `with the count, on every drive (${text})`)
+    ok(await binDialogUp(win, /5 items · 4 B/), `the count and the size, from main (${text})`)
     const buttons = await binDialog(win).locator('button').allTextContents()
-    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Empty']), `Cancel, then Empty (${JSON.stringify(buttons)})`)
-    ok((await binDialog(win).getByRole('button', { name: 'Cancel', exact: true }).getAttribute('data-primary')) === 'true', 'Cancel is the primary')
+    ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Empty Recycle Bin']), `Cancel, then Empty Recycle Bin (${JSON.stringify(buttons)})`)
+    ok((await binDialog(win).getByRole('button', { name: 'Cancel', exact: true }).getAttribute('data-primary')) === 'true', 'Cancel is the default')
+    // THE BAR (#503): one per drive the bin spans. The two fake bins are folders on ONE real drive, so one bar.
+    ok(await until(async () => (await win.locator('[data-drive-bar]').count()) === 1, 6000, 100), 'one bar for the one real drive both fake bins sit on')
+    const bar = await win.evaluate(() => {
+      const el = document.querySelector('[data-drive-bar]')
+      const w = (sel) => el.querySelector(sel)?.getBoundingClientRect().width ?? -1
+      return {
+        drive: el.getAttribute('data-drive'),
+        free: el.querySelector('[data-bar-free]')?.textContent,
+        freed: el.querySelector('[data-bar-freed-text]')?.textContent,
+        stays: w('[data-bar-stays]'),
+        freedW: w('[data-bar-freed]'),
+        track: el.querySelector('[role="img"]')?.getBoundingClientRect().width ?? -1,
+        box: document.querySelector('[data-delete-question]').getBoundingClientRect().toJSON(),
+        trackBox: el.querySelector('[role="img"]')?.getBoundingClientRect().toJSON()
+      }
+    })
+    ok(/^[A-Z]:$/.test(bar.drive), `the bar names its drive (${bar.drive})`)
+    ok(/ free$/.test(bar.free ?? ''), `the left says how much is free now (${bar.free})`)
+    ok(bar.freed === '+4 B', `the right says how much Empty gives back (${bar.freed})`)
+    ok(bar.track > 100 && bar.stays >= 0 && bar.freedW >= 0 && bar.stays + bar.freedW <= bar.track + 0.5, `the used and freed parts sit inside the track (${JSON.stringify([bar.stays, bar.freedW, bar.track])})`)
+    ok(bar.trackBox.left >= bar.box.left && bar.trackBox.right <= bar.box.right, 'and the track is inside the question box')
     await win.screenshot({ path: join(SHOTS, 'bin-empty-dialog.png') })
+    for (const theme of ['paper', 'midnight-hc', 'daylight-hc']) {
+      await win.evaluate((v) => {
+        localStorage.setItem('prism.style', v)
+        window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'prism.style' }))
+      }, theme)
+      await sleep(400)
+      const fits = await win.evaluate(() => {
+        const box = document.querySelector('[data-delete-question]').getBoundingClientRect()
+        const t = document.querySelector('[data-drive-bar] [role="img"]').getBoundingClientRect()
+        return t.left >= box.left && t.right <= box.right && t.height >= 6
+      })
+      ok(fits, `${theme}: the bar is inside the question and has height`)
+      await win.screenshot({ path: join(SHOTS, `bin-empty-dialog-${theme}.png`) })
+    }
+    await win.evaluate(() => {
+      localStorage.setItem('prism.style', 'aurora')
+      window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'prism.style' }))
+    })
     await binAnswer(win, 'Cancel')
     ok(await binNoDialog(win), 'Cancel closes it')
     await sleep(300)
@@ -28879,15 +28920,15 @@ async function binEmptyScenario(fixtures) {
     // FROM THE SIDEBAR ROW, bin open (count) and bin not open (no count).
     await binRow(win).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Empty Recycle Bin', exact: true }).click()
-    ok(await binDialogUp(win, /\(5 items\)/), 'the sidebar row asks with the count while the bin is open')
+    ok(await binDialogUp(win, /5 items · 4 B/), 'the sidebar row asks with the count and the size while the bin is open')
     await binAnswer(win, 'Cancel')
     await win.locator(`${BIN_QUICK} [data-known="home"]`).click()
     ok(await until(async () => (await shownDir(win)) !== BIN_ID, 8000, 50), 'to Home, off the bin')
     await binRow(win).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Empty Recycle Bin', exact: true }).click()
     ok(await binDialogUp(win, /Empty the Recycle Bin\?/), 'the sidebar row asks from any folder')
-    ok((await binDialogText(win)).includes('Everything in it, on every drive, is deleted for good.'), `without a count when the bin is not on screen (${await binDialogText(win)})`)
-    await binAnswer(win, 'Empty')
+    ok(await binDialogUp(win, /5 items · 4 B/), `the same count and size when the bin is not on screen: main counts it (${await binDialogText(win)})`)
+    await binAnswer(win, 'Empty Recycle Bin')
     ok(await until(() => pairs() === 0, 10000, 100), 'Empty clears the pairs of both fake drives')
     // The $R goes first and its $I a moment later, so wait for the folders to settle.
     ok(await until(() => readdirSync(bin.dirs[0]).join() === 'desktop.ini' && readdirSync(bin.dirs[1]).join() === 'desktop.ini', 5000, 100), 'and leaves desktop.ini alone, nothing else')
@@ -28896,6 +28937,237 @@ async function binEmptyScenario(fixtures) {
     ok(await until(async () => ((await win.locator(BIN_LIST).innerText().catch(() => '')) ?? '').includes('The Recycle Bin is empty.'), 6000, 100), 'the bin says it is empty')
     ok(await binVerb(win, 'empty').isDisabled(), 'and the strip\'s Empty is off')
     await win.screenshot({ path: join(SHOTS, 'bin-empty.png') })
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE DELETE QUESTION IS ONE COMPONENT (#500, #503, #504; owner, 2026-11-10:
+ * "minimal text"). Against a FAKE bin (PRISM_E2E_BIN_DIRS): nothing touches the
+ * owner's real one, and the fixtures are this scenario's own.
+ *   - One item: the title names it, the line is its size, three buttons
+ *     (Cancel, Delete permanently, Delete), Delete is the default; no
+ *     explaining words anywhere.
+ *   - A folder: the question opens at once with three buttons and the size
+ *     fills in when it is counted.
+ *   - Several: "Delete 3 items?", the first two names, "+1", the total.
+ *   - The middle button asks once more (the permanent question: Cancel,
+ *     Delete permanently, Cancel the default); Delete permanently removes the
+ *     files for good (not in the fake bin, nothing to undo).
+ *   - Enter on the plain question is Delete, and it lands in the fake bin.
+ *   - LOOK: every state in three themes (default, a light one, a high-contrast
+ *     one), measured after render and screenshot as delete-question-<state>-<theme>.png.
+ */
+async function deleteQuestionScenario(fixtures) {
+  console.log('delete question: one component, minimal words, the size filling in, the middle button asks again')
+  const base = join(fixtures, 'delete-question')
+  rmSync(base, { recursive: true, force: true })
+  const orig = join(base, 'orig')
+  mkdirSync(join(orig, 'tree'), { recursive: true })
+  writeFileSync(join(orig, 'notes.txt'), 'notes')
+  writeFileSync(join(orig, 'a.txt'), 'aaa')
+  writeFileSync(join(orig, 'b.txt'), 'bbbbbbbb')
+  writeFileSync(join(orig, 'c.txt'), 'cc')
+  writeFileSync(join(orig, 'd.txt'), 'dddd')
+  writeFileSync(join(orig, 'tree', 'one.bin'), Buffer.alloc(600))
+  writeFileSync(join(orig, 'tree', 'two.bin'), Buffer.alloc(500))
+  const bin = fakeBin(join(base, 'fake'), ['C'])
+  const pairs = () => binPairs(bin.dirs[0]).length
+  const dq = (win) => win.locator('[data-delete-question]')
+  const dqText = async (win) => ((await dq(win).textContent({ timeout: 1000 }).catch(() => '')) ?? '').replace(/\s+/g, ' ').trim()
+  const dqButtons = (win) => dq(win).locator('button').allTextContents()
+  const dqUp = (win, ms = 6000) => until(async () => (await dq(win).count()) === 1, ms, 50)
+  const dqGone = (win, ms = 4000) => until(async () => (await dq(win).count()) === 0, ms, 50)
+  const line = async (win) => ((await win.locator('[data-delete-line]').textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim()
+  const focusedLabel = (win) => win.evaluate(() => document.activeElement?.textContent ?? null)
+  const tones = (win) => dq(win).locator('button').evaluateAll((bs) => bs.map((b) => b.getAttribute('data-tone')))
+  const rowName = (win, name) => win.locator(`${BIN_LIST} [data-browse-path$="${name}" i] .browse-name-text`)
+  const setStyle = (win, id) =>
+    win.evaluate((v) => {
+      localStorage.setItem('prism.style', v)
+      window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'prism.style' }))
+    }, id)
+  // The colour a computed style gives, as rgb 0..255 (Chromium writes a colour-mix as color(srgb ...)).
+  const lum = (rgb) => {
+    const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2])
+  }
+  const geometry = (win) =>
+    win.evaluate(() => {
+      const rgbOf = (c) => {
+        const m = /color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/.exec(c)
+        if (m) return [m[1], m[2], m[3]].map((v) => Math.round(Number(v) * 255))
+        const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return n.slice(0, 3)
+      }
+      const box = document.querySelector('[data-delete-question]')
+      const r = (el) => el?.getBoundingClientRect()
+      const bb = r(box)
+      const title = box.querySelector('h2')
+      const icon = box.querySelector('[data-delete-icon]')
+      const lineEl = box.querySelector('[data-delete-line]')
+      const buttons = [...box.querySelectorAll('button')]
+      const outline = box.querySelector('[data-tone="outline"]')
+      const panel = getComputedStyle(box).backgroundColor
+      return {
+        box: bb.toJSON(),
+        inWindow: bb.left >= 0 && bb.top >= 0 && bb.right <= innerWidth && bb.bottom <= innerHeight,
+        titleLeft: r(title).left,
+        lineLeft: lineEl ? r(lineEl).left : null,
+        iconBox: r(icon).toJSON(),
+        titleBox: r(title).toJSON(),
+        buttonTops: buttons.map((b) => Math.round(r(b).top)),
+        buttonRight: Math.max(...buttons.map((b) => r(b).right)),
+        overflow: [title, lineEl].filter(Boolean).map((e) => e.scrollWidth > e.clientWidth + 1),
+        panel: rgbOf(panel),
+        outlineText: outline ? rgbOf(getComputedStyle(outline).color) : null,
+        dangerBg: rgbOf(getComputedStyle(box.querySelector('[data-tone="danger"]')).backgroundColor),
+        radius: getComputedStyle(box).borderRadius
+      }
+    })
+  const checkLook = (g, where) => {
+    ok(g.inWindow, `${where}: the box is inside the window`)
+    ok(Math.abs(g.titleLeft - g.iconBox.right) < 18 && g.titleLeft > g.iconBox.right, `${where}: the title starts just right of the icon (${g.titleLeft} vs ${g.iconBox.right})`)
+    ok(g.lineLeft === null || Math.abs(g.lineLeft - g.titleLeft) < 1, `${where}: the line is under the title, same left edge (${g.lineLeft} vs ${g.titleLeft})`)
+    const iconMid = (g.iconBox.top + g.iconBox.bottom) / 2
+    ok(iconMid > g.titleBox.top && iconMid < g.titleBox.bottom + 4, `${where}: the icon sits beside the first line of the title (${iconMid} in ${g.titleBox.top}..${g.titleBox.bottom})`)
+    ok(new Set(g.buttonTops).size === 1, `${where}: the buttons share one row (${JSON.stringify(g.buttonTops)})`)
+    ok(Math.abs(g.buttonRight - (g.box.right - 20)) < 2, `${where}: the buttons end at the box padding on the right (${g.buttonRight} vs ${g.box.right - 20})`)
+    ok(g.overflow.every((x) => !x), `${where}: nothing runs past its box`)
+    if (g.outlineText) {
+      const cr = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
+      ok(cr(g.outlineText, g.panel) >= 3, `${where}: Delete permanently's red reads on the panel (${cr(g.outlineText, g.panel).toFixed(1)}:1)`)
+    }
+  }
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, orig, {}, join(orig, 'notes.txt')))
+    await explorerAt(win, orig)
+    await win.waitForSelector(`${BIN_LIST} [data-browse-path$="a.txt" i]`, { timeout: 10000 })
+
+    // ONE ITEM.
+    await rowName(win, 'a.txt').click()
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'Delete opens the question')
+    ok((await dqButtons(win)).length === 3, 'with its three buttons at once, before any size is known')
+    ok(await until(async () => (await line(win)) === '3 B', 6000, 50), `the line is the file's size (${await line(win)})`)
+    const text = await dqText(win)
+    ok(text === 'Delete a.txt?3 BCancelDelete permanentlyDelete', `a title, a size and the buttons: no explaining words (${text})`)
+    ok(JSON.stringify(await dqButtons(win)) === JSON.stringify(['Cancel', 'Delete permanently', 'Delete']), 'Cancel, Delete permanently, Delete')
+    ok(JSON.stringify(await tones(win)) === JSON.stringify(['plain', 'outline', 'danger']), `plain, red outline, red solid (${JSON.stringify(await tones(win))})`)
+    ok((await focusedLabel(win)) === 'Delete', `Delete has the focus: Enter is Delete (${await focusedLabel(win)})`)
+    ok((await win.locator('[data-delete-icon="trash"]').count()) === 1, 'a bin icon, not a warning')
+    ok((await win.locator('[data-drive-bar]').count()) === 0, 'and no bar: only Empty has one')
+    checkLook(await geometry(win), 'one item')
+    await win.screenshot({ path: join(SHOTS, 'delete-question-one-aurora.png') })
+    await binAnswer(win, 'Cancel')
+    ok(await dqGone(win) && existsSync(join(orig, 'a.txt')), 'Cancel keeps the file')
+
+    // A FOLDER: the question is up at once, the size fills in when counted.
+    await rowName(win, 'tree').click()
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'a folder asks too')
+    ok((await dqButtons(win)).length === 3, 'with its buttons at once while the folder is counted')
+    ok(await until(async () => (await line(win)) === '1.1 KB', 8000, 50), `its size is counted and filled in (${await line(win)})`)
+    ok((await dqText(win)).startsWith('Delete tree?'), 'titled with its name')
+    await win.keyboard.press('Escape')
+    ok(await dqGone(win), 'Escape closes it')
+
+    // SEVERAL.
+    await rowName(win, 'a.txt').click()
+    await rowName(win, 'b.txt').click({ modifiers: ['Control'] })
+    await rowName(win, 'tree').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'three marked rows ask once')
+    ok((await dq(win).locator('h2').textContent()) === 'Delete 3 items?', 'Delete 3 items?')
+    ok(await until(async () => /^[^,]+, [^,]+ \+1 · 1\.1 KB$/.test(await line(win)), 8000, 50), `the first two names, +1 and the total (${await line(win)})`)
+    ok(JSON.stringify(await dqButtons(win)) === JSON.stringify(['Cancel', 'Delete permanently', 'Delete']), 'the same three buttons')
+    checkLook(await geometry(win), 'several')
+    await win.screenshot({ path: join(SHOTS, 'delete-question-several-aurora.png') })
+    await win.keyboard.press('Escape')
+    ok(await dqGone(win), 'closed')
+
+    // THE MIDDLE BUTTON ASKS ONCE MORE.
+    await rowName(win, 'c.txt').click()
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'c.txt asks')
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(async () => (await dq(win).locator('h2').textContent().catch(() => '')) === 'Delete c.txt permanently?', 4000, 50), 'it asks again, as the permanent question')
+    ok(existsSync(join(orig, 'c.txt')), 'nothing is deleted yet')
+    ok(await until(async () => (await line(win)) === '2 B', 6000, 50), `with the size (${await line(win)})`)
+    ok(JSON.stringify(await dqButtons(win)) === JSON.stringify(['Cancel', 'Delete permanently']), 'Cancel and Delete permanently: no middle button')
+    ok(JSON.stringify(await tones(win)) === JSON.stringify(['plain', 'danger']), 'plain and red')
+    ok((await focusedLabel(win)) === 'Cancel', `Cancel has the focus here (${await focusedLabel(win)})`)
+    ok((await win.locator('[data-delete-icon="warn"]').count()) === 1, 'a warning icon')
+    checkLook(await geometry(win), 'permanent')
+    await win.screenshot({ path: join(SHOTS, 'delete-question-permanent-aurora.png') })
+    await win.keyboard.press('Enter')
+    ok(await dqGone(win), 'Enter closes it')
+    await sleep(300)
+    ok(existsSync(join(orig, 'c.txt')), 'Enter is Cancel: the file is kept')
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'asked again')
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(async () => (await dq(win).locator('h2').textContent().catch(() => '')) === 'Delete c.txt permanently?', 4000, 50), 'again the second question')
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(() => !existsSync(join(orig, 'c.txt')), 8000, 100), 'Delete permanently removes the file from disk')
+    ok(pairs() === 0, `and it never went to the bin (${pairs()} pairs in the fake bin)`)
+    await rowName(win, 'a.txt').click()
+    await win.keyboard.press('Control+z')
+    ok(await until(async () => /Nothing to undo/.test(await win.locator('body').innerText()), 4000, 100), 'Ctrl+Z has nothing to undo: it was deleted for good')
+
+    // SEVERAL, FOR GOOD: the total, one name list.
+    await rowName(win, 'a.txt').click()
+    await rowName(win, 'b.txt').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'two marked rows ask')
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(async () => (await dq(win).locator('h2').textContent().catch(() => '')) === 'Delete 2 items permanently?', 4000, 50), 'Delete 2 items permanently?')
+    ok(await until(async () => (await line(win)) === '11 B', 6000, 50), `the total (${await line(win)})`)
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(() => !existsSync(join(orig, 'a.txt')) && !existsSync(join(orig, 'b.txt')), 8000, 100), 'both are gone from disk')
+    ok(pairs() === 0, 'and neither is in the bin')
+
+    // ENTER ON THE PLAIN QUESTION IS DELETE, to the bin.
+    await rowName(win, 'd.txt').click()
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'd.txt asks')
+    await win.keyboard.press('Enter')
+    ok(await until(() => !existsSync(join(orig, 'd.txt')) && pairs() === 1, 8000, 100), 'Enter is Delete: d.txt is in the fake bin, and there is one pair')
+
+    // LOOK: the same questions in a light and a high-contrast theme (the default was shot above).
+    writeFileSync(join(orig, 'look-one.txt'), 'x'.repeat(4300))
+    writeFileSync(join(orig, 'look-two.txt'), 'y'.repeat(100))
+    await win.waitForSelector(`${BIN_LIST} [data-browse-path$="look-two.txt" i]`, { timeout: 10000 })
+    for (const theme of ['paper', 'midnight-hc', 'daylight-hc']) {
+      await setStyle(win, theme)
+      await sleep(400)
+      await rowName(win, 'look-one.txt').click()
+      await win.keyboard.press('Delete')
+      ok(await dqUp(win), `${theme}: the question opens`)
+      await until(async () => (await line(win)) === '4.2 KB', 6000, 50)
+      checkLook(await geometry(win), `${theme} one`)
+      await win.screenshot({ path: join(SHOTS, `delete-question-one-${theme}.png`) })
+      await binAnswer(win, 'Delete permanently')
+      await until(async () => (await dq(win).locator('h2').textContent().catch(() => '')) === 'Delete look-one.txt permanently?', 4000, 50)
+      await until(async () => (await line(win)) === '4.2 KB', 6000, 50)
+      checkLook(await geometry(win), `${theme} permanent`)
+      await win.screenshot({ path: join(SHOTS, `delete-question-permanent-${theme}.png`) })
+      await binAnswer(win, 'Cancel')
+      await rowName(win, 'look-one.txt').click()
+      await rowName(win, 'look-two.txt').click({ modifiers: ['Control'] })
+      await win.keyboard.press('Delete')
+      ok(await dqUp(win), `${theme}: two rows ask`)
+      await until(async () => /4\.3 KB$/.test(await line(win)), 6000, 50)
+      checkLook(await geometry(win), `${theme} several`)
+      await win.screenshot({ path: join(SHOTS, `delete-question-several-${theme}.png`) })
+      await win.keyboard.press('Escape')
+      ok(await dqGone(win), `${theme}: closed`)
+    }
+    await setStyle(win, 'aurora')
   } finally {
     await app?.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })
@@ -28967,7 +29239,7 @@ async function binUndoScenario(fixtures) {
     ok(await until(() => !existsSync(u) && inBin() === 1, 10000, 100), 'Ctrl+Z puts it back in the bin once more')
     await binVerb(win, 'empty').click()
     ok(await binDialogUp(win, /Empty the Recycle Bin\?/), 'Empty asks')
-    await binAnswer(win, 'Empty')
+    await binAnswer(win, 'Empty Recycle Bin')
     ok(await until(() => binPairs(dir).length === 0, 10000, 100), 'the bin is emptied')
     await sleep(500)
     await win.keyboard.press('Control+z')
@@ -29396,6 +29668,7 @@ await run(binRestoreScenario)
 await run(binClashScenario)
 await run(binDeleteScenario)
 await run(binEmptyScenario)
+await run(deleteQuestionScenario)
 await run(binUndoScenario)
 await run(binUndoAwayScenario)
 await run(binBigScenario)

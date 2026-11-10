@@ -1,24 +1,35 @@
 import type { JSX } from 'react'
-import { Dialog } from '../components/Dialog'
+import { DeleteQuestion } from './DeleteQuestion'
+import { deleteLine, deleteTitle, type DeleteSize } from './deleteCopy'
 
-/** Several marked rows to the Recycle Bin at once. */
+/** Several marked rows to the Recycle Bin at once. The same three buttons as
+ *  one item (#500, owner 2026-11-10). */
 export function DeleteManyDialog({
+  names,
   count,
+  size,
   onCancel,
-  onDelete
+  onDelete,
+  onPermanent
 }: {
+  /** The first names; the line lists two and counts the rest. */
+  names: readonly string[]
   count: number
+  size?: DeleteSize
   onCancel: () => void
   onDelete: () => void
+  onPermanent: () => void
 }): JSX.Element {
   return (
-    <Dialog
-      title={`Move ${count} items to the Recycle Bin?`}
-      body="Everything selected goes to the Recycle Bin, where Windows can put it back."
+    <DeleteQuestion
+      icon="trash"
+      title={deleteTitle(names, count, false)}
+      line={deleteLine(names, count, size)}
       onCancel={onCancel}
       choices={[
-        { label: 'Cancel', onPick: onCancel },
-        { label: 'Delete', danger: true, primary: true, onPick: onDelete }
+        { label: 'Cancel', tone: 'plain', onPick: onCancel },
+        { label: 'Delete permanently', tone: 'outline', onPick: onPermanent },
+        { label: 'Delete', tone: 'danger', focus: true, onPick: onDelete }
       ]}
     />
   )

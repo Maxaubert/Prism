@@ -88,6 +88,15 @@ deleted first by default, and the phone is blocked from `<drive>\$Recycle.Bin` a
   stay inside the fake folders, and undo's PowerShell fallback is refused, so **no test or scenario can read,
   restore from, delete from or empty the owner's real bin**. Scenarios: `binRow`, `binList`, `binView`,
   `binRestore`, `binClash`, `binDelete`, `binEmpty`, `binUndo`, `binBig`, `binLive`, each with its own fixtures.
+- **The delete question is one component, with minimal words and the size** (owner, 2026-11-10, #500 #503 #504).
+  Delete, Delete many, Delete permanently, Empty Recycle Bin and a zip's Delete are drawn by `DeleteQuestion`:
+  title ("Delete a.txt?", "Delete 12 items?", "... permanently?"), one line (the size, or the first two names, "+rest"
+  and the total), buttons. A normal delete offers Cancel, Delete permanently (red outline) and Delete (red, the
+  default); the middle button asks once more as the permanent question, which deletes for good through
+  `file:purge` (never on the undo stack). Permanent, Empty and a zip's delete default to Cancel. A folder's size is
+  counted and fills in; the buttons never wait. Empty shows "N items · size" and a bar per drive (used, in the
+  accent what it frees, "<free> free" and "+<freed>"), from `bin:usage`. Held by the dialog tests, `binUsage.test.ts`
+  and the `deleteQuestion`, `binDelete` and `binEmpty` e2e. Rules in `docs/dialogs.md`.
 - **Permanent deletes in Prism are now three kinds**: the zip member delete, the bin's Delete permanently and
   its Empty. Each asks first and none is on the undo stack.
 - Not built, on purpose (spec section 5): search in the bin, opening a binned folder, dropping files on the

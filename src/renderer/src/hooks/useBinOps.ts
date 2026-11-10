@@ -11,6 +11,7 @@ import {
   binHoldDirs,
   binRestoreFailure,
   binStopped,
+  bytesOfBinPaths,
   namesOfBinPaths
 } from '../lib/binActions'
 
@@ -20,6 +21,8 @@ export interface BinRowInfo {
   path: string
   name: string
   from?: string
+  /** Bytes, from the record Windows wrote. */
+  size?: number
 }
 
 export interface BinOpsDeps {
@@ -38,7 +41,7 @@ export interface BinOps {
   /** Delete permanently: the final question first. */
   askDelete: (paths: string[]) => void
   runDelete: (paths: string[]) => Promise<void>
-  /** Empty Recycle Bin: the final question first (with the count when known). */
+  /** Empty Recycle Bin: the final question first (main counts what it frees). */
   askEmpty: () => void
   runEmpty: () => Promise<void>
 }
@@ -115,7 +118,14 @@ export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps)
   const askDelete = useCallback(
     (paths: string[]): void => {
       if (!paths.length) return
-      setAsk({ kind: 'bin-delete', paths, names: namesOfBinPaths(paths, rows()) })
+      const listed = rows()
+      const bytes = bytesOfBinPaths(paths, listed)
+      setAsk({
+        kind: 'bin-delete',
+        paths,
+        names: namesOfBinPaths(paths, listed),
+        ...(bytes === undefined ? {} : { bytes })
+      })
     },
     [rows, setAsk]
   )
@@ -154,10 +164,9 @@ export function useBinOps({ setAsk, setRefreshKey, noteUndo, rows }: BinOpsDeps)
   )
 
   const askEmpty = useCallback((): void => {
-    // The count only when the bin is the list on screen.
-    const count = rows().length
-    setAsk({ kind: 'bin-empty', ...(count ? { count } : {}) })
-  }, [rows, setAsk])
+    // Main counts what it frees when the question opens (#503).
+    setAsk({ kind: 'bin-empty' })
+  }, [setAsk])
 
   const runEmpty = useCallback(async (): Promise<void> => {
     setAsk(null)

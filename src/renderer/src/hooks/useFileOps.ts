@@ -85,6 +85,8 @@ export interface FileOps {
   onDropIntoTab: (tabId: string, payload: DragPayload, keys?: DropKeys) => void
   runDelete: (path: string) => Promise<void>
   runDeleteMany: (paths: string[]) => Promise<void>
+  /** The delete question's middle button: delete for good, past the bin. Never on the undo stack. */
+  runPurge: (paths: string[]) => Promise<void>
   runMove: (
     paths: string[],
     dest: string,
@@ -242,11 +244,12 @@ export function useFileOps({
     [setTabState]
   )
   const trashWithRetry = useCallback(
-    async (path: string, held: boolean, job: FileJob): Promise<boolean> => {
+    async (path: string, held: boolean, job: FileJob, purge = false): Promise<boolean> => {
       if (held) await new Promise((r) => setTimeout(r, 350))
+      const remove = purge ? window.prism.purgeFile : window.prism.trashFile
       for (let i = 0; i < 4; i += 1) {
         if (job.stopped()) return false
-        if (await window.prism.trashFile(path).catch(() => false)) return true
+        if (await remove(path).catch(() => false)) return true
         await new Promise((r) => setTimeout(r, 300))
       }
       return false
@@ -312,14 +315,14 @@ export function useFileOps({
   )
   /** The body of the multi-selection's delete, below. */
   const deleteMany = useCallback(
-    async (paths: string[], job: FileJob): Promise<void> => {
+    async (paths: string[], job: FileJob, purge = false): Promise<void> => {
       const held = releaseFiles(paths)
       const binned: string[] = []
       noteGoing(paths)
       let tried = 0
       for (const p of paths) {
         if (job.stopped()) break
-        if (await trashWithRetry(p, held && binned.length === 0, job)) binned.push(p)
+        if (await trashWithRetry(p, held && binned.length === 0, job, purge)) binned.push(p)
         else noteStayed([p])
         tried += 1
         job.count(tried)
@@ -334,7 +337,8 @@ export function useFileOps({
       // restore a file the user deliberately binned earlier.
       if (binned.length) {
         dropBuffers(binned)
-        noteUndo({ kind: 'trash', paths: binned })
+        // Gone for good: nothing to put back, so nothing on the stack.
+        if (!purge) noteUndo({ kind: 'trash', paths: binned })
       }
       const cur = file?.path
       if (movedOn(cur, shown.current?.path)) {
@@ -348,8 +352,10 @@ export function useFileOps({
       if (failed)
         setAsk({
           kind: 'failed',
-          op: 'trash',
-          message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
+          op: purge ? 'purge' : 'trash',
+          message: purge
+            ? `${failed} of ${paths.length} could not be deleted.`
+            : `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
     [
@@ -380,6 +386,25 @@ export function useFileOps({
           under: paths
         },
         (job) => deleteMany(paths, job)
+      )
+    },
+    [active, deleteMany, setAsk]
+  )
+  /** The delete question's middle button (#500): the same job as the multi
+   *  delete, but each path is deleted for good and nothing goes on the undo stack. */
+  const runPurge = useCallback(
+    async (paths: string[]): Promise<void> => {
+      setAsk(null)
+      await withFileJob(
+        {
+          kind: 'bin',
+          verb: 'Deleting',
+          name: paths.length === 1 ? baseName(paths[0]) : undefined,
+          total: paths.length,
+          dirs: [...new Set(paths.map(parentDir)), active?.browse.path ?? ''],
+          under: paths
+        },
+        (job) => deleteMany(paths, job, true)
       )
     },
     [active, deleteMany, setAsk]
@@ -771,6 +796,7 @@ export function useFileOps({
     onDropIntoTab,
     runDelete,
     runDeleteMany,
+    runPurge,
     runMove,
     runDuplicate,
     runRename,

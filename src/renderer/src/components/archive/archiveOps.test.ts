@@ -329,14 +329,7 @@ describe('renameMember', () => {
 
 describe('the dialog copy', () => {
   it('is pinned', () => {
-    expect(ARCHIVE_COPY.deleteTitle(['a.txt'])).toBe('Delete "a.txt" from the archive?')
-    expect(ARCHIVE_COPY.deleteTitle(['a', 'b'])).toBe('Delete 2 items from the archive?')
-    expect(ARCHIVE_COPY.deleteBody(1)).toBe(
-      'This is permanent: a zip has no Recycle Bin to take it back from.'
-    )
-    expect(ARCHIVE_COPY.deleteBody(2)).toBe(
-      'This is permanent: a zip has no Recycle Bin to take them back from.'
-    )
+    // The delete question's words live in dialogs/deleteCopy.tsx (#500).
     expect(ARCHIVE_COPY.clashTitle(['a.txt'])).toBe('"a.txt" is already in the archive')
     expect(ARCHIVE_COPY.clashTitle(['a', 'b'])).toBe('2 names are already in the archive')
   })
