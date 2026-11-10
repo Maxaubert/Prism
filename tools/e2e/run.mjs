@@ -13250,8 +13250,10 @@ async function gridPhoneScenario(fixtures) {
     }
     return null
   }
+  let paired = ''
   try {
     const { base, token, status } = await pairPhone(win, dir)
+    paired = token
     ok(status === 200, 'a phone pairs')
     const auth = { authorization: `Bearer ${token}` }
     const thumbUrl = `${base}/api/thumb?path=${encodeURIComponent(join(dir, 'ph1.jpg'))}`
@@ -13277,6 +13279,9 @@ async function gridPhoneScenario(fixtures) {
       ok(r1.status === 200 && t1.equals(t0), `and its thumbnail is byte for byte the same (${t0.length} -> ${t1.length})`)
     }
   } finally {
+    // The phone it paired is forgotten: `phone` runs later on the same profile
+    // and counts the dialog's rows.
+    if (paired) await win.evaluate((t) => window.prism.phoneForget(t, null), paired).catch(() => {})
     await gridClear(win)
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
