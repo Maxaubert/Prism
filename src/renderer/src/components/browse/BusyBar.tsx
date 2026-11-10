@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type JSX } from 'react'
-import { busyLabel, busyPct, noteBar, stopHold, useBusyBar } from '../../lib/holds'
-import { dialogButton } from '../dialogLook'
+import { busyPct, jobCount, jobTitle, noteBar, stopHold, useBusyBar } from '../../lib/holds'
+import { JobCard } from '../JobCard'
 
 /**
  * THE LOADING BAR (owner, 2026-11-09). A job over a second covers that tab's
@@ -67,29 +67,18 @@ export function BusyBar({ directory }: { directory: string }): JSX.Element | nul
           }
         }}
       >
-        <div className="browse-busy-main">
-          <div className="browse-busy-line">
-            <span className="browse-busy-label" data-busy-label>
-              {busyLabel(hold)}
-            </span>
-            {pct !== null && <span className="browse-busy-pct">{Math.round(pct)}%</span>}
-          </div>
-          <div className="browse-busy-track" data-indeterminate={pct === null || undefined}>
-            <span
-              className="browse-busy-fill"
-              style={pct === null ? undefined : { width: `${pct}%` }}
-            />
-          </div>
-        </div>
-        <button
-          type="button"
-          data-busy-cancel
-          disabled={!cancel || hold.stopping}
-          onClick={() => stopHold(hold.id)}
-          className={`browse-busy-cancel ${dialogButton({})}`}
-        >
-          Cancel
-        </button>
+        {/* The one progress card (#501): the same as the extract window's. */}
+        <JobCard
+          title={jobTitle(hold)}
+          pct={pct}
+          // The one item's name is the title already: its line says nothing twice.
+          file={hold.file && hold.file !== hold.name ? hold.file : undefined}
+          // "3 of 12" for several, the small percentage for one.
+          count={jobCount(hold) || (pct === null ? '' : `${Math.round(pct)}%`)}
+          onCancel={() => stopHold(hold.id)}
+          cancelDisabled={!cancel || hold.stopping}
+          cancelAttrs={{ 'data-busy-cancel': '' }}
+        />
       </div>
     </div>
   )

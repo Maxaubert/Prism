@@ -32,6 +32,22 @@ export function namesOfBinPaths(
   return paths.flatMap((p) => (byPath.has(p) ? [byPath.get(p) as string] : []))
 }
 
+/** The total size of these bin paths from the listing (the `$I` sizes), or
+ *  undefined when any is missing or has no size (the question then says no size). */
+export function bytesOfBinPaths(
+  paths: readonly string[],
+  rows: ReadonlyArray<{ path: string; size?: number }>
+): number | undefined {
+  const bySize = new Map(rows.map((r) => [r.path, r.size]))
+  let total = 0
+  for (const p of paths) {
+    const size = bySize.get(p)
+    if (size === undefined) return undefined
+    total += size
+  }
+  return total
+}
+
 /** A Restore that left items in the bin (locked, denied, the drive gone). */
 export const binRestoreFailure = (failed: number, total: number): string =>
   total === 1 ? 'That could not be put back.' : `${failed} of ${total} could not be put back.`

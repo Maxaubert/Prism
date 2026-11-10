@@ -28,7 +28,7 @@ import { browsableArchive } from '@shared/archivePlace'
 import type { FolderSizes } from '../../lib/folderSize'
 import { ArchiveStrip } from './ArchiveStrip'
 import { BinStrip } from './BinStrip'
-import { BIN_EMPTY, binnedOf, binnedPath } from '../../lib/binView'
+import { BIN_EMPTY, binBytes, binnedOf, binnedPath } from '../../lib/binView'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
 import { useListKeyboard } from './useListKeyboard'
@@ -736,6 +736,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             <BinStrip
               marked={markedEntries.length || (selected ? 1 : 0)}
               count={total}
+              bytes={binBytes(props.listing)}
               onRestore={() =>
                 props.onBinRestore?.(many ? markedPaths() : selected ? [selected.path] : [])
               }

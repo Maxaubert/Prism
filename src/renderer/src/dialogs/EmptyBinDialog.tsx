@@ -1,27 +1,36 @@
 import type { JSX } from 'react'
-import { Dialog } from '../components/Dialog'
+import type { BinUsage } from '@shared/ipcTypes'
+import { formatBytes } from '../lib/format'
+import { DeleteQuestion } from './DeleteQuestion'
+import { SIZE_PENDING, emptyBars, itemsText } from './deleteCopy'
 
-/** The whole Recycle Bin emptied (Recycle Bin, D15). Final, so Cancel is the
- *  primary. `count` is given when the bin is open and the list knows it. */
+/** The whole Recycle Bin emptied (Recycle Bin, D15), with how much it frees
+ *  (#503). Final, so Cancel is the default. `usage` is what main counted; the
+ *  question opens at once and the count, the size and the bars fill in when it
+ *  answers, never holding the buttons. */
 export function EmptyBinDialog({
-  count,
+  usage,
   onCancel,
   onEmpty
 }: {
-  count?: number
+  usage?: BinUsage
   onCancel: () => void
   onEmpty: () => void
 }): JSX.Element {
-  const counted =
-    count === undefined ? '' : ` (${count.toLocaleString('en-US')} ${count === 1 ? 'item' : 'items'})`
   return (
-    <Dialog
+    <DeleteQuestion
+      icon="warn"
       title="Empty the Recycle Bin?"
-      body={`Everything in it${counted}, on every drive, is deleted for good. Windows cannot put it back.`}
+      line={
+        <span data-delete-size>
+          {usage ? `${itemsText(usage.items)} · ${formatBytes(usage.bytes)}` : SIZE_PENDING}
+        </span>
+      }
+      bars={usage ? emptyBars(usage.drives) : undefined}
       onCancel={onCancel}
       choices={[
-        { label: 'Cancel', onPick: onCancel, primary: true },
-        { label: 'Empty', danger: true, onPick: onEmpty }
+        { label: 'Cancel', tone: 'plain', focus: true, onPick: onCancel },
+        { label: 'Empty Recycle Bin', tone: 'danger', onPick: onEmpty }
       ]}
     />
   )

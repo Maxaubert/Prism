@@ -146,6 +146,24 @@ export interface BinDeleteResult {
   /** How many items the job set out to delete, so a Cancel can say "of N". */
   total: number
 }
+/** One drive's share of the Recycle Bin (#503): how many items and how many
+ *  bytes (the `$I` sizes) sit in this user's bin on that drive, and the drive's
+ *  own size and free space as This PC reads them. `total` and `free` are absent
+ *  when the drive did not answer in time. */
+export interface BinDriveUsage {
+  /** The drive root, `C:\`. */
+  path: string
+  items: number
+  bytes: number
+  total?: number
+  free?: number
+}
+/** What Empty Recycle Bin would free: the whole bin and each drive it spans. */
+export interface BinUsage {
+  items: number
+  bytes: number
+  drives: BinDriveUsage[]
+}
 export type MoveResult = {
   /** Where each one came from and landed: undo needs both halves. */
   moved: Array<{ from: string; to: string }>

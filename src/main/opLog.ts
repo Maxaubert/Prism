@@ -84,6 +84,7 @@ export function opResult(r: unknown): Record<string, unknown> & { ok: boolean } 
 export const OP_CHANNELS: Record<string, { op: (a: unknown[]) => string; args: (a: unknown[]) => Record<string, unknown> }> = {
   [CALL.fileRename]: { op: () => 'rename', args: (a) => defined({ path: str(a[0]), name: str(a[1]) }) },
   [CALL.fileTrash]: { op: () => 'trash', args: (a) => defined({ path: str(a[0]) }) },
+  [CALL.filePurge]: { op: () => 'purge', args: (a) => defined({ path: str(a[0]) }) },
   [CALL.fileMove]: { op: () => 'move', args: (a) => defined({ ...pathsField(a[0]), into: str(a[1]), onClash: str(a[2]) }) },
   [CALL.fileCopyInto]: { op: () => 'drop-copy', args: (a) => defined({ to: str(a[0]), ...pathsField(a[1]) }) },
   [CALL.fileDuplicate]: { op: () => 'duplicate', args: (a) => defined({ path: str(a[0]) }) },

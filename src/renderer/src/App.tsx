@@ -158,21 +158,28 @@ export default function App(): JSX.Element {
   // Paste byte progress for the job chip. App owns it because the chip is
   // always mounted here; the sidebar that used to subscribe is gone, and
   // without this a long Explorer copy showed no percentage.
-  useEffect(
-    () =>
-      window.prism.onPasteProgress((m) => {
-        if (m.start) landJob(m.jobId, m.start.dir, m.start.items)
+  useEffect(() => {
+    // Each running paste's item names, by job, for the progress card's file line.
+    const pasteNames = new Map<string, string[]>()
+    return window.prism.onPasteProgress((m) => {
+        if (m.start) {
+          landJob(m.jobId, m.start.dir, m.start.items)
+          pasteNames.set(m.jobId, m.start.items.map((i) => i.name))
+        }
         if (typeof m.item === 'number' && typeof m.itemPct === 'number') updateLanding(m.jobId, m.item, m.itemPct)
         updateJob(m.jobId, m.pct)
+        // The progress card (#501): the file the copy is on, by its item index.
+        const file = typeof m.item === 'number' ? pasteNames.get(m.jobId)?.[m.item] : undefined
+        if (m.pct >= 100) pasteNames.delete(m.jobId)
         // The loading bar (owner, 2026-11-09): how far, and what, by the job.
         holdProgress(m.jobId, {
           pct: m.pct,
+          ...(file !== undefined ? { file } : {}),
           ...(m.count ? { done: m.count.done, total: m.count.total } : {}),
           ...(m.start?.items.length === 1 ? { name: m.start.items[0].name } : {})
         })
-      }),
-    []
-  )
+    })
+  }, [])
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   // THE TAB STRIP ON THE DIAGNOSTICS TIMELINE (#322): opened, closed, switched
@@ -894,7 +901,8 @@ export default function App(): JSX.Element {
     return [...binListing.folders, ...binListing.files].map((row) => ({
       path: row.path,
       name: row.name,
-      from: row.binned?.from
+      from: row.binned?.from,
+      size: row.size
     }))
   }, [binListing])
   useEffect(() => {
@@ -1226,6 +1234,7 @@ export default function App(): JSX.Element {
     onDropIntoTab,
     runDelete,
     runDeleteMany,
+    runPurge,
     runMove,
     runDuplicate,
     runRename,
@@ -1433,6 +1442,8 @@ export default function App(): JSX.Element {
     unsavedNames,
     runDelete: (path) => void runDelete(path),
     runDeleteMany: (paths) => void runDeleteMany(paths),
+    askPermanent: (paths) => setAsk({ kind: 'delete-permanent', paths }),
+    runPurge: (paths) => void runPurge(paths),
     runMove: (paths, dest, mode) => void runMove(paths, dest, mode),
     runRename: (path, name, onClash) => void runRename(path, name, onClash),
     leave,

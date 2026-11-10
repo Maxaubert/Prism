@@ -1,5 +1,6 @@
 import type { BrowseSort } from '@shared/browse'
 import type { BinnedFrom } from '@shared/types'
+import { formatBytes } from './format'
 
 /**
  * THE RECYCLE BIN'S LIST (Recycle Bin feature, D6 and D7; owner, 2026-11-10:
@@ -38,6 +39,29 @@ export function binStripLabels(marked: number): { restore: string; remove: strin
   return marked > 1
     ? { restore: `Restore ${marked} items`, remove: `Delete ${marked} items permanently` }
     : { restore: 'Restore', remove: 'Delete permanently' }
+}
+
+/**
+ * WHAT THE BIN HOLDS, in bytes (#502; owner, 2026-11-10: "how many GB are
+ * stored in it"). Main reads each record's size (`$I`, `binList.ts`) and the
+ * listing carries it on every row, so the total is those added up: no second
+ * read, and it is right after a Restore, a Delete permanently or an Empty
+ * because the list is read again after each.
+ */
+export function binBytes(
+  listing: { files: Array<{ size?: number }>; folders: Array<{ size?: number }> } | undefined | null
+): number {
+  if (!listing) return 0
+  let n = 0
+  for (const r of listing.files) n += r.size ?? 0
+  for (const r of listing.folders) n += r.size ?? 0
+  return n
+}
+
+/** The strip's quiet line: "38 items · 1.4 GB", or only the count when no size is known. */
+export function binFacts(count: number, bytes: number): string {
+  const items = `${count} ${count === 1 ? 'item' : 'items'}`
+  return count > 0 && bytes > 0 ? `${items} · ${formatBytes(bytes)}` : items
 }
 
 /** The list's empty state (D6). */

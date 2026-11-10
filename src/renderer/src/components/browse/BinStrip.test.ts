@@ -16,6 +16,22 @@ const draw = (marked: number, count: number): string =>
     createElement(BinStrip, { marked, count, onRestore: vi.fn(), onDelete: vi.fn(), onEmpty: vi.fn() })
   )
 
+describe('the bin strip says how much the bin holds (#502)', () => {
+  const drawBytes = (count: number, bytes: number): string =>
+    renderToStaticMarkup(createElement(BinStrip, { marked: 0, count, bytes }))
+  it('shows the total size next to the count, and carries both as data', () => {
+    const html = drawBytes(38, 1.4 * 1024 ** 3)
+    expect(html.replace(/<[^>]+>/g, '')).toContain('38 items · 1.4 GB')
+    expect(html).toContain('data-bin-count="38"')
+    expect(html).toContain(`data-bin-bytes="${Math.round(1.4 * 1024 ** 3)}"`)
+  })
+  it('an empty bin says 0 items and carries 0 bytes', () => {
+    const html = drawBytes(0, 0)
+    expect(html.replace(/<[^>]+>/g, '')).toContain('0 items')
+    expect(html).toContain('data-bin-bytes="0"')
+  })
+})
+
 describe('the bin strip (D20): three plain buttons', () => {
   it('Restore, Delete permanently, Empty Recycle Bin, with nothing marked the first two off', () => {
     expect(verbs(draw(0, 5))).toEqual([

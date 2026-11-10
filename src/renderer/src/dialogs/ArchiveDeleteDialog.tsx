@@ -1,30 +1,19 @@
 import type { JSX } from 'react'
-import { Dialog } from '../components/Dialog'
-import { ARCHIVE_COPY } from '../components/archive/archiveOps'
+import { PermanentDeleteDialog } from './PermanentDeleteDialog'
+import type { DeleteSize } from './deleteCopy'
 
-/** Members out of a zip, for good: a zip has no Recycle Bin, so the safe
- *  answer (Cancel) is the one Enter picks. */
+/** Members out of a zip: always permanent (a zip has no Recycle Bin), so it is
+ *  the permanent question, with no middle button (#500, owner 2026-11-10). */
 export function ArchiveDeleteDialog({
   names,
-  count,
+  size,
   onCancel,
   onDelete
 }: {
   names: readonly string[]
-  /** How many members go (a folder's own members included). */
-  count: number
+  size?: DeleteSize
   onCancel: () => void
   onDelete: () => void
 }): JSX.Element {
-  return (
-    <Dialog
-      title={ARCHIVE_COPY.deleteTitle(names)}
-      body={ARCHIVE_COPY.deleteBody(count)}
-      onCancel={onCancel}
-      choices={[
-        { label: 'Cancel', onPick: onCancel, primary: true },
-        { label: 'Delete', danger: true, onPick: onDelete }
-      ]}
-    />
-  )
+  return PermanentDeleteDialog({ names, size, onCancel, onDelete })
 }
