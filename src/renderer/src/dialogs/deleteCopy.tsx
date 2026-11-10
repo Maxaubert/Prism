@@ -114,6 +114,20 @@ export function archiveBytes(
   return bytes
 }
 
+/**
+ * A DOUBLE-CLICK NEVER ANSWERS THE NEXT QUESTION (review, 2026-11-10; e2e
+ * `deleteQuestion`). Every delete question is the same 420px box with its
+ * buttons on the right, so the right part of the middle "Delete permanently"
+ * is where the second question's red "Delete permanently" opens. A
+ * double-click on the middle button deleted for good without a second answer.
+ * A press that is the second of a multi-click (`detail` 2 or more) on a
+ * button that deletes answers nothing; a single press, a key (`detail` 0) and
+ * Cancel always do.
+ */
+export function pressAnswers(tone: 'plain' | 'outline' | 'danger', detail: number): boolean {
+  return tone === 'plain' || detail <= 1
+}
+
 /** "1 item", "38 items". */
 export const itemsText = (n: number): string =>
   `${n.toLocaleString('en-US')} ${n === 1 ? 'item' : 'items'}`

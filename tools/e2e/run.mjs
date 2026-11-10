@@ -29156,6 +29156,34 @@ async function deleteQuestionScenario(fixtures) {
     await win.keyboard.press('Enter')
     ok(await until(() => !existsSync(join(orig, 'd.txt')) && pairs() === 1, 8000, 100), 'Enter is Delete: d.txt is in the fake bin, and there is one pair')
 
+    // A DOUBLE-CLICK ON THE MIDDLE BUTTON NEVER ANSWERS THE SECOND QUESTION
+    // (review, 2026-11-10). Both boxes are 420px with the buttons on the right,
+    // so the right part of "Delete permanently" in the first question is where
+    // the second question's red "Delete permanently" opens: the double-click's
+    // second press landed on it and deleted for good without a second answer.
+    writeFileSync(join(orig, 'e.txt'), 'eeeee')
+    await win.waitForSelector(`${BIN_LIST} [data-browse-path$="e.txt" i]`, { timeout: 10000 })
+    await rowName(win, 'e.txt').click()
+    await win.keyboard.press('Delete')
+    ok(await dqUp(win), 'e.txt asks')
+    const mid = await dq(win).locator('[data-tone="outline"]').boundingBox()
+    const px = mid.x + mid.width - 8
+    const py = mid.y + mid.height / 2
+    await win.mouse.move(px, py)
+    await win.mouse.down()
+    await win.mouse.up()
+    await sleep(90)
+    const red = await dq(win).locator('[data-tone="danger"]').boundingBox().catch(() => null)
+    ok(red && px >= red.x && px <= red.x + red.width && py >= red.y && py <= red.y + red.height, `the second question's red button sits under the pointer (${JSON.stringify(red)} at ${px},${py})`)
+    await win.mouse.down({ clickCount: 2 })
+    await win.mouse.up({ clickCount: 2 })
+    await sleep(400)
+    ok((await dq(win).locator('h2').textContent().catch(() => '')) === 'Delete e.txt permanently?', 'the double-click leaves the second question up')
+    ok(existsSync(join(orig, 'e.txt')), 'and e.txt is still on disk: the second press of a double-click answers nothing')
+    await binAnswer(win, 'Delete permanently')
+    ok(await until(() => !existsSync(join(orig, 'e.txt')), 8000, 100), 'a deliberate click on Delete permanently deletes it')
+    ok(pairs() === 1, 'and it never went to the bin')
+
     // LOOK: the same questions in a light and a high-contrast theme (the default was shot above).
     writeFileSync(join(orig, 'look-one.txt'), 'x'.repeat(4300))
     writeFileSync(join(orig, 'look-two.txt'), 'y'.repeat(100))
