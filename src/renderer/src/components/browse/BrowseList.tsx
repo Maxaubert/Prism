@@ -64,6 +64,7 @@ import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { ThumbImage } from './ThumbImage'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
+import { ProgressBar } from '../ProgressBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
 import { FolderFill } from '../icons/Icon'
 
@@ -1690,19 +1691,12 @@ export function BrowseList(props: Props): JSX.Element {
                         >
                           {/* No size yet is a blank cell, never "0 B" (#271). */}
                           {props.landing?.has(entry.path.toLowerCase()) ? (
-                            <span
+                            <ProgressBar
+                              size="thin"
                               className="browse-landing"
-                              data-pct={Math.round(
-                                props.landing.get(entry.path.toLowerCase()) ?? 0
-                              )}
-                            >
-                              <span
-                                className="browse-landing-fill"
-                                style={{
-                                  width: `${props.landing.get(entry.path.toLowerCase()) ?? 0}%`
-                                }}
-                              />
-                            </span>
+                              pct={props.landing.get(entry.path.toLowerCase()) ?? 0}
+                              label="Copying"
+                            />
                           ) : entry.file ? (
                             entry.file.size === undefined ? (
                               ''

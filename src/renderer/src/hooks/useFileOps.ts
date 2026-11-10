@@ -322,6 +322,7 @@ export function useFileOps({
       let tried = 0
       for (const p of paths) {
         if (job.stopped()) break
+        job.count(tried, undefined, baseName(p))
         if (await trashWithRetry(p, held && binned.length === 0, job, purge)) binned.push(p)
         else noteStayed([p])
         tried += 1

@@ -2,6 +2,7 @@ import type { HTMLAttributes, JSX, ReactNode } from 'react'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { TILE_PAD, type Rect } from '../../lib/gridLayout'
 import { landingTile } from '../../lib/landingGrid'
+import { ProgressBar } from '../ProgressBar'
 
 /**
  * ONE TILE OF THE GRID (zoom steps 5 to 9, Stage 4, 2026-11-09; spec 4.6 and
@@ -71,13 +72,13 @@ export function GridTile({
       {bar && (
         // The rows' fill bar, across the bottom of the picture box: a percent
         // tick redraws this and nothing else (landingGrid.ts).
-        <span
+        <ProgressBar
+          size="thin"
           className="browse-landing browse-tile-landing"
-          data-pct={bar.pct}
+          pct={bar.pct}
+          label="Copying"
           style={{ left: TILE_PAD, top: TILE_PAD + rect.w - 2 * TILE_PAD - 4, width: rect.w - 2 * TILE_PAD }}
-        >
-          <span className="browse-landing-fill" style={{ width: bar.fill }} />
-        </span>
+        />
       )}
       <span className="browse-tile-name">
         <span {...hiddenTitle(name)}>{bar ? bar.caption : name}</span>

@@ -1363,6 +1363,17 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   `uniqueNameAsync`'s `taken`), and the copy writes exactly where its row said (they shared one path and one
   row hid the other). A cut copied across drives counts its percentage in items (`movePct`; from the second
   such item it read 100%). `landingRows.test.ts`, `jobs.test.ts`, `pasteCopy.test.ts`, `fileOps.test.ts`.
+- **ONE PROGRESS COMPONENT FOR EVERY LONG FILE JOB** (owner, 2026-11-10, #501; look in `docs/ui-direction.md`):
+  `JobCard` (title, bar, the file, a small count, Cancel) is drawn by the hold's `BusyBar` and by
+  `ExtractWindow`; `ProgressBar` is the only bar, also the landing rows' and tiles'. The 1-second rule and the
+  hold model (`BusyBar`, `withFileJob`, `holds.ts`) are unchanged. The hold carries the file being worked on
+  (`holdProgress` `file`; `FileJob.count(done, total, file)`; a paste's names come from its start message).
+  Tests: `JobCard.test.ts`, `holds.test.ts`, e2e `progressCard`.
+- **THE BIN SAYS HOW MUCH IT HOLDS** (owner, 2026-11-10, #502: "how many GB are stored in it"): the strip reads
+  "38 items · 1.4 GB" (`lib/binView.ts` `binBytes`, `binFacts`; the sum of the `$I` sizes the listing already
+  carries, `formatBytes`), keeps `data-bin-count` and adds `data-bin-bytes`, and follows Restore, Delete
+  permanently and Empty because the list is read again. Tests: `binView.test.ts`, `BinStrip.test.ts`, e2e
+  `binBytes`.
 - **A JOB OVER A SECOND HOLDS ITS LIST BEHIND A LOADING BAR** (owner, 2026-11-09: "when you delte or paste a lot
   of images or restore with ctrl z it shoudl show a loading bar unti its done because right now they jstu tickle
   in and teh files in teh direcotry constantly move making it ahrd to navigate. so sometihn hsoudl block you from

@@ -2499,7 +2499,7 @@ async function armExtractProbe(win) {
       if (el) {
         const phase = el.getAttribute('data-phase')
         if (x.phases[x.phases.length - 1] !== phase) x.phases.push(phase)
-        if (phase === 'failed') x.error = el.querySelector('[data-extract-error]')?.textContent ?? ''
+        if (phase === 'failed') x.error = el.querySelector('[data-job-error]')?.textContent ?? ''
       }
       if (el && !x.mounted) {
         x.mounted = performance.now()
@@ -2567,8 +2567,8 @@ async function throughTheWindow(win, label, archiveName, trigger) {
   )
   ok(r.tip === archiveName, `${label}: and its tooltip the archive (${JSON.stringify(r.tip)})`)
   ok(
-    r.headings === 0 && r.drawnName === false,
-    `${label}: with no title, caption or archive name drawn (the open sheet, #336)`
+    r.headings === 0 && r.drawnName === true,
+    `${label}: its title is the shared card's "Extracting <archive>" and no heading (#501, which supersedes #336's unnamed sheet)`
   )
   ok(r.inert === true, `${label}: the app behind it is inert`)
   ok(r.survived === true, `${label}: Escape and a press outside leave it up`)
@@ -2885,7 +2885,7 @@ async function extractCancelScenario() {
         if (c.seen || el.getAttribute('data-phase') !== 'cancelling') return
         const b = el.querySelector('[data-extract-cancel]')
         c.seen = true
-        c.file = el.querySelector('[data-extract-file]')?.textContent ?? ''
+        c.file = el.querySelector('[data-job-file]')?.textContent ?? ''
         c.disabled = !!b?.disabled
         c.opacity = b ? getComputedStyle(b).opacity : ''
       })
@@ -2937,12 +2937,12 @@ async function extractCancelScenario() {
         const el = document.querySelector(sel)
         if (!el || el.getAttribute('data-phase') !== 'running') return
         const b = el.getBoundingClientRect()
-        const w = el.querySelector('[data-extract-well]').getBoundingClientRect()
+        const w = el.querySelector('[role="progressbar"]').getBoundingClientRect()
         if (!x.boxes.includes(`${b.width}x${b.height}`)) x.boxes.push(`${b.width}x${b.height}`)
         const well = `${w.x - b.x},${w.y - b.y} ${w.width}x${w.height}`
         if (!x.wells.includes(well)) x.wells.push(well)
-        note(x.files, el.querySelector('[data-extract-file]')?.textContent ?? '')
-        note(x.numbers, el.querySelector('[data-extract-number]')?.textContent ?? '')
+        note(x.files, el.querySelector('[data-job-file]')?.textContent ?? '')
+        note(x.numbers, el.querySelector('[data-job-count]')?.textContent ?? '')
         x.samples++
       }, 25)
     }, XWIN)
@@ -2961,10 +2961,10 @@ async function extractCancelScenario() {
       { timeout: 30000 }
     )
     ok(true, `the percentage is real and it grows (${first}% -> ${await pctNow(win)}%)`)
-    const fileLine = (await win.locator('[data-extract-file]').textContent()) ?? ''
+    const fileLine = (await win.locator('[data-job-file]').textContent()) ?? ''
     ok(/part-\d+\.txt/.test(fileLine), `the member being written is named (${fileLine})`)
     const fill = await win.evaluate(() => {
-      const f = document.querySelector('[data-extract-fill]').getBoundingClientRect()
+      const f = document.querySelector('[data-progress-fill]').getBoundingClientRect()
       const t = document.querySelector('[role="progressbar"]').getBoundingClientRect()
       return f.width / t.width
     })
@@ -2989,12 +2989,13 @@ async function extractCancelScenario() {
     )
     ok(
       xs.numbers.every((n) => /^(\d{1,3}%)?$/.test(n)) && /^\d{1,3}%$/.test(xs.numbers[xs.numbers.length - 1]),
-      `the number is a percentage and nothing else (${xs.numbers.slice(0, 5).join(', ')})`
+      `the small count is a percentage and nothing else (${xs.numbers.slice(0, 5).join(', ')})`
     )
     const sheet = await win.evaluate((sel) => {
       const el = document.querySelector(sel)
-      const num = el.querySelector('[data-extract-number] > span')
-      const well = el.querySelector('[data-extract-well]')
+      const num = el.querySelector('[data-job-count]')
+      const title = el.querySelector('[data-job-title]')
+      const well = el.querySelector('[role="progressbar"]')
       const cs = getComputedStyle(el)
       const probe = (v) => {
         const p = document.createElement('span')
@@ -3004,10 +3005,13 @@ async function extractCancelScenario() {
         p.remove()
         return c
       }
-      const fill = getComputedStyle(el.querySelector('[data-extract-fill]'))
+      const fill = getComputedStyle(el.querySelector('[data-progress-fill]'))
       return {
         size: getComputedStyle(num).fontSize,
         weight: getComputedStyle(num).fontWeight,
+        title: title.textContent,
+        titleSize: getComputedStyle(title).fontSize,
+        bars: el.querySelectorAll('[role="progressbar"]').length,
         wellH: well.getBoundingClientRect().height,
         wellW: well.getBoundingClientRect().width,
         widest: Math.max(...[...el.querySelectorAll('*')].map((n) => n.getBoundingClientRect().width)),
@@ -3016,14 +3020,19 @@ async function extractCancelScenario() {
         fill: fill.backgroundColor,
         accent: probe('var(--p-accent-solid)'),
         pad: [cs.paddingTop, cs.paddingBottom],
-        fileFont: getComputedStyle(el.querySelector('[data-extract-file]')).fontFamily,
+        fileFont: getComputedStyle(el.querySelector('[data-job-file]')).fontFamily,
         ui: getComputedStyle(document.body).fontFamily
       }
     }, XWIN)
-    ok(sheet.size === '34px' && sheet.weight === '400', `the number is large and regular (${sheet.size}, ${sheet.weight})`)
+    // #501 (owner, 2026-11-10): the extract window draws the shared progress
+    // card: a title, ONE bar, the file line and a small count. No large number.
     ok(
-      sheet.wellH === 12 && sheet.wellW >= sheet.widest - 0.5,
-      `the bar is a 12px well, the widest thing in the window (${sheet.wellH}px, ${sheet.wellW} of ${sheet.widest})`
+      sheet.size === '12px' && /^Extracting /.test(sheet.title) && sheet.titleSize === '14.5px' && sheet.bars === 1,
+      `the shared card: a title, one bar and a small count (${sheet.title}, count ${sheet.size}, bars ${sheet.bars})`
+    )
+    ok(
+      sheet.wellH === 8 && sheet.wellW >= sheet.widest - 0.5,
+      `the bar is the card's 8px well, the widest thing in the window (${sheet.wellH}px, ${sheet.wellW} of ${sheet.widest})`
     )
     ok(
       sheet.wellGround === sheet.control && sheet.fill === sheet.accent,
@@ -3121,24 +3130,24 @@ async function extractCancelScenario() {
     await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
     const failedLook = await win.evaluate((sel) => {
       const el = document.querySelector(sel)
-      const well = el.querySelector('[data-extract-well]')
+      const well = el.querySelector('[role="progressbar"]')
       return {
         label: el.getAttribute('aria-label'),
-        heading: el.querySelector('[data-extract-number]')?.textContent ?? '',
+        title: el.querySelector('[data-job-title]')?.textContent ?? '',
         headings: el.querySelectorAll('h1, h2, h3').length,
         stopped: well.hasAttribute('data-stopped'),
-        hatch: getComputedStyle(el.querySelector('[data-extract-fill]')).backgroundImage,
+        hatch: getComputedStyle(el.querySelector('[data-progress-fill]')).backgroundImage,
         wellH: well.getBoundingClientRect().height
       }
     }, XWIN)
-    const said = (await win.locator('[data-extract-error]').textContent()) ?? ''
+    const said = (await win.locator('[data-job-error]').textContent()) ?? ''
     ok(
-      failedLook.heading === "Couldn't extract" && failedLook.headings === 0,
-      `a failure is the same window: "Couldn't extract" where the number was (${failedLook.heading})`
+      failedLook.title === "Couldn't extract corrupt.7z" && failedLook.headings === 0,
+      `a failure is the same card: "Couldn't extract <name>" as its title (${failedLook.title})`
     )
     ok(failedLook.label === "Couldn't extract corrupt.7z", `and its label says which (${failedLook.label})`)
     ok(
-      failedLook.stopped && /repeating-linear-gradient/.test(failedLook.hatch) && failedLook.wellH === 12,
+      failedLook.stopped && /repeating-linear-gradient/.test(failedLook.hatch) && failedLook.wellH === 8,
       `the well stays, its fill stopped and hatched (${failedLook.hatch.slice(0, 40)})`
     )
     ok(/ERROR|CRC|Data Error/i.test(said), `the file line is the reason, 7-Zip's own line (${said})`)
@@ -3255,7 +3264,7 @@ async function extractCancelScenario() {
 
       await win.click('[data-archive-strip] [data-archive-verb="extract-here"]')
       await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
-      const why = (await win.locator('[data-extract-error]').textContent()) ?? ''
+      const why = (await win.locator('[data-job-error]').textContent()) ?? ''
       ok(
         /password protected/i.test(why),
         `${name}, Extract here with no password: the window says it is protected (${why})`
@@ -15019,8 +15028,14 @@ async function busyHoldScenario(fixtures) {
     await win.locator('[role="dialog"] button:text-is("Delete")').click()
     ok(await busyUp(win), 'a delete over one second shows the bar')
     if (!(await win.locator(BUSY).count())) return
-    const label = await win.locator('[data-busy-label]').textContent()
-    ok(/^Deleting \d+ of 501$/.test(label ?? ''), `it says what is happening and how far ("${label}")`)
+    // The shared progress card (#501): the title says what, a small count how far.
+    const label = await win.locator('[data-job-title]').textContent()
+    ok(label === 'Deleting 501 items', `it says what is happening ("${label}")`)
+    ok(
+      await until(async () => /^\d+ of 501$/.test((await win.locator('[data-job-count]').textContent().catch(() => '')) ?? ''), 5000, 50),
+      `and how far, as a small count ("${await win.locator('[data-job-count]').textContent().catch(() => '')}")`
+    )
+    ok((await win.locator('[data-job-file]').count()) === 1, 'with a line for the file being worked on')
     await win.waitForTimeout(200)
     await win.screenshot({ path: join(SHOTS, 'busy-bar.png') })
     const before = await state()
@@ -15068,7 +15083,7 @@ async function busyHoldScenario(fixtures) {
     })
     await win.keyboard.press('Control+z')
     ok(await busyUp(win, 20000), 'Ctrl+Z over one second shows the bar')
-    const restoring = await win.locator('[data-busy-label]').textContent().catch(() => '')
+    const restoring = await win.locator('[data-job-title]').textContent().catch(() => '')
     ok(/^Restoring/.test(restoring ?? ''), `saying it restores ("${restoring}")`)
     ok(await busyGone(win), 'and it ends')
     ok(await until(async () => (await state()).status.startsWith('501'), 30000), 'and the folder is back')
@@ -15109,7 +15124,7 @@ async function busyPasteScenario(fixtures) {
     await win.keyboard.press('Control+v')
     ok(await busyUp(win, 30000), 'a paste over one second shows the bar')
     if (await win.locator(BUSY).count()) {
-      const label = await win.locator('[data-busy-label]').textContent().catch(() => '')
+      const label = await win.locator('[data-job-title]').textContent().catch(() => '')
       ok(/^Copying/.test(label ?? ''), `saying what it does ("${label}")`)
       ok(await busyGone(win), 'the bar ends')
     }
@@ -15337,12 +15352,14 @@ async function busyUndoMoveScenario(fixtures) {
     await busyGone(win, 30000)
     await sleep(1500)
     await win.evaluate(() => {
-      window.__undoBar = { labels: [], pcts: [] }
+      window.__undoBar = { titles: [], labels: [], pcts: [] }
       setInterval(() => {
-        const label = document.querySelector('[data-busy-label]')?.textContent
+        const title = document.querySelector('[data-job-title]')?.textContent
+        if (title && !window.__undoBar.titles.includes(title)) window.__undoBar.titles.push(title)
+        const label = document.querySelector('[data-job-count]')?.textContent
         if (!label) return
         if (!window.__undoBar.labels.includes(label)) window.__undoBar.labels.push(label)
-        const pct = document.querySelector('.browse-busy-pct')?.textContent
+        const pct = document.querySelector('[data-busy-bar] [role="progressbar"]')?.getAttribute('aria-valuenow')
         if (pct) window.__undoBar.pcts.push(parseInt(pct, 10))
       }, 30)
     })
@@ -15351,8 +15368,9 @@ async function busyUndoMoveScenario(fixtures) {
     ok(await busyGone(win), 'and ends')
     ok(await until(() => readdirSync(join(many, 'into')).length === 0, 30000, 200), 'all of it came back')
     const seen = await win.evaluate(() => window.__undoBar)
-    const stray = seen.labels.filter((l) => !/^Moving \d+ of 801$/.test(l))
+    const stray = seen.labels.filter((l) => !/^\d+ of 801$/.test(l))
     ok(seen.labels.length > 1 && !stray.length, `it counts the whole step (${seen.labels.length} labels, stray: ${JSON.stringify(stray.slice(0, 3))})`)
+    ok(seen.titles.length === 1 && seen.titles[0] === 'Moving 801 items', `under one title (${JSON.stringify(seen.titles)})`)
     ok(seen.pcts.some((p) => p > 0 && p < 100), `and the bar moves (${seen.pcts.filter((p) => p > 0 && p < 100).length} readings between 0 and 100)`)
   } finally {
     await app.close().catch(() => {})
@@ -29340,7 +29358,7 @@ async function binBigScenario(fixtures) {
     ok(await win.waitForSelector('[data-busy-bar]', { timeout: 15000 }).then(() => true, () => false), 'the bar appears')
     const late = Date.now() - t0
     ok(late >= 800, `not before about a second (${late} ms)`)
-    ok(await until(async () => /Restoring \d+ of 500/.test((await win.locator('[data-busy-label]').textContent().catch(() => '')) ?? ''), 4000, 100), `and shows a count (${await win.locator('[data-busy-label]').textContent().catch(() => '')})`)
+    ok(await until(async () => /^\d+ of 500$/.test((await win.locator('[data-job-count]').textContent().catch(() => '')) ?? '') && (await win.locator('[data-job-title]').textContent().catch(() => '')) === 'Restoring 500 items', 4000, 100), `and shows its title and a count (${await win.locator('[data-job-title]').textContent().catch(() => '')}, ${await win.locator('[data-job-count]').textContent().catch(() => '')})`)
     await win.screenshot({ path: join(SHOTS, 'bin-big.png') })
     await sleep(700)
     await win.locator('[data-busy-cancel]').click()
@@ -29404,6 +29422,199 @@ async function binNarrowScenario(fixtures) {
   } finally {
     await app?.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE BIN SAYS HOW MUCH IT HOLDS (#502; owner, 2026-11-10: "how many GB are
+ * stored in it"). Against a FAKE bin of known sizes (PRISM_E2E_BIN_DIRS; the
+ * real bin is never touched): the strip's size is the sum of the listed sizes
+ * ("4 items · 13.9 KB", and data-bin-bytes), and it follows a Restore, a
+ * Delete permanently and an Empty.
+ */
+async function binBytesScenario(fixtures) {
+  console.log('recycle bin: the strip shows the total size, and it follows Restore, Delete permanently and Empty')
+  const base = join(fixtures, 'bin-bytes')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  const orig = join(base, 'orig')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(orig, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'))
+  const now = Date.now()
+  bin.put(bin.dirs[0], 'B01.txt', join(orig, 'a.txt'), now - 1000, 'a'.repeat(1500))
+  bin.put(bin.dirs[0], 'B02.txt', join(orig, 'b.txt'), now - 2000, 'b'.repeat(2500))
+  bin.put(bin.dirs[1], 'B03.txt', join(orig, 'c.txt'), now - 3000, 'c'.repeat(10 * 1024))
+  bin.put(bin.dirs[1], 'B04', join(orig, 'tree'), now - 4000, 'dir')
+  const strip = (win) =>
+    win
+      .locator('[data-bin-strip]')
+      .evaluate((e) => ({
+        count: e.getAttribute('data-bin-count'),
+        bytes: e.getAttribute('data-bin-bytes'),
+        text: e.querySelector('.browse-archive-strip-facts')?.textContent ?? ''
+      }))
+      .catch(() => ({ count: null, bytes: null, text: '' }))
+  const stripIs = (win, count, bytes) =>
+    until(async () => {
+      const s = await strip(win)
+      return s.count === String(count) && s.bytes === String(bytes)
+    }, 8000, 100)
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, home))
+    await binOpen(win, 4)
+    ok(await stripIs(win, 4, 14240), `the strip carries 4 items and 14240 bytes, the sum of the listed sizes (${JSON.stringify(await strip(win))})`)
+    ok((await strip(win)).text === '4 items · 13.9 KB', `and says so quietly: "${(await strip(win)).text}"`)
+    await win.screenshot({ path: join(SHOTS, 'bin-strip-size.png') })
+
+    await binRowOf(win, 'a.txt').click()
+    await binVerb(win, 'restore').click()
+    ok(await until(() => existsSync(join(orig, 'a.txt')), 8000, 100), 'Restore puts a.txt back')
+    ok(await stripIs(win, 3, 12740), `after a Restore the strip says 3 items and 12740 bytes (${JSON.stringify(await strip(win))})`)
+
+    await binRowOf(win, 'b.txt').click()
+    await win.keyboard.press('Delete')
+    ok(await binDialogUp(win, /Delete b\.txt permanently\?/), 'Delete asks the final question')
+    await binAnswer(win, 'Delete permanently')
+    ok(await stripIs(win, 2, 10240), `after Delete permanently it says 2 items and 10240 bytes (${JSON.stringify(await strip(win))})`)
+
+    await binVerb(win, 'empty').click()
+    ok(await binDialogUp(win, /Empty the Recycle Bin\?/), 'Empty asks')
+    await binAnswer(win, 'Empty Recycle Bin')
+    ok(await stripIs(win, 0, 0), `after Empty it says 0 items and 0 bytes (${JSON.stringify(await strip(win))})`)
+    ok(!(await strip(win)).text.includes('·'), 'and an empty bin shows no size')
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * THE ONE PROGRESS CARD (#501 and the progress half of #504; owner,
+ * 2026-11-10: mockup B cut down to minimal text). One slow copy holds the
+ * list, and the card over it is measured: centred over that tab's list only,
+ * a title, ONE bar (8px), a file line, a small count and Cancel, fixed row
+ * heights through the run, no large percentage and no bytes or time left (a
+ * landing row's bar is the same element, thin: `pasteProgress` and the grid's
+ * hold scenario hold that). Screenshots in the default theme, a light
+ * one and a high-contrast one (progress-card-<theme>.png).
+ */
+async function progressCardScenario(fixtures) {
+  console.log('the progress card: one component, centred over the list, minimal text, in three themes')
+  const dir = join(fixtures, 'progresscard')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'into'), { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'n')
+  const big = join(dir, 'big-holiday-film.bin')
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 7)
+  for (let i = 0; i < 8; i += 1) appendFileSync(big, chunk)
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SLOW_COPY: '3' }, join(dir, 'notes.txt'))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  const styles = styleKeeper()
+  try {
+    await explorerAt(win, dir)
+    await listRow(win, 'big-holiday-film.bin').locator('.browse-name-text').click()
+    await win.keyboard.press('Control+c')
+    ok(await until(() => win.evaluate(() => window.prism.clipboardHasFiles()), 8000), 'the big file is on the clipboard')
+    await listRow(win, '\\into').dblclick()
+    ok(await until(async () => ((await win.locator('.browse-path').getAttribute('data-path')) ?? '').endsWith('into'), 8000), 'into the folder')
+    await win.locator('[data-testid="browse-list"]').click({ position: { x: 300, y: 200 } })
+    await win.keyboard.press('Control+v')
+    ok(await busyUp(win, 20000), 'a slow copy over a second shows the card')
+    if (!(await win.locator(BUSY).count())) return
+
+    const read = () =>
+      win.evaluate(() => {
+        const panel = document.querySelector('[data-busy-bar]')
+        if (!panel) return null
+        const wash = panel.parentElement.getBoundingClientRect()
+        const area = document.querySelector('.browse-list-area')?.getBoundingClientRect()
+        const p = panel.getBoundingClientRect()
+        const h = (sel) => panel.querySelector(sel)?.getBoundingClientRect().height ?? -1
+        const bar = panel.querySelector('[role="progressbar"]')
+        return {
+          panel: [Math.round(p.x), Math.round(p.y), Math.round(p.width), Math.round(p.height)],
+          centreDx: Math.abs(p.x + p.width / 2 - (wash.x + wash.width / 2)),
+          washInsideList: !!area && wash.x >= area.x - 1 && wash.right <= area.right + 1 && wash.y >= area.y - 1 && wash.bottom <= area.bottom + 1,
+          titleH: h('[data-job-title]'),
+          barH: h('[role="progressbar"]'),
+          fileH: h('[data-job-file]'),
+          actionsH: h('.job-card-actions'),
+          barW: bar.getBoundingClientRect().width,
+          cardW: panel.querySelector('.job-card').getBoundingClientRect().width,
+          bars: panel.querySelectorAll('[role="progressbar"]').length,
+          buttons: panel.querySelectorAll('button').length,
+          title: panel.querySelector('[data-job-title]')?.textContent ?? '',
+          file: panel.querySelector('[data-job-file]')?.textContent ?? '',
+          now: bar.getAttribute('aria-valuenow'),
+          countSize: getComputedStyle(panel.querySelector('[data-job-count]') ?? panel).fontSize,
+          fileLine: panel.querySelector('[data-job-file]')?.textContent ?? '',
+          text: panel.innerText,
+          overflow: [...panel.querySelectorAll('[data-job-title],[data-job-file]')].some((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis')
+        }
+      })
+    await sleep(500)
+    const first = await read()
+    ok(first.bars === 1 && first.buttons === 1, `one bar and one button (${first.bars}, ${first.buttons})`)
+    ok(first.title === 'Copying big-holiday-film.bin', `the title is the verb and the name (${first.title})`)
+    ok(first.centreDx <= 1, `the card is centred over the list (${first.centreDx.toFixed(1)}px off)`)
+    ok(first.washInsideList, 'the wash covers that tab\'s list and nothing else')
+    ok(first.titleH === 20 && first.barH === 8 && first.fileH === 18 && first.actionsH === 32, `the rows have their fixed heights (${first.titleH}, ${first.barH}, ${first.fileH}, ${first.actionsH})`)
+    ok(Math.abs(first.barW - first.cardW) <= 0.5, `the bar is the widest thing in the card (${first.barW} of ${first.cardW})`)
+    ok(!/\bleft\b|\bMB\b|\bGB\b/.test(first.text) && first.countSize === '12px' && first.fileLine === '', `no bytes or time left, no big percentage: one small count (${JSON.stringify(first.text.replace(/\s+/g, ' '))}, ${first.countSize})`)
+    ok(!first.overflow, 'nothing runs out of the card')
+    // Sampled through the run: the card never changes size or place, and the bar only grows.
+    const seen = new Set()
+    const nows = []
+    for (let i = 0; i < 12; i += 1) {
+      const r = await read()
+      if (!r) break
+      seen.add(r.panel.join(','))
+      if (r.now !== null) nows.push(Number(r.now))
+      await sleep(120)
+    }
+    ok(seen.size === 1, `the card never moved or changed size (${[...seen].join(' | ')})`)
+    ok(nows.length > 3 && nows.every((n, i) => i === 0 || n >= nows[i - 1]) && nows.at(-1) > nows[0], `the bar only grows (${nows.join(', ')})`)
+
+    for (const style of ['aurora', 'paper', 'midnight-hc']) {
+      await styles.set(win, style)
+      await sleep(400)
+      const look = await win.evaluate(() => {
+        const panel = document.querySelector('[data-busy-bar]')
+        if (!panel) return null
+        const probe = (v) => {
+          const p = document.createElement('span')
+          p.style.color = v
+          document.body.appendChild(p)
+          const c = getComputedStyle(p).color
+          p.remove()
+          return c
+        }
+        const bar = panel.querySelector('[role="progressbar"]')
+        return {
+          ground: getComputedStyle(bar).backgroundColor,
+          control: probe('var(--p-control)'),
+          fill: getComputedStyle(bar.querySelector('[data-progress-fill]')).backgroundColor,
+          accent: probe('var(--p-accent-solid)')
+        }
+      })
+      ok(!!look && look.ground === look.control && look.fill === look.accent, `${style}: the track is --p-control and the fill --p-accent-solid (${JSON.stringify(look)})`)
+      await win.locator('.browse-busy-panel').screenshot({ path: join(SHOTS, `progress-card-${style}.png`) }).catch(() => {})
+      await win.screenshot({ path: join(SHOTS, `progress-card-${style}-window.png`) })
+    }
+    await styles.restore(win)
+    await win.locator('[data-busy-cancel]').click()
+    ok(await busyGone(win, 8000), 'Cancel lifts the card')
+    await sleep(600)
+    ok(!existsSync(join(dir, 'into', 'big-holiday-film.bin')), 'and leaves no partial file')
+  } finally {
+    await styles.restore(win)
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -29658,6 +29869,7 @@ await run(busyFailScenario)
 await run(busyBackdropScenario)
 await run(busyCutCancelScenario)
 await run(busyUndoMoveScenario)
+await run(progressCardScenario)
 await run(unsupportedScenario)
 await run(opensInWindowsScenario)
 await run(openGuardsScenario)
@@ -29673,6 +29885,7 @@ await run(binUndoScenario)
 await run(binUndoAwayScenario)
 await run(binBigScenario)
 await run(binNarrowScenario)
+await run(binBytesScenario)
 await run(binLiveScenario)
 await run(newFolderTitleScenario)
 await run(newFolderSidebarScenario)

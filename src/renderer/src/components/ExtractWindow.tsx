@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { dispatch, failureText, fitPath, useExtraction } from '../lib/extraction'
 import { EXTRACT_WINDOW_ATTR } from '../lib/extractionGuard'
 import { logNote } from '../lib/noteLog'
-import { DIALOG_BOX, DIALOG_SCRIM, dialogButton } from './dialogLook'
+import { DIALOG_BOX, DIALOG_SCRIM } from './dialogLook'
+import { JobCard } from './JobCard'
 
 /**
  * THE EXTRACTION WINDOW (2026-09-19, #166).
@@ -18,6 +19,11 @@ import { DIALOG_BOX, DIALOG_SCRIM, dialogButton } from './dialogLook'
  * extracting." Asked the same day: it gets a Cancel button. No X; Escape and
  * a click outside do nothing; Cancel stops the extraction and cleans up what
  * was half written.
+ *
+ * SINCE #501 (owner, 2026-11-10) THE BODY IS THE SHARED PROGRESS CARD (`JobCard`,
+ * the one the hold draws over a tab's list): title, one bar, the file line, a
+ * small percentage, Cancel. The big number and the 12px well below are history;
+ * the window around it (scrim, inert root, key guard) is unchanged.
  *
  * THE OPEN SHEET (#336; owner, 2026-10-09, picking B of round 2's four:
  * "clean, fits every theme, minimal text": the bar, the percentage, one live
@@ -57,12 +63,6 @@ const SHEET_BOX = DIALOG_BOX.replace('max-w-[420px]', 'max-w-[456px]').replace(
   ' p-5',
   ' px-[22px] py-5'
 )
-
-// The stopped fill (a failure): HATCHED in --p-dim rather than turned orange.
-// In Sand the warning ink is the accent's own hue, so an orange stop read as
-// progress; a texture differs from the solid fill in every theme, Midnight HC
-// included, where the accent and --p-dim are both near white.
-const STOPPED_FILL = 'repeating-linear-gradient(-45deg, var(--p-dim) 0 3px, transparent 3px 6px)'
 
 /** One canvas for measuring the file line, made on first use. */
 let measureCtx: CanvasRenderingContext2D | null | undefined
@@ -243,100 +243,34 @@ export function ExtractWindow(): JSX.Element | null {
         data-extract-pct={failed || shown === null ? '' : shown}
         className={`${SHEET_BOX} outline-none`}
       >
-        {/* The top row: the number (or, failed, the heading) and the one
-            button. A fixed 40px, so the empty number before 7-Zip has said
-            anything, a third digit and the heading all take the same room. */}
-        <div className="grid h-[40px] grid-cols-[1fr_auto] items-end gap-4">
-          <div
-            data-extract-number
-            className="min-w-0 truncate pb-[1px] tabular-nums leading-none text-[var(--p-text)]"
-            aria-hidden={failed ? undefined : true}
-          >
-            {failed ? (
-              <span className="text-[17px] font-semibold">Couldn&apos;t extract</span>
-            ) : shown === null ? null : (
-              <span className="text-[34px] font-normal tracking-[-0.02em]">
-                {shown}
-                <small className="ml-px text-[17px] font-normal text-[var(--p-text-soft)]">%</small>
-              </span>
-            )}
-          </div>
-          {/* KEYED, so Close is a new element and not Cancel restyled: the
-              shared button classes carry `transition-colors`, and the same
-              node changing class faded its label from Cancel's grey to
-              Close's colour, which the e2e's screenshot caught half way as
-              grey text on the accent. */}
-          {failed ? (
-            <button
-              key="close"
-              data-extract-close
-              // A text-bearing accent fill is --p-sel-bg with --p-on-accent
-              // (the accent moved until its label clears 4.5:1, the update
-              // chip's pair), not the raw accent, which is held only to 3:1.
-              className={`${dialogButton({ primary: true }).replace(
-                'bg-[var(--p-accent)]',
-                'bg-[var(--p-sel-bg)]'
-              )}`}
-              onClick={() => dispatch({ type: 'dismiss' })}
-            >
-              Close
-            </button>
-          ) : (
-            <button
-              key="cancel"
-              data-extract-cancel
-              // A request: the window stays, saying so, until main reports
-              // the process gone and the half-written files removed.
-              disabled={s.phase !== 'running'}
-              className={`${dialogButton({})} disabled:cursor-default disabled:opacity-50 disabled:hover:text-[var(--p-text-soft)]`}
-              onClick={() => {
-                dispatch({ type: 'cancel-asked' })
-                void window.prism.extractCancel(s.id)
-              }}
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-        {/* The WELL: a recessed track in --p-control with a --p-dim2 edge (3:1
-            or more on the panel in every theme), the fill in
-            --p-accent-solid (3:1 or more on --p-control). Corners are the
-            theme's own radius: a pill in a square-cornered theme read as a
-            part from another app. No width transition, the chip's rule: the
-            fill only ever grows, and before the engine has spoken the well is
-            simply empty rather than showing a block the first real number
-            would shrink from. */}
-        <div
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={shown === null ? undefined : shown}
-          aria-label={failed ? 'Stopped' : 'Extracting'}
-          data-extract-well
-          data-stopped={failed ? '' : undefined}
-          className="relative mt-[14px] h-[12px] overflow-hidden rounded-[var(--p-radius)] bg-[var(--p-control)] shadow-[inset_0_0_0_1px_var(--p-dim2)]"
-        >
-          <span
-            data-extract-fill
-            className="absolute inset-y-0 left-0 block rounded-[var(--p-radius)]"
-            style={{
-              width: pct === null ? '0%' : `${Math.max(1, pct)}%`,
-              background: failed ? STOPPED_FILL : 'var(--p-accent-solid)',
-              boxShadow: failed ? 'inset 0 0 0 1px var(--p-dim)' : undefined
-            }}
-          />
-        </div>
-        {/* The file line. A fixed 18px while it runs, so an empty one moves
-            nothing; the member's text is written by `useFittedLine`. A
-            failure's reason may need a second line and gets it. */}
-        <div
-          ref={line}
-          data-extract-file={failed ? undefined : ''}
-          data-extract-error={failed ? '' : undefined}
-          className={`mt-[10px] text-[12.5px] leading-[18px] tabular-nums text-[var(--p-dim)] ${
-            failed ? 'min-h-[18px] break-words' : 'h-[18px] overflow-hidden whitespace-nowrap'
-          }`}
-          title={failed || cancelling ? undefined : s.file || undefined}
+        {/* THE ONE PROGRESS CARD (#501): the same component the hold draws over
+            a tab's list; only the box around it differs. The count is the
+            percentage (7-Zip reports a percentage, not items). */}
+        <JobCard
+          title={failed ? `Couldn't extract ${s.archive}` : `Extracting ${s.archive}`}
+          pct={pct}
+          fileRef={line}
+          count={failed || shown === null ? '' : `${shown}%`}
+          stopped={failed}
+          label={failed ? 'Stopped' : 'Extracting'}
+          // A request: the window stays, saying so, until main reports the
+          // process gone and the half-written files removed.
+          onCancel={() => {
+            dispatch({ type: 'cancel-asked' })
+            void window.prism.extractCancel(s.id)
+          }}
+          cancelDisabled={s.phase !== 'running'}
+          cancelAttrs={{ 'data-extract-cancel': '' }}
+          action={
+            failed
+              ? {
+                  label: 'Close',
+                  primary: true,
+                  onPress: () => dispatch({ type: 'dismiss' }),
+                  attrs: { 'data-extract-close': '' }
+                }
+              : undefined
+          }
         />
       </div>
     </div>,
