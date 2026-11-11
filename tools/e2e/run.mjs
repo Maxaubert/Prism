@@ -29141,8 +29141,27 @@ async function asarFilesScenario(fixtures) {
     ok(moved && !existsSync(proj2), `the move lands (${JSON.stringify(moved)})`)
     ok(sameFile(join(moveTo, 'proj2', 'resources', 'app.asar')), 'the moved .asar is an identical file')
 
+    // INTO A ZIP (review, 2026-11-11): adm-zip reads the sources with its own
+    // fs, the patched one in the zip worker. An added .asar file became an
+    // EMPTY folder entry 'app.asar/' that still counted as added, so a move
+    // into the zip binned the original; a folder holding one failed to add.
+    const AdmZip = (await import('adm-zip')).default
+    const zipPath = join(home, 'pack.zip')
+    const seed = new AdmZip()
+    seed.addFile('seed.txt', Buffer.from('seed'))
+    seed.writeZip(zipPath)
+    const added = await win.evaluate(([z, a, b]) => window.prism.archiveAdd(z, [a, b], '', false), [zipPath, loose, proj])
+    const addedN = typeof added === 'object' ? added.added.length : added
+    ok(addedN === 2 && added.failed.length === 0, `the .asar and the folder holding one go into the zip (${JSON.stringify(added)})`)
+    const packed = new AdmZip(zipPath)
+    const member = (name) => packed.getEntry(name)
+    ok(member('app.asar') && !member('app.asar/') && member('app.asar').getData().equals(want), 'the zip holds app.asar as an identical file, not an empty folder')
+    ok(member('proj/resources/app.asar')?.getData().equals(want), 'and the folder\'s app.asar as an identical file')
+
     const purged = await win.evaluate((p) => window.prism.purgeFile(p), proj)
     ok(purged === true && !existsSync(proj), `the source folder can then be deleted for good (${purged})`)
+    const purgedLoose = await win.evaluate((p) => window.prism.purgeFile(p), loose)
+    ok(purgedLoose === true && !existsSync(loose), `and the loose .asar too, never held open (${purgedLoose})`)
   } finally {
     await app?.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })

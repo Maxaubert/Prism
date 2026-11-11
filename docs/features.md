@@ -22,15 +22,23 @@ installed Electron app and two node projects, and each still held only its `.asa
   rename, new folder, duplicate, folder sizes and their cache, listing and its details, search, watch, Properties,
   drag-out, archives and extraction, the viewers' reads, thumbnails and the workers (`docWorker`, `zipWorker`,
   `heicWorker`). `process.noAsar` is never set: Prism's own code, worker scripts and renderer files live in its
-  app.asar. Left on the patched `fs` on purpose: Prism's own files and state (the media protocol's and the phone
-  server's asset tree, bundled tool lookups, settings, logs, caches under userData), marked `// own-fs:` where a
-  user-file module needs one.
-- **Held by** `userFs.test.ts` (each user-file module imports `./userFs` and never Node's fs) and two e2e
+  app.asar. Left on the patched `fs` on purpose: Prism's own files and state (the phone's page bundle, bundled
+  tool lookups, settings, logs, caches under userData), marked `// own-fs:` where a user-file module needs one.
+- **The review after it** (2026-11-11) found four more. adm-zip reads and writes with its OWN `require('fs')`: an
+  `.asar` added to a zip became an EMPTY folder entry that still counted as added, so a move into the zip binned
+  the original, and a folder holding one failed to add. Every `new AdmZip` in `zipOps.ts` now gets
+  `{ fs: userFs }`. `fsmedia://` picks its fs per path (`mediaFs`): a path THROUGH an `.asar` is Prism's own
+  pdf.js asset and keeps the patched fs, every other path is the user's. The phone's stat route and its
+  `sendFile`, the tab restore's stats (`tabs.ts`) and the member temp folder (`memberTemp.ts`) use `userFs` too,
+  so none of them reads an `.asar` as a folder or holds it open.
+- **Held by** `userFs.test.ts` (each user-file module imports `./userFs` and never Node's fs; every adm-zip in
+  `zipOps.ts` gets the plain fs; `mediaFs` picks the patched fs only through an `.asar`) and two e2e
   scenarios on a hand-written real `.asar`: `binAsar` (Delete permanently on two binned folders holding one, then
   Empty on the third, against a FAKE bin) and `asarFiles` (the list shows `app.asar` as a file of its real size,
-  Properties' stat and a folder's size agree, a copy and a move land an identical FILE, and the source can then be
-  deleted). Both failed on the old code: the folders stayed, the size read 0 B, the copy failed "Invalid package"
-  and the move was refused as busy.
+  Properties' stat and a folder's size agree, a copy and a move land an identical FILE, a loose `.asar` and a
+  folder holding one go into a zip as identical files, and the sources can then be deleted). Both failed on the
+  old code: the folders stayed, the size read 0 B, the copy failed "Invalid package" and the move was refused as
+  busy; without the adm-zip fix the folder failed to add and neither source could then be deleted.
 
 ## The Recycle Bin in the Explorer (owner, 2026-11-10)
 

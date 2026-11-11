@@ -1,7 +1,8 @@
 import { containerSync } from './archiveBrowse'
 import { isLocalFixed } from './driveKinds'
-import { existsSync, readFileSync, statSync } from 'fs'
+import { readFileSync } from 'fs' // own-fs: tabs.json, Prism's own file in userData
 import { latestWriter } from './latestWrite'
+import { userFs } from './userFs'
 import { isAbsolute } from 'path'
 import { isBinPlace } from '@shared/binPlace'
 import type { BrowseLocation, SavedBrowse } from '@shared/browse'
@@ -41,8 +42,10 @@ const NONE: SavedTabs = { tabs: [], active: 0 }
 
 const isFolder = (p: string): boolean => {
   try {
+    // The plain fs: a saved app.asar is a FILE, and a patched stat would also
+    // hold the archive open for the session (EBUSY on a later delete).
     // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-    return statSync(p).isDirectory()
+    return userFs.statSync(p).isDirectory()
   } catch {
     return false
   }
@@ -80,7 +83,7 @@ const savedPlace = (p: string): boolean => isBinPlace(p) || (isAbsolute(p) && ma
  */
 const mayBeFolder = (p: string): boolean => !isLocalFixed(p) || isFolder(p)
 // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-const mayExist = (p: string): boolean => !isLocalFixed(p) || existsSync(p)
+const mayExist = (p: string): boolean => !isLocalFixed(p) || userFs.existsSync(p)
 
 /** History is a bounded suggestion. Each surviving location keeps its own view. */
 export function parseBrowse(raw: unknown): SavedBrowse | undefined {
