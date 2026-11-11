@@ -15,9 +15,10 @@ const USER_FILE_MODULES = [
   'binTrash', 'binWatch', 'browse', 'browseSearch', 'browseWatch', 'comic', 'copyCounted', 'copyJobs',
   'dirList', 'docConvert', 'explorerListing', 'extractJob', 'fileOps', 'fileHash', 'fileTail',
   'folderIconFiles', 'folderSize', 'folderSizeCache', 'fsUtil', 'heicWorker', 'heifExif', 'imageDecode',
-  'imageEncode', 'ipc/archive', 'ipc/drag', 'ipc/files', 'ipc/props', 'liveVideo', 'midi', 'moveOps',
-  'pasteCopy', 'pathWall', 'peaks', 'phone/phoneAccess', 'propsMedia', 'rawPreview', 'replaceFile',
-  'sevenZip', 'subtitles', 'thumbs', 'videoConvert', 'zipOps', 'zipStage'
+  'imageEncode', 'ipc/archive', 'ipc/drag', 'ipc/files', 'ipc/props', 'liveVideo', 'mediaProtocol',
+  'memberTemp', 'midi', 'moveOps', 'pasteCopy', 'pathWall', 'peaks', 'phone/phoneAccess', 'phone/server',
+  'propsMedia', 'rawPreview', 'replaceFile', 'sevenZip', 'subtitles', 'tabs', 'thumbs', 'videoConvert',
+  'zipOps', 'zipStage'
 ]
 
 /**
@@ -36,6 +37,30 @@ describe('userFs', () => {
     const src = readFileSync(join(__dirname, `${name}.ts`), 'utf8')
     expect(NODE_FS.test(src), `${name}.ts imports Node's fs: use ./userFs (an .asar is a file)`).toBe(false)
     expect(src).toMatch(/from '\.\.?\/userFs'|import\('\.\.?\/userFs'\)/)
+  })
+
+  // adm-zip reads and writes with its OWN `require('fs')`, the patched one in
+  // the zip worker (review, 2026-11-11): an .asar added to a zip became an
+  // empty folder entry. Every instance that is handed a path gets the plain fs.
+  it('zipOps gives every adm-zip the plain fs', () => {
+    const src = readFileSync(join(__dirname, 'zipOps.ts'), 'utf8')
+    const made = src.match(/new AdmZip\([^)]*\)/g) ?? []
+    expect(made.length).toBeGreaterThan(0)
+    for (const m of made) expect(m, m).toMatch(/\{ fs: userFs \}/)
+  })
+
+  it('fsmedia:// reads through an .asar only for Prism\'s own assets; a user\'s .asar is the plain fs', async () => {
+    const { mediaFs } = await import('./mediaProtocol')
+    const userFs = await import('./userFs')
+    const fs = await import('fs')
+    const own = mediaFs('C:\\Prism\\resources\\app.asar\\out\\renderer\\cmaps\\a.bcmap')
+    expect(own.stat).toBe(fs.promises.stat)
+    expect(own.createReadStream).toBe(fs.createReadStream)
+    for (const p of ['C:\\Users\\me\\proj\\resources\\app.asar', 'D:\\Music\\song.mp3']) {
+      const user = mediaFs(p)
+      expect(user.stat).toBe(userFs.stat)
+      expect(user.readFile).toBe(userFs.readFile)
+    }
   })
 
   it('the rule catches a direct import', () => {
