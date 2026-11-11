@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile, execFileSync } from 'child_process'
-import { existsSync, mkdtempSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,7 @@ import { pngSize } from '@shared/pictureSize'
  */
 vi.mock('./spawnWorker', () => ({ execFile: nodeExecFile }))
 
-const { decodeIconPng, iconArgs } = await import('./imageDecode')
+const { decodeIconPng, iconArgs, shrinkIconPng } = await import('./imageDecode')
 
 const VENDOR = resolve(__dirname, '../../vendor/ffmpeg')
 const FFMPEG = join(VENDOR, 'ffmpeg.exe')
@@ -36,7 +36,8 @@ describe('the icon argv', () => {
     const a = iconArgs('C:\\p\\scan.tiff', 256)
     expect(a.slice(a.indexOf('-i'), a.indexOf('-i') + 2)).toEqual(['-i', 'C:\\p\\scan.tiff'])
     const vf = a[a.indexOf('-vf') + 1]
-    expect(vf).toContain("scale=w='min(256,iw)':h='min(256,ih)':force_original_aspect_ratio=decrease")
+    expect(vf).toContain("scale=w='if(gte(iw,ih),min(256,iw),max(1,round(min(256,ih)*iw/ih)))'")
+    expect(vf).toContain(":h='if(gte(iw,ih),max(1,round(min(256,iw)*ih/iw)),min(256,ih))'")
     expect(vf.endsWith('format=rgba')).toBe(true)
     expect(vf).not.toContain('tonemap')
     expect(a).toEqual(expect.arrayContaining(['-frames:v', '1', '-pix_fmt', 'rgba', '-c:v', 'png', 'pipe:1']))
@@ -77,6 +78,22 @@ describe.skipIf(!HAS)('icons through the bundled ffmpeg, for real (2026-11-11)',
       expect(pngSize(await decodeIconPng(FFMPEG, src, 256)), ext).toEqual({ width: 256, height: 128 })
     }
   }, 60000)
+
+  it('a very thin strip keeps at least 1 px (review: 4000 x 4 was "256x0", refused)', async () => {
+    const wide = join(dir, 'strip.tiff')
+    ff('-f', 'lavfi', '-i', 'color=c=red:s=4000x4', '-frames:v', '1', wide)
+    expect(pngSize(await decodeIconPng(FFMPEG, wide, 256))).toEqual({ width: 256, height: 1 })
+    const tall = join(dir, 'pole.tga')
+    ff('-f', 'lavfi', '-i', 'color=c=red:s=4x4000', '-frames:v', '1', tall)
+    expect(pngSize(await decodeIconPng(FFMPEG, tall, 256))).toEqual({ width: 1, height: 256 })
+  }, 30000)
+
+  it('a JPEG over 8,192 px that main holds (a raw preview, a HEIC) becomes a small PNG', async () => {
+    const src = join(dir, 'a7r.jpg')
+    ff('-f', 'lavfi', '-i', 'color=c=blue:s=9504x6336', '-frames:v', '1', src)
+    const png = await shrinkIconPng(FFMPEG, readFileSync(src), 256)
+    expect(pngSize(png)).toEqual({ width: 256, height: 171 })
+  }, 30000)
 
   it('a file ffmpeg cannot read is refused', async () => {
     const bad = join(dir, 'bad.jxl')

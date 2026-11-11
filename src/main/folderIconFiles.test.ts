@@ -120,6 +120,10 @@ describe('more kinds, converted in main (owner, 2026-11-11)', () => {
         asked.push(`png:${f}`)
         return out
       },
+      shrink: async (jpeg) => {
+        asked.push(`shrink:${jpeg.length}`)
+        return png(256, 128)
+      },
       heic: async (f) => {
         asked.push(`heic:${f}`)
         return out
@@ -160,7 +164,7 @@ describe('more kinds, converted in main (owner, 2026-11-11)', () => {
     }
   })
 
-  it('a HEIC goes through the HEIC decoder, a camera raw through its preview, as JPEG', async () => {
+  it('a HEIC goes through the HEIC decoder, a camera raw through its preview, then made small', async () => {
     const heic = join(dir, 'p.HEIC')
     const raw = join(dir, 'p.cr2')
     writeFileSync(heic, 'x')
@@ -168,9 +172,30 @@ describe('more kinds, converted in main (owner, 2026-11-11)', () => {
     const { d, asked } = stub()
     const a = await readIconSource(heic, d)
     const b = await readIconSource(raw, d)
-    expect(asked).toEqual([`heic:${heic}`, `raw:${raw}`])
-    expect('type' in a && a.type).toBe('image/jpeg')
-    expect('type' in b && b.type).toBe('image/jpeg')
+    expect(asked).toEqual([`heic:${heic}`, 'shrink:33', `raw:${raw}`, 'shrink:33'])
+    expect('type' in a && a.type).toBe('image/png')
+    expect('type' in b && b.type).toBe('image/png')
+    // No ffmpeg (or it fails): the JPEG itself.
+    const plain = await readIconSource(heic, { ...d, shrink: null })
+    expect('type' in plain && plain.type).toBe('image/jpeg')
+    const failed = await readIconSource(raw, { ...d, shrink: () => Promise.reject(new Error('no')) })
+    expect('type' in failed && failed.type).toBe('image/jpeg')
+  })
+
+  it('a high-res camera raw or HEIC over 8,192 px is made small, not refused (review, 2026-11-11)', async () => {
+    const raw = join(dir, 'a7r.arw')
+    const heic = join(dir, 'big.heic')
+    writeFileSync(raw, 'x')
+    writeFileSync(heic, 'x')
+    // A Sony A7R V's embedded preview, and a 200 MP phone HEIC.
+    const { d } = stub(png(9504, 6336))
+    for (const f of [raw, heic]) {
+      const r = await readIconSource(f, d)
+      expect('type' in r && r.type, f).toBe('image/png')
+      expect('bytes' in r && pngSize(r.bytes), f).toEqual({ width: 256, height: 128 })
+    }
+    // Without ffmpeg the page's own check still holds.
+    expect(await readIconSource(raw, { ...d, shrink: null })).toEqual({ refused: 'too-large' })
   })
 
   it('no ffmpeg: refused as no-decoder; a failed convert is not a picture', async () => {

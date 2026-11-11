@@ -1,5 +1,7 @@
 import { execFile } from './spawnWorker'
-import { extname } from 'path'
+import { mkdtemp, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { extname, join } from 'path'
 import { createLru } from './lru'
 
 /**
@@ -67,9 +69,14 @@ export function imageArgs(file: string): string[] {
  */
 export function iconArgs(file: string, px: number): string[] {
   const hdr = /\.(exr|hdr)$/i.test(file)
+  // The long side becomes at most `px`; the short side follows the aspect
+  // but is never under 1 px (review, 2026-11-11). force_original_aspect_ratio
+  // made a 4000 x 4 strip "256x0", and ffmpeg refused it.
+  const w = `if(gte(iw,ih),min(${px},iw),max(1,round(min(${px},ih)*iw/ih)))`
+  const h = `if(gte(iw,ih),max(1,round(min(${px},iw)*ih/iw)),min(${px},ih))`
   const filters = [
     ...(hdr ? ['format=gbrpf32le,tonemap=hable:desat=0'] : []),
-    `scale=w='min(${px},iw)':h='min(${px},ih)':force_original_aspect_ratio=decrease`,
+    `scale=w='${w}':h='${h}'`,
     'format=rgba'
   ]
   return [
@@ -100,6 +107,24 @@ export function decodeIconPng(ffmpeg: string, file: string, px: number): Promise
       }
     )
   })
+}
+
+/**
+ * A picture main already holds (a HEIC's or camera raw's JPEG) as the same
+ * small PNG (review, 2026-11-11): a 9504 x 6336 raw preview or a 200 MP HEIC
+ * would otherwise reach the page whole and be refused as too large. ffmpeg
+ * reads a file, so the bytes go to a temporary folder for the call and are
+ * removed after it.
+ */
+export async function shrinkIconPng(ffmpeg: string, picture: Uint8Array, px: number, ext = '.jpg'): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), 'prism-icon-'))
+  try {
+    const file = join(dir, `picture${ext}`)
+    await writeFile(file, picture)
+    return await decodeIconPng(ffmpeg, file, px)
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /** Six by count, and by SIZE too (review, 2026-10-16): an RGBA PNG of a big
