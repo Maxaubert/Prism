@@ -1,4 +1,4 @@
-import { stat } from 'fs/promises'
+import { stat } from './userFs'
 import { PUSH } from '@shared/channels'
 import { isAbsolute, resolve } from 'path'
 import { BIN_PLACE, isBinPlace } from '@shared/binPlace'

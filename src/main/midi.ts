@@ -1,6 +1,6 @@
 import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
-import { mkdir, stat } from 'fs/promises'
+import { mkdir, stat } from './userFs'
 import { dirname, extname, join } from 'path'
 import { exists } from './fsUtil'
 

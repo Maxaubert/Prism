@@ -1,5 +1,4 @@
-import { statSync } from 'fs'
-import { stat } from 'fs/promises'
+import { stat, userFs } from './userFs'
 import { resolve } from 'path'
 
 /**
@@ -93,7 +92,7 @@ export function pathsFromArgv(
   for (const a of candidates(argv, ignore, cwd)) {
     if (out.length >= ARGV_MAX) break
     try {
-      const st = statSync(a) // sync-ok: startup argv (before the first window) and the quit relaunch only
+      const st = userFs.statSync(a) // sync-ok: startup argv (before the first window) and the quit relaunch only
       if (st.isFile()) out.push({ path: a, dir: false })
       else if (st.isDirectory()) out.push({ path: a, dir: true })
     } catch {

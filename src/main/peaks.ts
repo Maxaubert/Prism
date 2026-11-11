@@ -1,6 +1,6 @@
 import { spawnStream } from './spawnWorker'
 import { holders } from './holders'
-import { stat } from 'fs/promises'
+import { stat } from './userFs'
 import { createLru } from './lru'
 
 /**

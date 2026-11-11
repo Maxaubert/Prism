@@ -30,6 +30,8 @@ export default defineConfig({
     alias: [
       { find: '@shared', replacement: resolve(root, 'src/shared') },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      // Electron's unpatched fs (src/main/userFs.ts) is Node's own outside Electron.
+      { find: /^original-fs$/, replacement: 'fs' },
       // The core's plain .ts settings modules its package does not export
       // (#292): see CORE_TS in electron.vite.config.ts.
       ...[

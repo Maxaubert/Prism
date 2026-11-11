@@ -1,4 +1,4 @@
-import { lstat, readFile, readdir, rename, unlink } from 'fs/promises'
+import { lstat, readFile, readdir, rename, unlink } from './userFs'
 import { extname, join } from 'path'
 import { exists } from './fsUtil'
 import { binDirsFor, ownSid, sidOf } from './binRoots'

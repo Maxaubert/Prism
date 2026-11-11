@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { mkdtemp, readFile, stat, writeFile } from 'fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from './userFs'
 import { tmpdir } from 'os'
 import { basename, join, relative, resolve } from 'path'
 import type { ArchiveMoveResult } from '@shared/ipcTypes'

@@ -1,5 +1,4 @@
-import type { Dirent } from 'fs'
-import { mkdir, readdir, rename, rm, rmdir, stat } from 'fs/promises'
+import { mkdir, readdir, rename, rm, rmdir, stat, type Dirent } from './userFs'
 import { basename, dirname, join, resolve } from 'path'
 import { isInside, pathKey } from '@shared/path'
 import type { MoveClash, MoveOnClash, MoveResult } from '@shared/ipcTypes'

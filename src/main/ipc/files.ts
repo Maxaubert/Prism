@@ -16,7 +16,7 @@ import type {
 } from '@shared/ipcTypes'
 import { isCopyFormat } from '@shared/imageCopy'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { readFile, rm, stat, writeFile } from 'fs/promises'
+import { readFile, rm, stat, writeFile } from '../userFs'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
 import { performance } from 'perf_hooks'
@@ -508,7 +508,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     // nobody once it has closed.
     const sendToPage = (channel: typeof PUSH.pasteProgress, payload: unknown): void =>
       void windows.sendTo(sender, channel, payload)
-    const fs = await import('fs/promises')
+    const fs = await import('../userFs')
     const job = typeof jobId === 'string' ? jobId : ''
     // Cancel (the loading bar, owner 2026-11-09): checked between items, and
     // aborts the file being written (copyCounted).

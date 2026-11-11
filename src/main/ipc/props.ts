@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { basename, join } from 'path'
-import { open as openFile, readdir, stat, statfs } from 'fs/promises'
+import { open as openFile, readdir, stat, statfs } from '../userFs'
 import { launch } from '../spawnWorker'
 import { insideDesktop } from '../desktopAccess'
 import { getIndexedFolderSizes } from '../everythingBrowse'

@@ -1,4 +1,4 @@
-import { access } from 'fs/promises'
+import { access } from './userFs'
 
 /**
  * The small fs answers main asks everywhere, in one place (structure cleanup,

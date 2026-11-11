@@ -22,15 +22,13 @@ import {
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { answerE2eClipboard, installFakeClipboard } from './e2eClipboard'
 import { existsSync } from 'fs'
-import {
-  rm,
-  stat
-} from 'fs/promises'
+import { rm } from 'fs/promises'
 import { getPriority, setPriority, tmpdir, constants as osConstants } from 'os'
 import { performance } from 'perf_hooks'
 import { setFlagsFromString } from 'v8'
 import { runInNewContext } from 'vm'
 import { appendFile } from 'fs/promises'
+import * as userFsp from './userFs'
 import {
   initDwmHelper,
   trimWorkingSets
@@ -2438,7 +2436,7 @@ if (!app.requestSingleInstanceLock()) {
         const ffprobe = ffmpegTools()?.ffprobe
         return ffprobe ? probeMedia(ffprobe, p) : Promise.resolve(null)
       },
-      async (p) => (await stat(p)).mtimeMs
+      async (p) => (await userFsp.stat(p)).mtimeMs
     )
     const probeCached = async (p: string): Promise<MediaInfo | null> =>
       ffmpegTools()?.ffprobe ? probeShared(p) : null
@@ -2498,7 +2496,7 @@ if (!app.requestSingleInstanceLock()) {
      */
     const readTextWalled = async (p: string): Promise<TextRead> => {
       try {
-        const fs = await import('fs/promises')
+        const fs = userFsp
         // AWAITED, so a read error is caught here rather than escaping as a
         // rejected invoke; and capped, because the contract is small text
         // files and CodeMirror is handed one string (2026-08-28).

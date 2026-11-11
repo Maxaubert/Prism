@@ -1,4 +1,4 @@
-import { open, stat } from 'fs/promises'
+import { open, stat } from './userFs'
 import { sniffEncoding, type TextEncoding } from './textFile'
 
 /**
