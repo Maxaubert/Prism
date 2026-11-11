@@ -59,6 +59,49 @@ export function imageArgs(file: string): string[] {
   ]
 }
 
+/**
+ * ffmpeg argv for "this still as a folder icon": one frame, at most `px` a
+ * side (never made bigger), aspect kept, alpha kept, PNG on stdout (owner,
+ * 2026-11-11). Scaled IN ffmpeg, so a 20,000 px TIFF scan never becomes a
+ * huge PNG in main. EXR and HDR get the same tone map as the viewer.
+ */
+export function iconArgs(file: string, px: number): string[] {
+  const hdr = /\.(exr|hdr)$/i.test(file)
+  const filters = [
+    ...(hdr ? ['format=gbrpf32le,tonemap=hable:desat=0'] : []),
+    `scale=w='min(${px},iw)':h='min(${px},ih)':force_original_aspect_ratio=decrease`,
+    'format=rgba'
+  ]
+  return [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-nostdin',
+    '-i', file,
+    '-frames:v', '1',
+    '-vf', filters.join(','),
+    '-pix_fmt', 'rgba',
+    '-c:v', 'png',
+    '-f', 'image2',
+    'pipe:1'
+  ]
+}
+
+/** A still as a small PNG for a folder icon. Not cached: a pick is one file, once. */
+export function decodeIconPng(ffmpeg: string, file: string, px: number): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    execFile(
+      ffmpeg,
+      iconArgs(file, px),
+      // 256 x 256 RGBA is at most 256 KB raw; the cap is only a backstop.
+      { timeout: 20000, maxBuffer: 8 << 20, encoding: 'buffer' },
+      (err, stdout) => {
+        if (err || !stdout?.length) reject(new Error('ffmpeg could not decode this image'))
+        else resolve(stdout as Buffer)
+      }
+    )
+  })
+}
+
 /** Six by count, and by SIZE too (review, 2026-10-16): an RGBA PNG of a big
  *  TIFF scan or PSD runs to tens of MB, and six of them sat pinned in main. */
 const DECODED_CACHE_BYTES = 96 << 20

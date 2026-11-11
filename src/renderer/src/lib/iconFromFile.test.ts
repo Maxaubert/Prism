@@ -111,9 +111,10 @@ describe('folderIconFromFile', () => {
   it('the refusals read as plain words', () => {
     expect(ICON_REFUSED).toEqual({
       'not-picture': "That file isn't a picture Prism can use.",
-      'too-big': 'That picture is over 16 MB, too big for an icon.',
+      'too-big': 'That file is too big for an icon.',
       'too-large': 'That picture is over 8,192 pixels wide or tall, too big for an icon.',
-      unreadable: "Prism couldn't read that file."
+      unreadable: "Prism couldn't read that file.",
+      'no-decoder': "Prism can't open that kind of picture here. Try a PNG or JPG."
     })
   })
 })
