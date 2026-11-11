@@ -1,10 +1,29 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
+import {
+  closeSync,
+  ftruncateSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync
+} from 'fs'
 import { createHash } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ICON_SOURCE_MAX } from '@shared/folderIconFiles'
+import { imageExtensions } from '@shared/fileKind'
 import {
+  ICON_CONVERTED_MAX,
+  ICON_FILE_EXTS,
+  ICON_SOURCE_MAX,
+  iconFileType,
+  isConvertedIcon
+} from '@shared/folderIconFiles'
+import {
+  type IconDecoders,
   listIconFiles,
   pngSize,
   readIconSource,
@@ -89,6 +108,123 @@ describe('readIconSource', () => {
     expect(await readIconSource(join(dir, 'gone.png'))).toEqual({ refused: 'unreadable' })
     writeFileSync(join(dir, 'huge.png'), Buffer.alloc(ICON_SOURCE_MAX + 1))
     expect(await readIconSource(join(dir, 'huge.png'))).toEqual({ refused: 'too-big' })
+  })
+})
+
+describe('more kinds, converted in main (owner, 2026-11-11)', () => {
+  /** Decoders that record what they were asked and answer `out`. */
+  const stub = (out: Uint8Array = png(200, 100)) => {
+    const asked: string[] = []
+    const d: IconDecoders = {
+      toPng: async (f) => {
+        asked.push(`png:${f}`)
+        return out
+      },
+      shrink: async (jpeg) => {
+        asked.push(`shrink:${jpeg.length}`)
+        return png(256, 128)
+      },
+      heic: async (f) => {
+        asked.push(`heic:${f}`)
+        return out
+      },
+      raw: async (f) => {
+        asked.push(`raw:${f}`)
+        return out
+      }
+    }
+    return { d, asked }
+  }
+
+  it('the dialog offers every still the viewer shows, the page decodes its own kinds as before', () => {
+    for (const ext of ['jxl', 'avif', 'heic', 'heif', 'tif', 'tiff', 'psd', 'tga', 'qoi', 'jp2', 'dds', 'exr', 'cr2', 'dng'])
+      expect(ICON_FILE_EXTS, ext).toContain(ext)
+    for (const ext of ['png', 'jpg', 'jpeg', 'jfif', 'gif', 'bmp', 'webp', 'ico', 'svg']) {
+      expect(ICON_FILE_EXTS, ext).toContain(ext)
+      expect(isConvertedIcon(ext), ext).toBe(false)
+    }
+    for (const ext of imageExtensions()) expect(ICON_FILE_EXTS, ext).toContain(ext.slice(1))
+    expect(isConvertedIcon('JXL')).toBe(true)
+    expect(isConvertedIcon('txt')).toBe(false)
+    expect(isConvertedIcon('constructor')).toBe(false)
+    expect(iconFileType('jxl')).toBeNull()
+    expect(iconFileType('jfif')).toBe('image/jpeg')
+    expect(new Set(ICON_FILE_EXTS).size).toBe(ICON_FILE_EXTS.length)
+  })
+
+  it('a JPEG XL, TIFF, AVIF, PSD, TGA, QOI goes through ffmpeg and the page gets a PNG', async () => {
+    for (const ext of ['jxl', 'tiff', 'tif', 'avif', 'psd', 'tga', 'qoi', 'jp2', 'dds']) {
+      const f = join(dir, `x.${ext}`)
+      writeFileSync(f, 'whatever ffmpeg reads')
+      const { d, asked } = stub()
+      const r = await readIconSource(f, d)
+      expect(asked, ext).toEqual([`png:${f}`])
+      expect('type' in r && r.type, ext).toBe('image/png')
+      expect('bytes' in r && r.bytes.length, ext).toBe(33)
+    }
+  })
+
+  it('a HEIC goes through the HEIC decoder, a camera raw through its preview, then made small', async () => {
+    const heic = join(dir, 'p.HEIC')
+    const raw = join(dir, 'p.cr2')
+    writeFileSync(heic, 'x')
+    writeFileSync(raw, 'x')
+    const { d, asked } = stub()
+    const a = await readIconSource(heic, d)
+    const b = await readIconSource(raw, d)
+    expect(asked).toEqual([`heic:${heic}`, 'shrink:33', `raw:${raw}`, 'shrink:33'])
+    expect('type' in a && a.type).toBe('image/png')
+    expect('type' in b && b.type).toBe('image/png')
+    // No ffmpeg (or it fails): the JPEG itself.
+    const plain = await readIconSource(heic, { ...d, shrink: null })
+    expect('type' in plain && plain.type).toBe('image/jpeg')
+    const failed = await readIconSource(raw, { ...d, shrink: () => Promise.reject(new Error('no')) })
+    expect('type' in failed && failed.type).toBe('image/jpeg')
+  })
+
+  it('a high-res camera raw or HEIC over 8,192 px is made small, not refused (review, 2026-11-11)', async () => {
+    const raw = join(dir, 'a7r.arw')
+    const heic = join(dir, 'big.heic')
+    writeFileSync(raw, 'x')
+    writeFileSync(heic, 'x')
+    // A Sony A7R V's embedded preview, and a 200 MP phone HEIC.
+    const { d } = stub(png(9504, 6336))
+    for (const f of [raw, heic]) {
+      const r = await readIconSource(f, d)
+      expect('type' in r && r.type, f).toBe('image/png')
+      expect('bytes' in r && pngSize(r.bytes), f).toEqual({ width: 256, height: 128 })
+    }
+    // Without ffmpeg the page's own check still holds.
+    expect(await readIconSource(raw, { ...d, shrink: null })).toEqual({ refused: 'too-large' })
+  })
+
+  it('no ffmpeg: refused as no-decoder; a failed convert is not a picture', async () => {
+    const f = join(dir, 'x.jxl')
+    writeFileSync(f, 'x')
+    expect(await readIconSource(f)).toEqual({ refused: 'no-decoder' })
+    const fail: IconDecoders = { ...stub().d, toPng: () => Promise.reject(new Error('ffmpeg could not decode')) }
+    expect(await readIconSource(f, fail)).toEqual({ refused: 'not-picture' })
+  })
+
+  it('the size checks are the converted picture\'s', async () => {
+    const f = join(dir, 'x.tiff')
+    writeFileSync(f, 'x')
+    expect(await readIconSource(f, stub(png(9000, 10)).d)).toEqual({ refused: 'too-large' })
+    expect(await readIconSource(f, stub(new Uint8Array(40)).d)).toEqual({ refused: 'not-picture' })
+  })
+
+  it('a converted kind may be bigger than 16 MB on disk, up to 256 MB', async () => {
+    const f = join(dir, 'scan.tiff')
+    writeFileSync(f, Buffer.alloc(ICON_SOURCE_MAX + 1))
+    expect('bytes' in (await readIconSource(f, stub().d))).toBe(true)
+    // Sparse past the cap: a size, not 256 MB written.
+    const big = join(dir, 'vast.tiff')
+    const fd = openSync(big, 'w')
+    ftruncateSync(fd, ICON_CONVERTED_MAX + 1)
+    closeSync(fd)
+    const { d, asked } = stub()
+    expect(await readIconSource(big, d)).toEqual({ refused: 'too-big' })
+    expect(asked).toEqual([])
   })
 })
 

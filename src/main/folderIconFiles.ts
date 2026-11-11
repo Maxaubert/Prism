@@ -2,16 +2,20 @@ import { createHash, randomBytes } from 'crypto'
 import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import {
+  ICON_CONVERTED_MAX,
   ICON_ID,
   ICON_PX,
   ICON_SIDE_MAX,
   ICON_SOURCE_MAX,
   iconFileType,
+  isConvertedIcon,
   type IconList,
   type IconPick,
+  type IconRefusal,
   type IconSave
 } from '@shared/folderIconFiles'
 import { pictureSize, pngSize } from '@shared/pictureSize'
+import { isRaw } from './rawPreview'
 
 export { pngSize }
 
@@ -23,6 +27,9 @@ export { pngSize }
  *   never its path: nothing the user picked is ever served. Its size is read
  *   from its header first, and a picture over 8,192 px a side is refused
  *   before the page decodes it (review M2).
+ * - A kind the page cannot decode (2026-11-11; at most 256 MB) is converted
+ *   here first: ffmpeg makes a PNG of at most 256 px a side (of a HEIC or
+ *   camera raw, from the JPEG its own route gives). Only that goes to the page.
  * - What comes back must be a PNG of at most 64 x 64; it is kept as
  *   `<folder-icons>/<sha256>.png`, so the same picture is one copy.
  * - The copies are handed to the page as data URLs, all at once.
@@ -30,18 +37,88 @@ export { pngSize }
  *   time, or when that folder is gone, the dialog opens on Pictures.
  */
 
-/** Read a picked file for the page: its bytes and type, or why not. */
-export async function readIconSource(path: string): Promise<Exclude<IconPick, null>> {
-  const type = iconFileType(extname(path).slice(1))
-  if (!type) return { refused: 'not-picture' }
+/**
+ * The decoders main already has, for the kinds the page cannot decode (owner,
+ * 2026-11-11). Handed in by the IPC, so this file starts no process and the
+ * tests stub them.
+ */
+export interface IconDecoders {
+  /** ffmpeg's PNG of a still, at most `ICON_CONVERT_PX` a side (imageDecode.ts);
+   *  null when this install has no ffmpeg. */
+  toPng: ((file: string) => Promise<Uint8Array>) | null
+  /** ffmpeg's same small PNG of a JPEG main already holds (a HEIC's, a raw's);
+   *  null when this install has no ffmpeg. */
+  shrink: ((jpeg: Uint8Array) => Promise<Uint8Array>) | null
+  /** A HEIC or HEIF as JPEG (libheif, heicClient.ts: the one-off worker,
+   *  uncached, so a pick never waits behind the viewer or evicts its decodes). */
+  heic: (file: string) => Promise<Uint8Array>
+  /** A camera raw's own embedded JPEG (rawPreview.ts). */
+  raw: (file: string) => Promise<Uint8Array>
+}
+
+const none = (): Promise<Uint8Array> => Promise.reject(new Error('no decoder'))
+const NO_DECODERS: IconDecoders = { toPng: null, shrink: null, heic: none, raw: none }
+
+const asBytes = (b: Uint8Array): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
+
+/** A HEIC's or raw's JPEG, made small by ffmpeg (review, 2026-11-11): a
+ *  9504 x 6336 raw preview or a 200 MP HEIC is then an icon, not refused.
+ *  No ffmpeg, or it fails: the JPEG itself, and the page's checks decide. */
+async function smallJpeg(jpeg: Uint8Array, d: IconDecoders): Promise<{ bytes: Uint8Array; type: string }> {
+  if (d.shrink) {
+    try {
+      return { bytes: asBytes(await d.shrink(jpeg)), type: 'image/png' }
+    } catch {
+      // The JPEG as it is.
+    }
+  }
+  return { bytes: jpeg, type: 'image/jpeg' }
+}
+
+/** A kind the page cannot decode, made into one it can: HEIC and camera raws
+ *  through their own routes (JPEG, then made small), the rest through ffmpeg
+ *  (a small PNG). */
+async function convertIcon(
+  path: string,
+  d: IconDecoders
+): Promise<{ bytes: Uint8Array; type: string } | { refused: IconRefusal }> {
+  const ext = extname(path).toLowerCase()
+  try {
+    if (ext === '.heic' || ext === '.heif') return await smallJpeg(asBytes(await d.heic(path)), d)
+    if (isRaw(path)) return await smallJpeg(asBytes(await d.raw(path)), d)
+    if (!d.toPng) return { refused: 'no-decoder' }
+    return { bytes: asBytes(await d.toPng(path)), type: 'image/png' }
+  } catch {
+    return { refused: 'not-picture' }
+  }
+}
+
+/** Read a picked file for the page: its bytes and type, or why not. A kind
+ *  the page cannot decode is converted here first, and the size checks are
+ *  the converted picture's. */
+export async function readIconSource(
+  path: string,
+  decoders: IconDecoders = NO_DECODERS
+): Promise<Exclude<IconPick, null>> {
+  const ext = extname(path).slice(1)
+  const own = iconFileType(ext)
+  const converted = !own && isConvertedIcon(ext)
+  if (!own && !converted) return { refused: 'not-picture' }
   let bytes: Uint8Array
+  let type: string
   try {
     const s = await stat(path)
     if (!s.isFile()) return { refused: 'unreadable' }
-    if (s.size > ICON_SOURCE_MAX) return { refused: 'too-big' }
-    const read = await readFile(path)
-    if (read.length > ICON_SOURCE_MAX) return { refused: 'too-big' }
-    bytes = new Uint8Array(read.buffer, read.byteOffset, read.length)
+    if (s.size > (converted ? ICON_CONVERTED_MAX : ICON_SOURCE_MAX)) return { refused: 'too-big' }
+    if (converted) {
+      const made = await convertIcon(path, decoders)
+      if ('refused' in made) return made
+      ;({ bytes, type } = made)
+    } else {
+      bytes = asBytes(await readFile(path))
+      type = own as string
+    }
+    if (bytes.length > ICON_SOURCE_MAX) return { refused: 'too-big' }
   } catch {
     return { refused: 'unreadable' }
   }
