@@ -24462,6 +24462,9 @@ async function folderIconsScenario(fixtures) {
  * PNG that will not decode (review T2); a picture over 8,192 px a side is
  * refused by its header (review M2); JPG, GIF, BMP, WEBP and ICO decode for
  * real, a picture that is not square keeps its aspect, centred (review T1);
+ * the dialog offers every still the viewer shows, and a 32 MB TIFF and a
+ * JPEG XL (kinds the page cannot decode) are converted by main's ffmpeg and
+ * kept the same way (owner, 2026-11-11);
  * a reset removes the copy no folder uses (review T3, the grace period cut
  * to 0 by `PRISM_E2E_ICON_FRESH_MS`); the source file can go; when Prism's
  * own copy goes, the folder glyph is back with no error and the entry is
@@ -24473,7 +24476,11 @@ async function folderIconFileScenario(fixtures) {
   const picks = join(fixtures, 'foldericonfile-picks')
   rmSync(dir, { recursive: true, force: true })
   rmSync(picks, { recursive: true, force: true })
-  const kinds = ['jpg', 'gif', 'bmp', 'webp', 'ico']
+  // TIFF and JPEG XL (owner, 2026-11-11): kinds the page cannot decode, which
+  // main converts through the bundled ffmpeg first. Made by that ffmpeg.
+  const converted = HAS_FFMPEG ? ['tiff', 'jxl'] : []
+  if (!HAS_FFMPEG) console.log(`  (no ffmpeg found (tried ${FFMPEG}), so the converted kinds are skipped)`)
+  const kinds = ['jpg', 'gif', 'bmp', 'webp', 'ico', ...converted]
   for (const name of ['art', 'other', ...kinds.map((k) => `kind-${k}`)]) mkdirSync(join(dir, name), { recursive: true })
   writeFileSync(join(dir, 'one.txt'), 'one\n')
   mkdirSync(picks, { recursive: true })
@@ -24534,6 +24541,13 @@ async function folderIconFileScenario(fixtures) {
   writeFileSync(join(picks, 'mark.ico'), ico)
   // A 1 x 1 GIF.
   writeFileSync(join(picks, 'dot.gif'), Buffer.from('R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=', 'base64'))
+  if (HAS_FFMPEG) {
+    const ff = (args) => execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, stdio: 'ignore' })
+    // A 4,000 x 2,000 uncompressed TIFF: 32 MB, over the 16 MB a page-decoded
+    // kind may be, and far over the 256 px ffmpeg makes it.
+    ff(['-f', 'lavfi', '-i', 'color=c=0xd08020:s=4000x2000,format=rgb24', '-frames:v', '1', '-compression_algo', 'raw', join(picks, 'wide.tiff')])
+    ff(['-f', 'lavfi', '-i', 'color=c=0x2080d0:s=40x20', '-frames:v', '1', join(picks, 'wide.jxl')])
+  }
   let { app, win } = await launchWith({ PRISM_E2E_PICK_ICON: '' }, join(dir, 'one.txt'))
   const list = () => win.locator('[data-testid="browse-list"]')
   const row = (name) => list().locator(`[data-browse-path$="\\\\${name}" i]`).first()
@@ -24606,8 +24620,13 @@ async function folderIconFileScenario(fixtures) {
     ok(first.defaultPath === (await pictures()), `the first pick opens on Pictures (${first.defaultPath})`)
     const exts = first.filters?.[0]?.extensions ?? []
     ok(
-      JSON.stringify(exts) === JSON.stringify(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'svg']),
-      `it offers PNG JPG GIF BMP WEBP ICO SVG (${exts})`
+      JSON.stringify(exts.slice(0, 9)) === JSON.stringify(['png', 'jpg', 'jpeg', 'jfif', 'gif', 'bmp', 'webp', 'ico', 'svg']),
+      `it offers PNG JPG GIF BMP WEBP ICO SVG first (${exts})`
+    )
+    const more = ['jxl', 'avif', 'heic', 'heif', 'tif', 'tiff', 'psd', 'tga', 'qoi', 'jp2', 'dds', 'cr2']
+    ok(
+      more.every((e) => exts.includes(e)),
+      `and every other still the viewer shows, JXL AVIF HEIC TIFF PSD and the rest (${more.filter((e) => !exts.includes(e))} missing)`
     )
 
     // A PNG: kept as Prism's own 64 px copy, the row draws it.
@@ -24702,7 +24721,15 @@ async function folderIconFileScenario(fixtures) {
     })
     writeFileSync(join(picks, 'wide.jpg'), Buffer.from(encoded['image/jpeg'], 'base64'))
     writeFileSync(join(picks, 'wide.webp'), Buffer.from(encoded['image/webp'], 'base64'))
-    const sources = { jpg: 'wide.jpg', gif: 'dot.gif', bmp: 'wide.bmp', webp: 'wide.webp', ico: 'mark.ico' }
+    const sources = {
+      jpg: 'wide.jpg',
+      gif: 'dot.gif',
+      bmp: 'wide.bmp',
+      webp: 'wide.webp',
+      ico: 'mark.ico',
+      tiff: 'wide.tiff',
+      jxl: 'wide.jxl'
+    }
     const kindSrcs = new Set([src, svgSrc])
     for (const kind of kinds) {
       const said = await pickFor(`kind-${kind}`, join(picks, sources[kind]))
@@ -24726,7 +24753,7 @@ async function folderIconFileScenario(fixtures) {
         const at = (x, y) => ctx.getImageData(x, y, 1, 1).data[3]
         return { size: [pic.naturalWidth, pic.naturalHeight], top: at(32, 4), middle: at(32, 32), left: at(2, 32) }
       })
-    for (const kind of ['bmp', 'jpg']) {
+    for (const kind of ['bmp', 'jpg', ...converted]) {
       // A 2:1 picture fills 64 x 32 at y 16: clear above, solid across.
       const a = await alphaOf(`kind-${kind}`)
       ok(
