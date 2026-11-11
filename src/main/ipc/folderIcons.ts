@@ -12,8 +12,8 @@ import {
   saveIconPng,
   type IconDecoders
 } from '../folderIconFiles'
-import { heicToJpeg } from '../heicClient'
-import { decodeIconPng } from '../imageDecode'
+import { heicToJpegForCopy } from '../heicClient'
+import { decodeIconPng, shrinkIconPng } from '../imageDecode'
 import { userPaths } from '../paths'
 import { readRawPreview } from '../rawPreview'
 
@@ -23,7 +23,8 @@ const decoders = (): IconDecoders => {
   const ffmpeg = ffmpegTools()?.ffmpeg ?? null
   return {
     toPng: ffmpeg ? (file) => decodeIconPng(ffmpeg, file, ICON_CONVERT_PX) : null,
-    heic: heicToJpeg,
+    shrink: ffmpeg ? (jpeg) => shrinkIconPng(ffmpeg, jpeg, ICON_CONVERT_PX) : null,
+    heic: heicToJpegForCopy,
     raw: readRawPreview
   }
 }

@@ -28,8 +28,8 @@ export { pngSize }
  *   from its header first, and a picture over 8,192 px a side is refused
  *   before the page decodes it (review M2).
  * - A kind the page cannot decode (2026-11-11; at most 256 MB) is converted
- *   here first: ffmpeg makes a PNG of at most 256 px a side, HEIC and camera
- *   raws a JPEG. Only that goes to the page.
+ *   here first: ffmpeg makes a PNG of at most 256 px a side (of a HEIC or
+ *   camera raw, from the JPEG its own route gives). Only that goes to the page.
  * - What comes back must be a PNG of at most 64 x 64; it is kept as
  *   `<folder-icons>/<sha256>.png`, so the same picture is one copy.
  * - The copies are handed to the page as data URLs, all at once.
@@ -46,28 +46,46 @@ export interface IconDecoders {
   /** ffmpeg's PNG of a still, at most `ICON_CONVERT_PX` a side (imageDecode.ts);
    *  null when this install has no ffmpeg. */
   toPng: ((file: string) => Promise<Uint8Array>) | null
-  /** A HEIC or HEIF as JPEG (the viewer's libheif worker, heicClient.ts). */
-  heic: (file: string, mtimeMs: number) => Promise<Uint8Array>
+  /** ffmpeg's same small PNG of a JPEG main already holds (a HEIC's, a raw's);
+   *  null when this install has no ffmpeg. */
+  shrink: ((jpeg: Uint8Array) => Promise<Uint8Array>) | null
+  /** A HEIC or HEIF as JPEG (libheif, heicClient.ts: the one-off worker,
+   *  uncached, so a pick never waits behind the viewer or evicts its decodes). */
+  heic: (file: string) => Promise<Uint8Array>
   /** A camera raw's own embedded JPEG (rawPreview.ts). */
   raw: (file: string) => Promise<Uint8Array>
 }
 
 const none = (): Promise<Uint8Array> => Promise.reject(new Error('no decoder'))
-const NO_DECODERS: IconDecoders = { toPng: null, heic: none, raw: none }
+const NO_DECODERS: IconDecoders = { toPng: null, shrink: null, heic: none, raw: none }
 
 const asBytes = (b: Uint8Array): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
 
+/** A HEIC's or raw's JPEG, made small by ffmpeg (review, 2026-11-11): a
+ *  9504 x 6336 raw preview or a 200 MP HEIC is then an icon, not refused.
+ *  No ffmpeg, or it fails: the JPEG itself, and the page's checks decide. */
+async function smallJpeg(jpeg: Uint8Array, d: IconDecoders): Promise<{ bytes: Uint8Array; type: string }> {
+  if (d.shrink) {
+    try {
+      return { bytes: asBytes(await d.shrink(jpeg)), type: 'image/png' }
+    } catch {
+      // The JPEG as it is.
+    }
+  }
+  return { bytes: jpeg, type: 'image/jpeg' }
+}
+
 /** A kind the page cannot decode, made into one it can: HEIC and camera raws
- *  through their own routes (JPEG), the rest through ffmpeg (a small PNG). */
+ *  through their own routes (JPEG, then made small), the rest through ffmpeg
+ *  (a small PNG). */
 async function convertIcon(
   path: string,
-  mtimeMs: number,
   d: IconDecoders
 ): Promise<{ bytes: Uint8Array; type: string } | { refused: IconRefusal }> {
   const ext = extname(path).toLowerCase()
   try {
-    if (ext === '.heic' || ext === '.heif') return { bytes: asBytes(await d.heic(path, mtimeMs)), type: 'image/jpeg' }
-    if (isRaw(path)) return { bytes: asBytes(await d.raw(path)), type: 'image/jpeg' }
+    if (ext === '.heic' || ext === '.heif') return await smallJpeg(asBytes(await d.heic(path)), d)
+    if (isRaw(path)) return await smallJpeg(asBytes(await d.raw(path)), d)
     if (!d.toPng) return { refused: 'no-decoder' }
     return { bytes: asBytes(await d.toPng(path)), type: 'image/png' }
   } catch {
@@ -93,7 +111,7 @@ export async function readIconSource(
     if (!s.isFile()) return { refused: 'unreadable' }
     if (s.size > (converted ? ICON_CONVERTED_MAX : ICON_SOURCE_MAX)) return { refused: 'too-big' }
     if (converted) {
-      const made = await convertIcon(path, s.mtimeMs, decoders)
+      const made = await convertIcon(path, decoders)
       if ('refused' in made) return made
       ;({ bytes, type } = made)
     } else {

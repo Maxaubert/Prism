@@ -1159,16 +1159,19 @@ drag only (PR 1), the built-in set and the picker (PR 2), icons from a file (PR 
   types like jxl, svg, png, jpg and so on." The dialog now offers every still the viewer shows (`fileKind`'s
   image list): the page's own kinds first (PNG, JPG, JPEG, JFIF, GIF, BMP, WEBP, ICO, SVG), then JPEG XL,
   AVIF, TIFF, HEIC, HEIF, PSD, TGA, QOI, JPEG 2000, DDS, EXR, HDR, the netpbm kinds and camera raws. Those
-  are CONVERTED IN MAIN before a byte goes to the page: HEIC and HEIF through the viewer's libheif worker,
-  a camera raw as its own embedded JPEG, the rest through the bundled ffmpeg (the process worker, never
-  main itself) as a PNG of at most 256 px a side, aspect and alpha kept, never made bigger. AVIF goes through
+  are CONVERTED IN MAIN before a byte goes to the page: HEIC and HEIF through libheif's one-off worker
+  (uncached, so a pick never waits behind the viewer or pushes out its decodes), a camera raw as its own
+  embedded JPEG, the rest through the bundled ffmpeg (the process worker, never main itself) as a PNG of at
+  most 256 px a side, aspect and alpha kept, never made bigger, and never under 1 px (a 4000 x 4 strip is
+  256 x 1). The HEIC's or raw's JPEG goes through the same ffmpeg step, so a 9504 x 6336 raw preview or a
+  200 MP HEIC becomes an icon instead of "too large" (review, 2026-11-11). AVIF goes through
   ffmpeg too: the page could draw it, but main cannot read its size from the header. The size checks are
   the converted picture's. A converted kind may be up to 256 MB on disk (ffmpeg reads it from its path); a
   page-decoded one stays at 16 MB, and both say "That file is too big for an icon." With no ffmpeg in the
   install, a kind that needs it says "Prism can't open that kind of picture here. Try a PNG or JPG." Picked
   pictures are still drawn in their own colours, never recoloured. Held by `src/main/folderIconFiles.test.ts`
   (each route, the caps, the refusals), `src/main/imageDecode.ffmpeg.test.ts` (a real TIFF, JPEG XL, AVIF,
-  QOI and TGA through the bundled ffmpeg), `lib/iconFromFile.test.ts` (the words) and the e2e
+  QOI and TGA, a thin strip and a 9504 x 6336 JPEG through the bundled ffmpeg), `lib/iconFromFile.test.ts` (the words) and the e2e
   `folderIconFile` (the dialog's kinds, a 32 MB TIFF and a JPEG XL kept as 64 px copies, centred).
 
 ## Drag files out of Prism (#103, owner, 2026-10-31)
