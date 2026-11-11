@@ -1,4 +1,4 @@
-import { realpath, watch, type FSWatcher } from 'fs'
+import { userFs, type FSWatcher } from './userFs'
 import type { DirChange } from '@shared/types'
 
 interface BrowseWatch {
@@ -18,7 +18,7 @@ let turnSeq = 0
 
 /** fs/promises has no realpath.native; the callback one is off main too. */
 function nativeRealpath(path: string): Promise<string> {
-  return new Promise((done, fail) => realpath.native(path, (err, out) => (err ? fail(err) : done(out))))
+  return new Promise((done, fail) => userFs.realpath.native(path, (err, out) => (err ? fail(err) : done(out))))
 }
 
 /** The tab's watcher, compared before and after a `browse:watch` call so its
@@ -61,7 +61,7 @@ export async function setBrowseWatch(
     // lookup is awaited (owner, 2026-10-12: main never waits on the disk).
     const nativePath = await nativeRealpath(path)
     if (turns.get(tabId) !== turn) return true // a newer ask or a close decides
-    const watcher = watch(nativePath, { recursive: false, persistent: false }, (_event, name) => {
+    const watcher = userFs.watch(nativePath, { recursive: false, persistent: false }, (_event, name) => {
       if (inside && (!name || String(name).toLowerCase() !== inside.only.toLowerCase())) return
       const current = watches.get(tabId)
       if (!current || current.watcher !== watcher) return

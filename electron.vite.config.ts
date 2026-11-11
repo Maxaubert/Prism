@@ -66,6 +66,8 @@ export default defineConfig({
     resolve: { alias: { '@shared': resolve('src/shared') } },
     build: {
       rollupOptions: {
+        // Electron's unpatched fs, for the user's files (src/main/userFs.ts).
+        external: ['original-fs'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           // Forked as a utility process so HEIC decoding never blocks the main one.

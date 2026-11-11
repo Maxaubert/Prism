@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
-import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from 'fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from './userFs'
 import { dirname, isAbsolute, join, resolve, sep } from 'path'
 import type { FolderSizeResult } from '@shared/folderSize'
 import { folderSize } from './folderSize'

@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, unlink } from 'fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, unlink } from './userFs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import type { BinDeleteResult, BinRestoreResult, MoveClash, MoveOnClash } from '@shared/ipcTypes'
 import { inBinFolder } from '@shared/binPath'

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { access, mkdir, readdir, rm, rename, stat, utimes, writeFile } from 'fs/promises'
+import { access, mkdir, readdir, rm, rename, stat, utimes, writeFile } from './userFs'
 import { join, relative } from 'path'
 import { comicPages } from '@shared/comicPages'
 import { extractAllSeven } from './sevenZip'

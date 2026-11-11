@@ -2,8 +2,7 @@
 import { spawn } from 'child_process'
 import { holders } from './holders'
 import { createHash } from 'crypto'
-import { rmSync } from 'fs'
-import { mkdir, readdir, rename, rm, stat, utimes } from 'fs/promises'
+import { mkdir, readdir, rename, rm, stat, userFs, utimes } from './userFs'
 import { join } from 'path'
 import { chromiumCanDemux, needsSidecar, type MediaInfo } from './ffmpeg'
 
@@ -278,7 +277,7 @@ export function cancelAllConversions(): void {
     job.kill()
     try {
       // sync-ok: quit; will-quit cannot await, and the process is going
-      rmSync(job.out + '.part', { force: true })
+      userFs.rmSync(job.out + '.part', { force: true })
     } catch {
       /* EBUSY right after kill(): the next conversion of this file overwrites it */
     }

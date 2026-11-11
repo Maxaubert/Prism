@@ -25,7 +25,7 @@
 // with the holders (#127).
 // spawn-ok: an HLS job streams segments from ffmpeg, as phone/jobs.ts does.
 import { spawn as nodeSpawn } from 'child_process'
-import { readFile } from 'fs/promises'
+import { readFile } from './userFs'
 import type { MediaInfo } from './ffmpeg'
 import { needsSidecar } from './ffmpeg'
 import { ENCODE_MAX_HEIGHT, isHdr, type PlayPlan } from './phone/decide'

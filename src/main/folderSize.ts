@@ -1,4 +1,4 @@
-import { lstat, opendir, realpath } from 'fs/promises'
+import { lstat, opendir, realpath } from './userFs'
 import { isAbsolute, join, resolve, sep } from 'path'
 import type { FolderSizeResult } from '@shared/folderSize'
 

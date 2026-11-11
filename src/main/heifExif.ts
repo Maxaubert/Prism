@@ -1,4 +1,4 @@
-import { open, type FileHandle } from 'fs/promises'
+import { open, type FileHandle } from './userFs'
 
 /**
  * The Exif block inside a HEIC, dug out by hand.

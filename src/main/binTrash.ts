@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, readdir, rename, stat, unlink, writeFile } from './userFs'
 import { randomBytes } from 'crypto'
 import { extname, join, parse } from 'path'
 import { exists } from './fsUtil'

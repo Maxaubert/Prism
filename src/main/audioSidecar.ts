@@ -1,6 +1,6 @@
 import { spawnStream, type StreamChild } from './spawnWorker'
 import { holders } from './holders'
-import { access } from 'fs/promises'
+import { access } from './userFs'
 import {
   findFfmpeg,
   parseRange,
