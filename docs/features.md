@@ -1313,16 +1313,27 @@ me back". This REPLACES the old "rows keep the saved scroll" rule (back from the
   finger, the middle button's autoscroll, a sweep's autoscroll) so the selection leaves the view, nothing
   snaps back, not even a refresh of the folder, until the selection CHANGES (an arrow, a click, a pick from
   outside). Scrolling back to it by hand follows again. An arrow key while the selection is out of view
-  steps from the selection and brings the new row into view.
+  steps from the selection and brings the new row into view. The hand's choice is kept per tab and place:
+  another tab and back, or Back and Forward, that put the same position back do not snap to the selection
+  (one list serves every tab, review 2026-11-12). A new history entry or a sort starts from its own position
+  and follows. Ctrl+A letting go of a Ctrl+arrow cursor picks nothing new, so the list does not jump back to
+  the row the selection was on.
 - **How the hand is told apart** (`BrowseList`): by its INPUT, never by the scroll event. A scroll counts as
   the hand's while one of those inputs holds it or for 800 ms after the last one (`HAND_MS`); the list's own
-  scrolls (a restore, a zoom's anchor, a follow) never do.
+  scrolls (a restore, a zoom's anchor, a reveal, a follow) never do, even inside that window: a scroll that
+  lands where the list's own last write put it is the list's (`own`). A new selection does not wipe the
+  hand's window, so a wheel's smooth scroll still running after a click is still the hand's.
+- **Not covered**: in rows, back from the viewer keeps the pick the list had, not the file the viewer's Up
+  and Down walked to (the grid takes that file, Stage 5); the follow brings that old pick into view. Which
+  file rows should pick is the owner's call. A search hit whose page of results is not loaded yet is
+  followed once that page arrives. The same file picked again from outside while the hand is away (it is
+  already the selection) does not bring it back.
 - **Cheap**: the selection's index is walked only when the selection or the listing changes (memoized
   `rowIndexOf`); a scroll costs a sum or two, so a folder of 100k entries does no walk per frame.
 - **Held by** e2e `selectionInView` (300 files and a fake bin: a handed-over file and two typed paths far
-  down, a click on a cut row and five deletes in a row, a sort both ways, Ctrl+wheel zoom, a wheel away that
-  a new file in the folder does not undo and Down bringing the next file back, and the grid's sort, wheel
-  and Right).
+  down, a click on a cut row and five deletes in a row, a sort both ways, Ctrl+wheel zoom, a shorter window,
+  a wheel away that a new file in the folder and another tab and back do not undo, Down bringing the next
+  file back, and the grid's sort, wheel and Right).
 
 ## Escape never closes Prism (#14, owner, 2026-11-01)
 
