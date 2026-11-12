@@ -69,6 +69,24 @@ import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
 import { FolderFill } from '../icons/Icon'
 
 const OVERSCAN = 12
+/** How long after the hand's last input (a wheel notch, a sweep's step) a
+ *  scroll still counts as the hand's: a wheel's smooth scroll runs on after it. */
+const HAND_MS = 800
+/** A path's row in the list as drawn (dividers counted), or -1. */
+function rowIndexOf(
+  path: string | null | undefined,
+  entries: readonly BrowseEntry[],
+  indexedRows: Map<number, BrowseEntry | null> | undefined,
+  divided: ReturnType<typeof divideRows> | null
+): number {
+  if (!path) return -1
+  if (indexedRows) {
+    for (const [index, entry] of indexedRows) if (entry?.path === path) return index
+    return -1
+  }
+  const at = entries.findIndex((entry) => entry.path === path)
+  return divided && at >= 0 ? divided.rowOf(at) : at
+}
 /** The common keys the list answers itself (#330). */
 const LIST_OWN: ReadonlySet<ListKey> = new Set<ListKey>([
   'select-all',
@@ -356,12 +374,13 @@ export function BrowseList(props: Props): JSX.Element {
   const scale = Math.max(1, (contentH - height) / Math.max(1, spaceHeight - height))
   const logicalTop =
     liveTop >= spaceHeight - height - 1 ? Math.max(0, contentH - height) : liveTop * scale
-  const loadedSelectedIndex = props.indexedRows
-    ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
-    : (() => {
-        const at = props.entries.findIndex((entry) => entry.path === props.selectedPath)
-        return divided && at >= 0 ? divided.rowOf(at) : at
-      })()
+  // A walk of the listing, so it is done when the selection or the listing
+  // changes and never per scroll (a scroll re-renders this list, and a folder
+  // can hold a hundred thousand entries).
+  const loadedSelectedIndex = useMemo(
+    () => rowIndexOf(props.selectedPath, props.entries, props.indexedRows, divided),
+    [props.selectedPath, props.entries, props.indexedRows, divided]
+  )
   const selectedIndex = loadedSelectedIndex
   useLayoutEffect(() => {
     if (loadedSelectedIndex >= 0 && props.selectedPath)
@@ -471,6 +490,12 @@ export function BrowseList(props: Props): JSX.Element {
     const g = geometry.current
     return top >= g.spaceHeight - g.height - 1 ? Math.max(0, g.contentH - g.height) : top * g.scale
   }
+  /** The hand's last scrolling input, and a scroll it is holding (the
+   *  scrollbar's thumb, a finger, the middle button's autoscroll). */
+  const hand = useRef<{ at: number; hold: 'bar' | 'touch' | 'auto' | null }>({
+    at: -Infinity,
+    hold: null
+  })
   const sweep = useSweep({
     scroller: () => scroller.current,
     // Read at the press and after a scroll only (#332): never per move.
@@ -569,6 +594,8 @@ export function BrowseList(props: Props): JSX.Element {
     scrollBy: (dy) => {
       const node = scroller.current
       if (!node) return
+      // The sweep's autoscroll is the hand's: the pointer at the edge asks it.
+      hand.current.at = performance.now()
       node.scrollTop += dy / geometry.current.scale
     },
     onChange: (paths) => setSweeping({ paths, add: sweepAdd.current }),
@@ -847,12 +874,8 @@ export function BrowseList(props: Props): JSX.Element {
     setCursor(null)
   }
   /** A path's row in the list as drawn (dividers counted), or -1. */
-  const indexOfPath = (path: string): number => {
-    if (props.indexedRows)
-      return [...props.indexedRows].find(([, entry]) => entry?.path === path)?.[0] ?? -1
-    const at = props.entries.findIndex((entry) => entry.path === path)
-    return divided && at >= 0 ? divided.rowOf(at) : at
-  }
+  const indexOfPath = (path: string): number =>
+    rowIndexOf(path, props.entries, props.indexedRows, divided)
   /** Bring a row into view, stepping off a divider the way `toward` points;
    *  the row's entry, or null when it is not there to land on. */
   /** Scroll so the row at `index` is in view (its divider too, at a group's
@@ -905,20 +928,131 @@ export function BrowseList(props: Props): JSX.Element {
     revealedSeq.current = want.seq
     scrollToRow(node, index)
   })
-  // BACK FROM THE VIEWER LANDS ON THE OPENED TILE (Stage 5, spec 5.2). The
-  // viewer's Up and Down walk the folder while the list is away, so the
-  // tab's saved scroll is where the list WAS, not where the opened file is.
-  // Once per mount, when the listing is there, a grid scrolls the picked tile
-  // into view (rows keep the saved scroll, as they always have).
-  const mountReveal = useRef(true)
+  /**
+   * THE LIST FOLLOWS THE SELECTION (owner, 2026-11-12: "i always want the
+   * selcted file unless i scroll awayu form it manually to always be in view,
+   * if i use the arrow keys to navigate when somethign not in view, the next
+   * one shoudl bring me back"). Whenever the selected row (or the keyboard's
+   * cursor, while the Ctrl keys hold it apart) would be out of view, for any
+   * reason, it is scrolled minimally into view, at the nearest edge, as the
+   * arrows do: a selection set from outside (a file opened by its path, a
+   * link, Win+E, back from the viewer in rows and the grid alike, the next
+   * row after a delete, an undo, a paste landing), and the view changing
+   * under a selection that stays (the listing arriving or refreshing, rows
+   * inserted above it, a sort, a zoom step, list to grid, a resize).
+   *
+   * THE HAND WINS. Once the user scrolls by hand (the wheel or a touchpad,
+   * the scrollbar's thumb, a finger, the middle button's autoscroll, a
+   * sweep's autoscroll) so that the selection leaves the view, following
+   * stops until the selection CHANGES (an arrow, a click, a pick from
+   * outside). The hand is told apart from the list's own scrolls by its
+   * INPUT, never by the scroll event: a scroll counts as the hand's while one
+   * of those inputs holds it or for HAND_MS after the last of them. Scrolling
+   * back to the selection by hand follows again.
+   *
+   * Cheap: the index is walked only when the selection or the listing
+   * changes (`rowIndexOf`, memoized), and a scroll asks a sum or two.
+   */
+  const followPath = cursor ?? props.selectedPath ?? null
+  const cursorIndex = useMemo(
+    () => (cursor === null ? -1 : rowIndexOf(cursor, props.entries, props.indexedRows, divided)),
+    [cursor, props.entries, props.indexedRows, divided]
+  )
+  const followIndex = cursor !== null ? cursorIndex : loadedSelectedIndex
+  /** The row at `index` is wholly inside the list's box. */
+  const cellInView = (node: HTMLDivElement, index: number): boolean => {
+    const visibleTop = node.scrollTop * scale
+    return cellTop(index) >= visibleTop - 1 && cellBottom(index) <= visibleTop + node.clientHeight + 1
+  }
+  const detached = useRef(false)
+  const followed = useRef<string | null>(null)
+  const followNow = useRef({ index: followIndex, inView: cellInView })
+  useLayoutEffect(() => {
+    followNow.current = { index: followIndex, inView: cellInView }
+  })
+  /** A scroll event: the hand's, it decides whether the list still follows. */
+  const scrollFollow = (node: HTMLDivElement): void => {
+    const h = hand.current
+    if (!h.hold && performance.now() - h.at > HAND_MS) return
+    const { index, inView } = followNow.current
+    detached.current = index >= 0 && !inView(node, index)
+  }
   useLayoutEffect(() => {
     const node = scroller.current
-    if (!mountReveal.current || !node || props.loading || !count) return
-    mountReveal.current = false
-    if (layout && loadedSelectedIndex >= 0) scrollToRow(node, loadedSelectedIndex)
-    // scrollToRow reads this render's geometry; once is what is wanted.
+    const area = node?.closest<HTMLElement>('.browse-list-area')
+    if (!node || !area) return
+    const now = (): number => performance.now()
+    const onWheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey) hand.current = { at: now(), hold: null }
+    }
+    const onDown = (e: PointerEvent): void => {
+      const h = hand.current
+      // A press ends the middle button's autoscroll (Chromium's own), and
+      // that press is the hand's too.
+      if (h.hold === 'auto') hand.current = { at: now(), hold: null }
+      const at = e.target as HTMLElement
+      if (at.closest('.browse-overlay-scroll')) hand.current = { at: now(), hold: 'bar' }
+      else if (!node.contains(at)) return
+      else if (e.pointerType === 'touch') hand.current = { at: now(), hold: 'touch' }
+      else if (e.button === 1) hand.current = { at: now(), hold: 'auto' }
+    }
+    const onUp = (): void => {
+      const h = hand.current
+      // A finger's fling runs on after it lifts.
+      if (h.hold === 'bar') hand.current = { at: now(), hold: null }
+      else if (h.hold === 'touch') hand.current = { at: now() + 1200, hold: null }
+    }
+    const onKey = (): void => {
+      if (hand.current.hold === 'auto') hand.current = { at: now(), hold: null }
+    }
+    const onDragOver = (): void => {
+      hand.current = { ...hand.current, at: now() }
+    }
+    node.addEventListener('wheel', onWheel, { passive: true, capture: true })
+    node.addEventListener('dragover', onDragOver, { passive: true })
+    area.addEventListener('pointerdown', onDown, { capture: true })
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onUp, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      node.removeEventListener('wheel', onWheel, { capture: true })
+      node.removeEventListener('dragover', onDragOver)
+      area.removeEventListener('pointerdown', onDown, { capture: true })
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onUp, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [])
+  // After the tab's own scroll is put back (the effect at the top) and after
+  // a zoom's anchor: neither is fought while the selection is in view anyway.
+  useLayoutEffect(() => {
+    if (followPath !== followed.current) {
+      // A new selection: the list follows again, whatever the hand did.
+      followed.current = followPath
+      detached.current = false
+      hand.current = { at: -Infinity, hold: hand.current.hold }
+    }
+    const node = scroller.current
+    if (!node || props.loading || props.message || detached.current || followIndex < 0) return
+    if (followIndex >= count) return
+    if (!cellInView(node, followIndex)) scrollToRow(node, followIndex)
+    // cellInView and scrollToRow read this render's geometry, listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.loading, count])
+  }, [
+    followPath,
+    followIndex,
+    count,
+    rowHeight,
+    cols,
+    lead,
+    height,
+    width,
+    scale,
+    zoomStep,
+    live.taken,
+    props.loading,
+    props.message
+  ])
   const focusRow = (index: number): void => {
     const node = scroller.current
     if (!node) return
@@ -1118,7 +1252,6 @@ export function BrowseList(props: Props): JSX.Element {
           ? selectionPosition.current.index
           : -1
     // The plain arrows carry on from a cursor the Ctrl keys moved (#330).
-    const cursorIndex = cursor !== null ? indexOfPath(cursor) : -1
     const currentIndex =
       pendingFocus.current ??
       (cursorIndex >= 0
@@ -1436,6 +1569,7 @@ export function BrowseList(props: Props): JSX.Element {
             )
               columnScroller.current.scrollLeft = e.currentTarget.scrollLeft
             if (!props.loading) scrolledTo(e.currentTarget.scrollTop)
+            scrollFollow(e.currentTarget)
           }}
           // Empty space clears the pick QUIETLY: it is not a request to stop what
           // the preview plays (owner, 2026-10-03: "i should have to click the
