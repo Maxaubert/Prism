@@ -12251,7 +12251,13 @@ async function gridBasicScenario(fixtures) {
     ok(before.includes('i0000.jpg') && !before.includes('t0000.txt'), `by name the photos come first (${before.join(' ')})`)
     await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
     await sleep(500)
-    const firstFile = async () => (await names()).find((n) => /\.(txt|jpg|mp4)$/.test(n))
+    // The sort keeps the picked tile (i0001, Back's pick) in view (owner,
+    // 2026-11-12), so the order is read from the top.
+    const firstFile = async () => {
+      await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 0 })
+      await sleep(250)
+      return (await names()).find((n) => /\.(txt|jpg|mp4)$/.test(n))
+    }
     const a = await firstFile()
     await win.locator('.browse-list-area .browse-columns button', { hasText: 'Date modified' }).click()
     await sleep(500)
@@ -12260,9 +12266,13 @@ async function gridBasicScenario(fixtures) {
     await win.locator('.browse-list-area .browse-columns button', { hasText: 'Name' }).click()
     await sleep(400)
 
-    // The item under the pointer stays under it across list and grid.
-    await win.evaluate(() => { document.querySelector('[data-testid="browse-list"]').scrollTop = 3000 })
-    await sleep(300)
+    // The item under the pointer stays under it across list and grid. Scrolled
+    // there BY HAND, as a person gets there: the list then lets go of the
+    // picked tile instead of following it through the zoom (owner, 2026-11-12).
+    const handAt = await win.evaluate(() => { const b = document.querySelector('[data-testid="browse-list"]').getBoundingClientRect(); return { x: b.left + 100, y: b.top + 100 } })
+    await win.mouse.move(handAt.x, handAt.y)
+    await win.mouse.wheel(0, 3000)
+    await sleep(800)
     let px = at.x
     let py = at.y
     let cur = await under(px, py)
@@ -12845,6 +12855,13 @@ async function gridSweepScenario(fixtures) {
     // list is narrower and the columns change: measure again after it settles.
     const fresh = async () => {
       await sleep(600)
+      // A click on a tile the bottom edge cuts brings all of it in (owner,
+      // 2026-11-12): back to the top by hand, which the list then leaves be.
+      const lb = await win.evaluate((sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 } }, GL)
+      await win.mouse.move(lb.x, lb.y)
+      await win.mouse.wheel(0, -3000)
+      await sleep(600)
+      await win.mouse.move(5, 5)
       const f = await gridGeo(win)
       const c = gridCols(f)
       const tt = (i) => f.tiles.find((x) => x.i === i)
@@ -17599,7 +17616,15 @@ async function dragZipInsideScenario(fixtures) {
     z.addFile('sub/keep.txt', Buffer.from('keep'))
     z.writeZip(zipPath)
   }
-  const names = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  // A read while Prism is still writing the zip (EBUSY, or no END header yet)
+  // is "not yet", not a crash: `until` asks again.
+  const names = () => {
+    try {
+      return new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+    } catch {
+      return []
+    }
+  }
   const { app, win } = await launch(join(dir, 'anchor.txt'))
   const name = (suffix) => zipRow(win, suffix).first().locator('.browse-name-text')
   try {
@@ -20471,6 +20496,9 @@ async function newFolder2000Scenario() {
     await win.locator(`[data-testid="browse-list"] [data-browse-path="${pickSized.replace(/\\/g, '\\\\')}"]`).click()
     await win.evaluate(() => {
       const list = document.querySelector('[data-testid="browse-list"]')
+      // A scroll BY HAND (a wheel's input first): it takes the picked row out
+      // of view, so the re-sort must not follow it (owner, 2026-11-12).
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: 1, bubbles: true }))
       list.scrollTop = 130
       list.dispatchEvent(new Event('scroll'))
     })
@@ -27903,6 +27931,308 @@ async function caretTracksScenario(fixtures) {
   }
 }
 
+/**
+ * THE LIST FOLLOWS THE SELECTION (owner, 2026-11-12: "i always want the
+ * selcted file unless i scroll away form it manually to always be in view, if
+ * i use the arrow keys to navigate when somethign not in view, the next one
+ * shoudl bring me back"). A folder of 300 files and a FAKE bin
+ * (PRISM_E2E_BIN_DIRS; the real bin is never touched):
+ *   1. back from the viewer on a file far down, and a file opened by its path:
+ *      selected AND fully in view (rows, not only the grid);
+ *   2. a click on a row the bottom edge cuts, then Delete five times in a row:
+ *      the next row is selected and fully in view every time;
+ *   3. a sort change, both ways: the selection stays in view;
+ *   4. Ctrl+wheel zoom with the pointer at the top, the selection at the bottom,
+ *      and a window made shorter under a selection near the bottom;
+ *   5. wheel away by hand: nothing snaps back, not even when a new file lands
+ *      in the folder, nor after another tab and back (the tab's scroll put
+ *      back is the hand's); then Down picks the next file and brings it into view;
+ *   6. the grid: a sort change, a wheel away and Right, and back from the viewer.
+ */
+async function selectionInViewScenario(fixtures) {
+  console.log('the list follows the selection (owner, 2026-11-12)')
+  const base = join(fixtures, 'selinview')
+  rmSync(base, { recursive: true, force: true })
+  const dir = join(base, 'files')
+  mkdirSync(dir, { recursive: true })
+  const name = (i) => `f${String(i).padStart(3, '0')}.txt`
+  for (let i = 1; i <= 300; i++) writeFileSync(join(dir, name(i)), `${i}\n`)
+  // Pictures after the text files: a text file keeps the arrows in the viewer, a picture walks.
+  const PNG_BYTES = readFileSync(join(ROOT, 'build', 'icon.png'))
+  const pic = (i) => `p${String(i).padStart(2, '0')}.png`
+  for (let i = 1; i <= 12; i++) writeFileSync(join(dir, pic(i)), PNG_BYTES)
+  const bin = fakeBin(join(base, 'fake'), ['C'])
+  const LIST = '[data-testid="browse-list"]'
+  const leaf = (p) => /[^\\/]*$/.exec(p ?? '')?.[0] ?? ''
+  const { app, win } = await launchWith({ ...bin.env, ...NO_INDEX }, join(dir, name(1)))
+  const cdp = await win.context().newCDPSession(win)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  /** The selected row or tile, whether it is drawn, and whether it is wholly inside the list's box. */
+  const look = () =>
+    win.evaluate((l) => {
+      const list = document.querySelector(l)
+      if (!list) return null
+      const lb = list.getBoundingClientRect()
+      const row = list.querySelector('[data-browse-path][aria-selected="true"]')
+      const r = row?.getBoundingClientRect()
+      return {
+        selected: row?.getAttribute('data-browse-path') ?? '',
+        inView: !!r && r.height > 0 && r.top >= lb.top - 1 && r.bottom <= lb.bottom + 1,
+        top: Math.round(list.scrollTop),
+        focus: document.activeElement?.getAttribute?.('data-browse-path') ?? document.activeElement?.tagName ?? ''
+      }
+    }, LIST)
+  const said = async () => JSON.stringify(await look())
+  /** `n` is the selection and is wholly in view. */
+  const shows = (n, ms = 4000) =>
+    until(async () => {
+      const s = await look()
+      return !!s && leaf(s.selected) === n && s.inView
+    }, ms, 60)
+  /** `n` is drawn in view (selected or not). */
+  const drawnInView = (n) =>
+    win.evaluate(
+      ([l, file]) => {
+        const list = document.querySelector(l)
+        const lb = list.getBoundingClientRect()
+        const row = [...list.querySelectorAll('[data-browse-path]')].find((e) => /[^\\/]*$/.exec(e.getAttribute('data-browse-path'))?.[0] === file)
+        const r = row?.getBoundingClientRect()
+        return !!r && r.bottom > lb.top && r.top < lb.bottom
+      },
+      [LIST, n]
+    )
+  const listMiddle = () =>
+    win.evaluate((l) => {
+      const b = document.querySelector(l).getBoundingClientRect()
+      return { x: b.left + Math.min(200, b.width / 2), y: b.top + b.height / 2, top: b.top }
+    }, LIST)
+  const handWheel = async (dy, n) => {
+    const m = await listMiddle()
+    await win.mouse.move(m.x, m.y)
+    for (let i = 0; i < n; i++) {
+      await win.mouse.wheel(0, dy)
+      await sleep(120)
+    }
+    await sleep(500)
+  }
+  const sortByName = async () => {
+    await win.locator('.browse-columns button.browse-column-name:visible').first().click()
+    await sleep(500)
+  }
+  const deleteSelected = async (n) => {
+    await win.keyboard.press('Delete')
+    ok(await until(async () => (await win.locator('[role="dialog"]').count()) === 1, 4000), `Delete asks for ${n}`)
+    await win.keyboard.press('Enter')
+    return until(() => !existsSync(join(dir, n)), 6000)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector(`${LIST} .browse-row[data-browse-path]`, { timeout: 45000 })
+    await sleep(600)
+
+    // 1. Opened far down: in view on arrival, in rows as in the grid. First as
+    // a double-click in Windows or a link hands it over (a second launch).
+    await handoff(join(dir, name(250)))
+    await until(async () => (await viewing(win)).includes(name(250)), 8000)
+    await toList(win)
+    ok(await shows(name(250)), `a file handed over far down, ${name(250)}: back from the viewer it is selected and in view (${await said()})`)
+    await typePath(win, join(dir, name(40)))
+    await until(async () => (await win.locator(FOLDER_LIST).count()) === 0, 8000)
+    await toList(win)
+    ok(await shows(name(40)), `a file opened by its path, ${name(40)}: selected and in view in its folder (${await said()})`)
+    await typePath(win, join(dir, name(280)))
+    await until(async () => (await win.locator(FOLDER_LIST).count()) === 0, 8000)
+    await toList(win)
+    ok(await shows(name(280)), `and ${name(280)}, far down: selected and in view (${await said()})`)
+    // Back from the viewer in rows picks the LAST VIEWED file (owner, 2026-11-12).
+    await typePath(win, join(dir, pic(3)))
+    await until(async () => (await viewing(win)).includes(pic(3)), 8000)
+    await sleep(500)
+    for (let i = 0; i < 3; i++) {
+      await win.keyboard.press('ArrowDown')
+      await sleep(250)
+    }
+    ok(await until(async () => (await viewing(win)).includes(pic(6)), 8000), `Down three times in the viewer walks to ${pic(6)} (${await viewing(win)})`)
+    await toList(win)
+    ok(await shows(pic(6)), `rows: back from the viewer, the last viewed ${pic(6)} is selected and in view, not ${pic(3)} (${await said()})`)
+
+    // 2. A row the bottom edge cuts, then five deletes in a row.
+    const cut = await win.evaluate((l) => {
+      const list = document.querySelector(l)
+      const h = list.querySelector('.browse-row[data-browse-path]').getBoundingClientRect().height
+      const ch = list.clientHeight
+      list.scrollTop = Math.round(h * 50 + ((((h / 2 - (ch % h)) % h) + h) % h))
+      return h
+    }, LIST)
+    await sleep(400)
+    const edge = await win.evaluate((l) => {
+      const list = document.querySelector(l)
+      const lb = list.getBoundingClientRect()
+      const row = [...list.querySelectorAll('.browse-row[data-browse-path]')].find((e) => {
+        const r = e.getBoundingClientRect()
+        return r.top < lb.bottom - 3 && r.bottom > lb.bottom + 2
+      })
+      const r = row?.getBoundingClientRect()
+      return row ? { path: row.getAttribute('data-browse-path'), x: r.left + 60, y: (r.top + lb.bottom) / 2 } : null
+    }, LIST)
+    ok(!!edge, `a row is cut by the list's bottom edge (rows ${cut}px; ${JSON.stringify(edge)})`)
+    let at = edge ? Number(/f(\d+)\.txt$/.exec(edge.path)?.[1] ?? 0) : 100
+    if (edge) await win.mouse.click(edge.x, edge.y)
+    ok(await shows(name(at)), `a click on the cut row brings all of it into view (${await said()})`)
+    for (let k = 1; k <= 5; k++) {
+      ok(await deleteSelected(name(at)), `delete ${k}: ${name(at)} went to the fake bin`)
+      at += 1
+      ok(await shows(name(at)), `delete ${k}: the next file, ${name(at)}, is selected and in view (${await said()})`)
+    }
+    ok(readdirSync(bin.dirs[0]).some((n) => n.startsWith('$R')), 'the deletes landed in the FAKE bin')
+
+    // 3. A sort change keeps the selection in view, both ways.
+    const kept = name(at)
+    await sortByName()
+    ok(await shows(kept), `sorted by name descending, ${kept} is still in view (${await said()})`)
+    await sortByName()
+    ok(await shows(kept), `and ascending again (${await said()})`)
+
+    // 4. Zoom: the selection at the bottom, Ctrl+wheel up with the pointer at the top.
+    /** Click the last but one row wholly in view; its name. */
+    const pickNearBottom = async () => {
+      const bottom = await win.evaluate((l) => {
+        const list = document.querySelector(l)
+        const lb = list.getBoundingClientRect()
+        const rows = [...list.querySelectorAll('.browse-row[data-browse-path]')].filter((e) => {
+          const r = e.getBoundingClientRect()
+          return r.top >= lb.top && r.bottom <= lb.bottom
+        })
+        const row = rows[rows.length - 2]
+        const r = row.getBoundingClientRect()
+        return { path: row.getAttribute('data-browse-path'), x: r.left + 60, y: (r.top + r.bottom) / 2 }
+      }, LIST)
+      await win.mouse.click(bottom.x, bottom.y)
+      return leaf(bottom.path)
+    }
+    let low = await pickNearBottom()
+    ok(await shows(low), `${low}, near the bottom, is selected (${await said()})`)
+    const m = await listMiddle()
+    await win.mouse.move(m.x, m.top + 15)
+    for (let i = 0; i < 2; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, -100)
+      await win.keyboard.up('Control')
+      await sleep(200)
+    }
+    await sleep(400)
+    const step = await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))
+    ok(step === '3', `two notches up is step 3 (${step})`)
+    ok(await shows(low), `after the zoom ${low} is still in view (${await said()})`)
+    for (let i = 0; i < 2; i++) {
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, 100)
+      await win.keyboard.up('Control')
+      await sleep(200)
+    }
+    await sleep(400)
+    ok(await shows(low), `and after zooming back out (${await said()})`)
+    // A shorter window: the row near the bottom would be cut off, the list follows it.
+    low = await pickNearBottom()
+    ok(await shows(low), `${low}, near the bottom again, is selected (${await said()})`)
+    const size = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    const setSize = (w, h) =>
+      app.evaluate(({ BrowserWindow }, [sw, sh]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(sw, sh), [w, h])
+    await setSize(size[0], size[1] - 160)
+    await sleep(700)
+    ok(await shows(low), `a window 160px shorter keeps ${low} in view (${size} -> ${await said()})`)
+    await setSize(size[0], size[1])
+    await sleep(700)
+    ok(await shows(low), `and the window back to its size (${await said()})`)
+
+    // 5. Scrolled away by hand: it stays away, through a listing refresh; Down brings it back.
+    await handWheel(1500, 4)
+    let s = await look()
+    ok(!(await drawnInView(low)), `the wheel took ${low} out of view (${JSON.stringify(s)})`)
+    const away = s.top
+    writeFileSync(join(dir, 'a-new.txt'), 'new\n')
+    await sleep(2500)
+    s = await look()
+    ok(!(await drawnInView(low)) && Math.abs(s.top - away) < 200, `a new file in the folder does not snap the list back (${away} -> ${JSON.stringify(s)})`)
+    await sleep(1200)
+    ok(!(await drawnInView(low)), `nor does waiting (${await said()})`)
+    // Another tab and back: the tab's scroll is put back where the hand left
+    // it, and that is not followed either (one list serves every tab).
+    const leftAt = (await look()).top
+    const TAB = '[role="tablist"] [role="tab"]'
+    const tabCount = () => win.locator(TAB).count()
+    const frontTab = () => win.evaluate((t) => [...document.querySelectorAll(t)].findIndex((e) => e.getAttribute('aria-selected') === 'true'), TAB)
+    const tabsBefore = await tabCount()
+    const ours = await frontTab()
+    const newTab = await win.evaluate((d) => {
+      const was = { mode: localStorage.getItem('prism.newtab.mode'), folder: localStorage.getItem('prism.newtab.folder') }
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', d)
+      return was
+    }, base)
+    await win.keyboard.press('Control+t')
+    ok(await until(async () => (await tabCount()) === tabsBefore + 1 && (await frontTab()) !== ours, 6000), `Ctrl+T opens another tab (${tabsBefore} -> ${await tabCount()})`)
+    await sleep(1000)
+    await win.locator(TAB).nth(ours).click()
+    ok(await until(async () => (await frontTab()) === ours, 6000), `and a press on the folder's tab comes back (${await frontTab()})`)
+    await sleep(1200)
+    s = await look()
+    ok(!(await drawnInView(low)) && Math.abs(s.top - leftAt) < 3, `back on the tab, the list is where the hand left it, not on ${low} (${leftAt} -> ${JSON.stringify(s)})`)
+    await win.locator(TAB).nth(tabsBefore).click()
+    await until(async () => (await frontTab()) === tabsBefore, 6000)
+    await sleep(500)
+    await win.keyboard.press('Control+w')
+    await until(async () => (await tabCount()) === tabsBefore, 6000)
+    if ((await frontTab()) !== ours) await win.locator(TAB).nth(ours).click()
+    ok(await until(async () => (await tabCount()) === tabsBefore && (await frontTab()) === ours, 6000), `the other tab closes (${await tabCount()})`)
+    await sleep(1200)
+    s = await look()
+    ok(!(await drawnInView(low)) && Math.abs(s.top - leftAt) < 3, `and after it closed, still where the hand left it (${JSON.stringify(s)})`)
+    await win.evaluate((was) => {
+      for (const [k, v] of [['prism.newtab.mode', was.mode], ['prism.newtab.folder', was.folder]])
+        if (v === null) localStorage.removeItem(k)
+        else localStorage.setItem(k, v)
+    }, newTab)
+    // The keys go to the list again.
+    await win.locator(LIST).focus()
+    // The next file still there (the deletes took a run of them).
+    const left = readdirSync(dir).filter((n) => n.startsWith('f')).sort()
+    const next = left[left.indexOf(low) + 1]
+    await win.keyboard.press('ArrowDown')
+    ok(await shows(next), `Down picks the file after ${low}, ${next}, and brings it into view (${await said()})`)
+    await win.keyboard.press('Home')
+    ok(await shows('a-new.txt'), `the refresh had arrived: Home is the new file (${await said()})`)
+
+    // 6. The grid.
+    for (let i = 0; i < 4; i++) {
+      await win.keyboard.press('Control+Equal')
+      await sleep(300)
+    }
+    ok(await until(async () => (await win.locator(`${LIST} .browse-tile`).count()) > 0, 5000), `step 5 is the grid (${await win.evaluate(() => localStorage.getItem('prism.explorer.zoom'))})`)
+    await typePath(win, join(dir, name(200)))
+    await until(async () => (await win.locator(FOLDER_LIST).count()) === 0, 8000)
+    await toList(win)
+    ok(await shows(name(200)), `grid: back from the viewer on ${name(200)}, in view (${await said()})`)
+    await sortByName()
+    ok(await shows(name(200)), `grid: sorted descending, still in view (${await said()})`)
+    await sortByName()
+    ok(await shows(name(200)), `grid: and ascending (${await said()})`)
+    // The header's button kept the keyboard after the sort's click: the list takes it back.
+    await win.locator(LIST).focus()
+    await handWheel(-1500, 3)
+    ok(!(await drawnInView(name(200))), `grid: the wheel took it out of view (${await said()})`)
+    await sleep(1500)
+    ok(!(await drawnInView(name(200))), `grid: and it stays away (${await said()})`)
+    await win.keyboard.press('ArrowRight')
+    ok(await shows(name(201)), `grid: Right picks ${name(201)} and brings it into view (${await said()})`)
+    await win.screenshot({ path: join(SHOTS, 'selection-in-view-grid.png') })
+  } finally {
+    await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
 async function run(fn, gap = 900) {
   const name = fn.name.replace(/Scenario$/, '')
   if (!chosen(name)) return
@@ -30096,6 +30426,7 @@ await run(zoomFloorScenario)
 await run(rowPasteScenario)
 await run(deleteLastScenario)
 await run(deleteFocusScenario)
+await run(selectionInViewScenario)
 await run(busyQuickScenario)
 await run(busyHoldScenario)
 await run(busyPasteScenario)
