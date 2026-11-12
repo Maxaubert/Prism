@@ -1,4 +1,4 @@
-import { readFile as fsReadFile, readdir } from 'fs/promises'
+import { readFile as fsReadFile, readdir } from './userFs'
 import { extname, join } from 'path'
 import { fileKind } from '../shared/fileKind'
 import { byName } from '../shared/path'

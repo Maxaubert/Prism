@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { mkdtemp, readFile, stat, writeFile } from 'fs/promises'
+import { mkdtemp, readFile, stat, userFs, writeFile } from './userFs'
 import { tmpdir } from 'os'
 import { basename, join, relative, resolve } from 'path'
 import type { ArchiveMoveResult } from '@shared/ipcTypes'
@@ -32,11 +32,21 @@ import {
 // directly. Every adm-zip call below is synchronous by design and is fine
 // HERE because this thread owns no window.
 
+/**
+ * adm-zip does its OWN file reads and writes (addLocalFile, addLocalFolder,
+ * extract, writeZip) through `require('fs')`, which is the asar-patched fs in
+ * this utility process: an .asar added to a zip became an EMPTY folder entry
+ * and the move then binned the original. So every instance gets the plain fs.
+ */
+function openZip(zipPath: string): AdmZip {
+  return new AdmZip(zipPath, { fs: userFs })
+}
+
 /** Every entry, folders included. Sorted folders-first per level by the
  *  renderer; this just reports. */
 export function listArchive(zipPath: string): ArchiveEntry[] {
   // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-  return listZip(new AdmZip(zipPath))
+  return listZip(openZip(zipPath))
 }
 
 /** Extract one member to a fresh temp dir. */
@@ -46,7 +56,7 @@ export async function extractMember(
   password?: string
 ): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-  const zip = new AdmZip(zipPath)
+  const zip = openZip(zipPath)
   const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
   if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
   const like = entry as unknown as ZipEntryLike
@@ -81,7 +91,7 @@ export async function renameMember(
   if (!validMemberName(newName)) return 'failed'
   const p = norm(entryPath)
   // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-  const zip = new AdmZip(zipPath)
+  const zip = openZip(zipPath)
   const entry = zip.getEntry(p)
   if (!entry || entry.isDirectory) return 'failed'
   const folder = p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : ''
@@ -115,7 +125,7 @@ export async function renameMember(
 export function deleteMember(zipPath: string, entryPath: string): boolean {
   const p = norm(entryPath)
   // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-  const zip = new AdmZip(zipPath)
+  const zip = openZip(zipPath)
   const entry = zip.getEntry(p)
   // A FOLDER (or a folder that exists only as a prefix of its members) takes
   // its whole subtree with it. Undo of a folder dragged INTO a zip needs this,
@@ -138,7 +148,7 @@ export function deleteMember(zipPath: string, entryPath: string): boolean {
 export function archiveStat(zipPath: string): ArchiveStat | null {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-    const zip = new AdmZip(zipPath)
+    const zip = openZip(zipPath)
     const folders = new Set<string>()
     let files = 0
     let uncompressed = 0
@@ -169,7 +179,7 @@ export function archiveStat(zipPath: string): ArchiveStat | null {
  *  it (add, move) refuse rather than quietly corrupting the archive. */
 export function hasEncrypted(zipPath: string): boolean {
   // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-  return encryptedIn(new AdmZip(zipPath))
+  return encryptedIn(openZip(zipPath))
 }
 
 /** `hasEncrypted` for a zip already open: add and move read the container
@@ -194,7 +204,7 @@ export async function addToArchive(
 ): Promise<AddResult> {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-    const zip = new AdmZip(zipPath)
+    const zip = openZip(zipPath)
     if (encryptedIn(zip)) return 'encrypted'
     const taken = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
     const clashes: string[] = []
@@ -280,7 +290,7 @@ export function moveMembers(
 ): ArchiveMoveResult {
   try {
     // sync-ok: adm-zip, in the zip worker (zipWorker.ts), never on main
-    const zip = new AdmZip(zipPath)
+    const zip = openZip(zipPath)
     if (encryptedIn(zip)) return 'encrypted'
     const dest = norm(destFolder)
     const all = zip.getEntries().map((e) => norm(e.entryName))

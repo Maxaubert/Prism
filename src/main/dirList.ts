@@ -1,5 +1,4 @@
-import { realpathSync, type Dirent } from 'fs'
-import { readdir, realpath, stat } from 'fs/promises'
+import { readdir, realpath, stat, userFs, type Dirent } from './userFs'
 import { basename, extname, join, resolve, sep } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { byName } from '@shared/path'
@@ -31,7 +30,7 @@ function canonical(p: string): string {
   let found = true
   try {
     // sync-ok: the root wall's canonical path check; its guards answer inline, by design
-    r = realpathSync.native ? realpathSync.native(p) : realpathSync(p)
+    r = userFs.realpathSync.native ? userFs.realpathSync.native(p) : userFs.realpathSync(p)
   } catch {
     r = resolve(p)
     found = false

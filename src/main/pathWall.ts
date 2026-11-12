@@ -1,4 +1,4 @@
-import { lstat } from 'fs/promises'
+import { lstat } from './userFs'
 import { basename, extname, isAbsolute, relative, resolve } from 'path'
 import { fileKind } from '@shared/fileKind'
 import { inBinFolder } from '@shared/binPath'

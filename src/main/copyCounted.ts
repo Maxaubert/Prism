@@ -1,5 +1,4 @@
-import { createReadStream, createWriteStream } from 'node:fs'
-import { lstat, mkdir, readdir, readlink, rm, stat, symlink, utimes } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readlink, rm, stat, symlink, userFs, utimes } from './userFs'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
 import { join } from 'node:path'
@@ -62,9 +61,9 @@ export async function copyCounted(
     }
     return
   }
-  const reader = createReadStream(src)
+  const reader = userFs.createReadStream(src)
   reader.on('data', (chunk) => tick(chunk.length))
-  const writer = createWriteStream(target, { flags: 'wx' })
+  const writer = userFs.createWriteStream(target, { flags: 'wx' })
   const signal = opts.signal ? { signal: opts.signal } : {}
   if (slowMs > 0) await pipeline(reader, slowed(), writer, signal)
   else await pipeline(reader, writer, signal)

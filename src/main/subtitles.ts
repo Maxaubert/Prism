@@ -1,5 +1,5 @@
 import { execFile } from './spawnWorker'
-import { readdir, readFile, stat } from 'fs/promises'
+import { readdir, readFile, stat } from './userFs'
 import { basename, dirname, extname, join } from 'path'
 import type { SubtitleTrack } from '@shared/ipcTypes'
 

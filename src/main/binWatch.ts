@@ -1,5 +1,4 @@
-import { watch, type FSWatcher } from 'fs'
-import { access } from 'fs/promises'
+import { access, userFs, type FSWatcher } from './userFs'
 import { BIN_PLACE } from '@shared/binPlace'
 import type { DirChange } from '@shared/types'
 
@@ -60,7 +59,7 @@ export async function setBinWatch(
   for (const [i, dir] of dirs.entries()) {
     if (!there[i]) continue
     try {
-      const w = watch(dir, { recursive: false, persistent: false }, changed)
+      const w = userFs.watch(dir, { recursive: false, persistent: false }, changed)
       w.on('error', () => {})
       current.watchers.push(w)
     } catch {

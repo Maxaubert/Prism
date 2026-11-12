@@ -1,9 +1,9 @@
-import { realpath } from 'fs'
+import { userFs } from '../userFs'
 import { isAbsolute } from 'path'
 import { promisify } from 'util'
 import { inBinFolder } from '@shared/binPath'
 
-const finalPath = promisify(realpath.native)
+const finalPath = promisify(userFs.realpath.native)
 import { grantDesktopDirectory, ownsDirectly, releaseDesktop } from '../desktopAccess'
 
 /**

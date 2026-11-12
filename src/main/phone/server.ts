@@ -24,7 +24,8 @@
  * never raises the firewall prompt.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import { createReadStream, promises as fsp } from 'fs'
+import { createReadStream, promises as fsp } from 'fs' // own-fs: serveStatic, the phone bundle in app.asar
+import { stat as userStat, userFs } from '../userFs'
 import { basename, dirname, join, extname, normalize } from 'path'
 import { Readable } from 'node:stream'
 import type {
@@ -598,7 +599,9 @@ export class PhoneServer {
       case ROUTE.stat: {
         if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
         try {
-          const st = await fsp.stat(path)
+          // The USER'S file: the plain fs, or an .asar is a 0-byte folder and
+          // the archive stays held open (EBUSY for a later delete).
+          const st = await userStat(path)
           return void json(res, 200, {
             size: st.size,
             mtimeMs: st.mtimeMs,
@@ -764,9 +767,11 @@ export class PhoneServer {
     res: ServerResponse,
     cache = 'no-store'
   ): Promise<void> {
-    let st: Awaited<ReturnType<typeof fsp.stat>>
+    // A thumbnail or a segment Prism made, never inside its own app.asar:
+    // the plain fs, like every file that is not Prism's own asset.
+    let st: Awaited<ReturnType<typeof userStat>>
     try {
-      st = await fsp.stat(full)
+      st = await userStat(full)
     } catch {
       return void json(res, 404, { error: 'not found' })
     }
@@ -775,7 +780,7 @@ export class PhoneServer {
       'content-length': String(st.size),
       'cache-control': cache
     })
-    const s = createReadStream(full)
+    const s = userFs.createReadStream(full)
     s.on('error', () => res.destroy())
     res.on('close', () => s.destroy())
     s.pipe(res)

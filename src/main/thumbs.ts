@@ -33,7 +33,7 @@
  */
 import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
-import { promises as fsp } from 'fs'
+import * as fsp from './userFs'
 import { extname, join } from 'path'
 import { thumbKeepsAlpha } from '@shared/thumbAlpha'
 import { fileKind } from '@shared/fileKind'

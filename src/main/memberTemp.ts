@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
-import { rmSync } from 'fs'
-import { mkdir, readdir, rm, stat, statfs } from 'fs/promises'
+// The plain fs (userFs.ts): what lands here is the user's content, and a
+// member named *.asar must stat and remove as the file it is.
+import { mkdir, readdir, rm, stat, statfs, userFs } from './userFs'
 import { basename, isAbsolute, join, relative, resolve } from 'path'
 import { exists } from './fsUtil'
 
@@ -223,7 +224,7 @@ export class MemberTemp {
   removeRun(): void {
     try {
       // sync-ok: quit; an 'exit' handler cannot run async work
-      rmSync(this.dir, { recursive: true, force: true })
+      userFs.rmSync(this.dir, { recursive: true, force: true })
     } catch {
       /* held open: the next start removes it */
     }

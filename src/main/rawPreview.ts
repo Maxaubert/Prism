@@ -1,4 +1,4 @@
-import { open } from 'fs/promises'
+import { open } from './userFs'
 import { extname } from 'path'
 import { createLru } from './lru'
 

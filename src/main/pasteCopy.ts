@@ -1,4 +1,4 @@
-import { lstat, readdir } from 'node:fs/promises'
+import { lstat, readdir } from './userFs'
 import { join } from 'node:path'
 import { insideSelf } from './moveOps'
 

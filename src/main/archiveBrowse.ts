@@ -1,5 +1,4 @@
-import { statSync } from 'fs'
-import { readFile, stat } from 'fs/promises'
+import { readFile, stat, userFs } from './userFs'
 import { basename, extname, isAbsolute } from 'path'
 import type { ArchiveEntry, ArchiveMeta, DirEntry, DirListing, ViewerFile } from '@shared/types'
 import type { BrowseSearchResult } from '@shared/browse'
@@ -161,7 +160,7 @@ export function containerSync(path: string): string | null {
   for (const candidate of containerCandidates(path)) {
     try {
       // sync-ok: tab restore at startup (tabs.ts parseTabs); live callers use `container`
-      const s = statSync(candidate)
+      const s = userFs.statSync(candidate)
       if (s.isFile()) return candidate
       if (!s.isDirectory()) return null
     } catch {

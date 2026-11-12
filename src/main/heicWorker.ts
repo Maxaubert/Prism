@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises'
+import { readFile } from './userFs'
 import convert from 'heic-convert'
 
 // HEIC/HEIF decoding runs here, in a utility process, NOT in the main process.
