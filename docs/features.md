@@ -1294,6 +1294,36 @@ went with Explorer only (2026-10-26); this is the same rule in the Explorer's li
 - **Held by** `landMarks.test.ts`, `undoApply.test.ts` and e2e `landingMarks` (Duplicate, an undone delete
   scrolled to from the top, redo, a paste of two, an undone drop move, Extract here).
 
+## The list follows the selection (owner, 2026-11-12)
+
+Owner, 2026-11-12: "there are many cases where a file is selected but not in the main view automaticaly, so
+you havee to scroll to find it ... i alwasy want the selcted file unless i scroll awayu form it manually to
+always be in view, if i use the arrow keys to navigate when somethign not in view, the next one shoudl bring
+me back". This REPLACES the old "rows keep the saved scroll" rule (back from the viewer, only a grid scrolled).
+
+- **The rule**: whenever the selected row (or the keyboard's cursor, while Ctrl+arrows hold it apart) would be
+  out of view, for any reason, the list scrolls it minimally into view, at the nearest edge, as the arrows do
+  (a group's divider comes with its first row). That covers a selection set from outside (a file handed over
+  by a double-click in Windows or a link, a path typed in the address field, back from the viewer in rows and
+  the grid, the next row after one delete or several in a row, an undo, a paste or new folder landing, a
+  click on a row the edge cuts) and the view changing under a selection that stays (the listing arriving
+  late or refreshing, rows inserted above it, a sort, a zoom step, list to grid, a window or pane resize).
+  A saved scroll that already shows the selection is kept as it was.
+- **The hand wins**: once the user scrolls by hand (the wheel or a touchpad, the scrollbar's thumb, a
+  finger, the middle button's autoscroll, a sweep's autoscroll) so the selection leaves the view, nothing
+  snaps back, not even a refresh of the folder, until the selection CHANGES (an arrow, a click, a pick from
+  outside). Scrolling back to it by hand follows again. An arrow key while the selection is out of view
+  steps from the selection and brings the new row into view.
+- **How the hand is told apart** (`BrowseList`): by its INPUT, never by the scroll event. A scroll counts as
+  the hand's while one of those inputs holds it or for 800 ms after the last one (`HAND_MS`); the list's own
+  scrolls (a restore, a zoom's anchor, a follow) never do.
+- **Cheap**: the selection's index is walked only when the selection or the listing changes (memoized
+  `rowIndexOf`); a scroll costs a sum or two, so a folder of 100k entries does no walk per frame.
+- **Held by** e2e `selectionInView` (300 files and a fake bin: a handed-over file and two typed paths far
+  down, a click on a cut row and five deletes in a row, a sort both ways, Ctrl+wheel zoom, a wheel away that
+  a new file in the folder does not undo and Down bringing the next file back, and the grid's sort, wheel
+  and Right).
+
 ## Escape never closes Prism (#14, owner, 2026-11-01)
 
 Owner, 2026-11-01: "escape should not interact with app close". Escape never closes or quits Prism or a
@@ -2289,7 +2319,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   grid's only**: in the list they still reach the viewer (owner, 2026-09-01); `gridKey(e, false)` is null for
   them. A rename box's keys are never taken. Back from the viewer in a grid quietly picks the file that was
   on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; rows
-  keep the pick and scroll they had. Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
+  keep the pick they had, and since 2026-11-12 bring it into view too ("The list follows the selection").
+  Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
   **THE GRID IS REACHABLE** (zoom grid Stage 6, 2026-11-10; spec 5.4, 5.5, 5.7): `ZOOM_MAX_AVAILABLE` is 9 and the
   test-only `prism.explorer.zoomMax` key is gone. **Sweep**: a press on blank space (a gap, the right margin,
   under the last line) draws the box; a press on a tile is the tile's own drag. `lib/cellsInBox.ts` (pure)
