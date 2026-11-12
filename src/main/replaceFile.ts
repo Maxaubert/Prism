@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
-import { realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { realpath, rename, rm, writeFile } from './userFs'
 
 /** Refusals that mean "not this way", not "the disk is broken": a folder the
  *  user may not create files in, or a file another program holds open without

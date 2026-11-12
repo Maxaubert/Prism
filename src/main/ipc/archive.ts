@@ -1,7 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { basename, dirname, extname, join } from 'path'
-import { mkdir, mkdtemp, stat } from 'fs/promises'
+import { mkdir, mkdtemp, stat } from '../userFs'
 import { tmpdir } from 'os'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
@@ -383,7 +383,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    */
   async function unwrapSingleFolder(wrapper: string, parent: string): Promise<string> {
     try {
-      const fs = await import('fs/promises')
+      const fs = await import('../userFs')
       const kids = await fs.readdir(wrapper, { withFileTypes: true })
       if (kids.length !== 1 || !kids[0].isDirectory()) return wrapper
       let out = join(parent, kids[0].name)
@@ -763,7 +763,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
         let out2 = join(parent, name)
         for (let n = 2; (await exists(out2)) && n < 100; n += 1)
           out2 = join(parent, `${name} (${n})`)
-        const fs = await import('fs/promises')
+        const fs = await import('../userFs')
         try {
           await fs.rename(out1, out2)
         } catch (e) {

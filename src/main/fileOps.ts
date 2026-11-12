@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, stat } from 'fs/promises'
+import { mkdir, readdir, rename, stat } from './userFs'
 import { dirname, extname, join } from 'path'
 import type { OnClash, RenameResult } from '@shared/types'
 import type { BinIfEmptyResult } from '@shared/ipcTypes'

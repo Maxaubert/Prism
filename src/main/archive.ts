@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, writeFile } from './userFs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { crc32, inflateRaw } from 'zlib'
 import { Made } from './extractJob'

@@ -31,7 +31,7 @@
  * and the sender and the clock are handed in, so the tests need no 7-Zip and
  * no Electron.
  */
-import { mkdir, readdir, rm, rmdir } from 'fs/promises'
+import { mkdir, readdir, rm, rmdir } from './userFs'
 import { join } from 'path'
 import type { ExtractEvent, ExtractFail } from '../shared/extraction'
 

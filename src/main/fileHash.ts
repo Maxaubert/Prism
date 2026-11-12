@@ -1,6 +1,5 @@
 import { createHash } from 'crypto'
-import { createReadStream } from 'fs'
-import { stat } from 'fs/promises'
+import { stat, userFs } from './userFs'
 
 /**
  * A file's SHA-256, streamed, for the Properties window's Checksum row
@@ -28,7 +27,7 @@ export async function hashFile(
   }
   return new Promise((resolve) => {
     const hash = createHash('sha256')
-    const stream = createReadStream(path, { highWaterMark: 1 << 20 })
+    const stream = userFs.createReadStream(path, { highWaterMark: 1 << 20 })
     let done = 0
     let settled = false
     const finish = (value: string | null): void => {

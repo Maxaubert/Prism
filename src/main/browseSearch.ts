@@ -1,4 +1,4 @@
-import { opendir, realpath, stat } from 'fs/promises'
+import { opendir, realpath, stat } from './userFs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { BrowseSearchProgress, BrowseSearchResult } from '@shared/browse'
 import { SEARCH_WINDOW_MAX, type BrowseSearchWindowRequest, type BrowseSort } from '@shared/browse'

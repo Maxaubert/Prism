@@ -28989,6 +28989,186 @@ async function binEmptyScenario(fixtures) {
 }
 
 /**
+ * A REAL .asar ARCHIVE, written by hand (no packer needed): the size pickle,
+ * the header pickle with its JSON, then the bodies. Electron's own fs reads a
+ * file like this as a FOLDER, which is the point of the asar scenarios.
+ * `files` maps names to text; the archive's byte size is returned.
+ */
+function writeAsar(file, files) {
+  const entries = {}
+  const bodies = []
+  let offset = 0
+  for (const [name, text] of Object.entries(files)) {
+    const body = Buffer.from(text)
+    entries[name] = { size: body.length, offset: String(offset) }
+    offset += body.length
+    bodies.push(body)
+  }
+  const json = Buffer.from(JSON.stringify({ files: entries }))
+  const padded = Math.ceil(json.length / 4) * 4
+  const header = Buffer.alloc(8 + padded)
+  header.writeUInt32LE(4 + padded, 0)
+  header.writeUInt32LE(json.length, 4)
+  json.copy(header, 8)
+  const size = Buffer.alloc(8)
+  size.writeUInt32LE(4, 0)
+  size.writeUInt32LE(header.length, 4)
+  mkdirSync(dirname(file), { recursive: true })
+  const all = Buffer.concat([size, header, ...bodies])
+  writeFileSync(file, all)
+  return all.length
+}
+
+/**
+ * A BINNED FOLDER HOLDING AN .asar IS DELETED (owner, 2026-11-11: "4 of 4
+ * could not be deleted", an installed Electron app and two node projects in
+ * the bin). Electron's fs reads an .asar file as a folder, so the recursive
+ * remove failed on it and left only the .asar behind. Against a FAKE bin:
+ * three binned folders, each holding an .asar where the owner's did, plus a
+ * file. Delete permanently on two removes them whole, and Empty removes the
+ * third.
+ */
+async function binAsarScenario(fixtures) {
+  console.log('recycle bin: folders holding an .asar are deleted permanently and by Empty')
+  const base = join(fixtures, 'bin-asar')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  const orig = join(base, 'orig')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(orig, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const bin = fakeBin(join(base, 'fake'))
+  const now = Date.now()
+  const app1 = { 'package.json': '{"name":"stable"}', 'main.js': 'm'.repeat(400) }
+  bin.put(bin.dirs[0], 'A01', join(orig, 'PrismTerminalStable'), now - 1000, 'dir')
+  writeAsar(join(bin.dirs[0], '$RA01', 'resources', 'app.asar'), app1)
+  bin.put(bin.dirs[0], 'A02', join(orig, 'project-one'), now - 2000, 'dir')
+  writeAsar(join(bin.dirs[0], '$RA02', 'node_modules', 'electron', 'dist', 'resources', 'default_app.asar'), app1)
+  writeFileSync(join(bin.dirs[0], '$RA02', 'package.json'), '{}')
+  bin.put(bin.dirs[1], 'A03', join(orig, 'project-two'), now - 3000, 'dir')
+  writeAsar(join(bin.dirs[1], '$RA03', 'dist', 'win-unpacked', 'resources', 'app.asar'), app1)
+  bin.put(bin.dirs[1], 'A04.txt', join(orig, 'note.txt'), now - 4000, 'note')
+  const pairs = () => binPairs(bin.dirs[0]).length + binPairs(bin.dirs[1]).length
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, home))
+    await binOpen(win, 4)
+    // Let the bin's sizes be counted first: the count walks into the folders,
+    // and that walk is what used to open (and hold) each .asar as an archive.
+    await sleep(1500)
+
+    await binRowOf(win, 'PrismTerminalStable').click()
+    await binRowOf(win, 'project-one').click({ modifiers: ['Control'] })
+    await win.keyboard.press('Delete')
+    ok(await binDialogUp(win, /Delete 2 items permanently\?/), `asks for the two folders (${await binDialogText(win)})`)
+    await binAnswer(win, 'Delete permanently')
+    ok(
+      await until(() => binIsGone(bin.dirs[0], 'A01') && binIsGone(bin.dirs[0], 'A02'), 10000, 100),
+      `both folders are gone from disk, .asar and all (left: ${JSON.stringify(readdirSync(bin.dirs[0]))})`
+    )
+    ok(!/could not be deleted/.test(await win.locator('body').innerText()), 'and nothing says it could not be deleted')
+    ok(await until(async () => (await binNames(win)).length === 2, 6000, 100), `two rows are left (${JSON.stringify(await binNames(win))})`)
+
+    await binVerb(win, 'empty').click()
+    ok(await binDialogUp(win, /Empty the Recycle Bin\?/), 'Empty asks')
+    await binAnswer(win, 'Empty Recycle Bin')
+    ok(await until(() => pairs() === 0, 10000, 100), `Empty clears the rest (${pairs()} pairs left)`)
+    ok(
+      await until(() => !existsSync(join(bin.dirs[1], '$RA03')), 5000, 100),
+      `the folder holding dist\\win-unpacked\\resources\\app.asar is gone too (left: ${JSON.stringify(readdirSync(bin.dirs[1]))})`
+    )
+    ok(!/could not be deleted/.test(await win.locator('body').innerText()), 'and Empty did not say any could not be deleted')
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * AN .asar IS A FILE IN THE EXPLORER (owner, 2026-11-11). Electron's fs reads
+ * an .asar file as a folder; the user's own .asar files are files. Held: the
+ * list shows app.asar with its real size, Properties' stat calls it a file of
+ * that size, a folder's size counts its bytes, a copy of a folder holding one
+ * lands an identical FILE, a move carries it, and both sources can then be
+ * deleted (nothing holds the archive open).
+ */
+async function asarFilesScenario(fixtures) {
+  console.log('the user\'s .asar files are files: listed, sized, copied, moved and deleted')
+  const base = join(fixtures, 'asar-files')
+  rmSync(base, { recursive: true, force: true })
+  const home = join(base, 'home')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'a-file.txt'), 'x\n')
+  const files = { 'package.json': '{"name":"x"}', 'main.js': 'm'.repeat(500) }
+  const loose = join(home, 'app.asar')
+  const size = writeAsar(loose, files)
+  const proj = join(home, 'proj')
+  writeAsar(join(proj, 'resources', 'app.asar'), files)
+  writeFileSync(join(proj, 'readme.txt'), 'abc')
+  const proj2 = join(home, 'proj2')
+  writeAsar(join(proj2, 'resources', 'app.asar'), files)
+  const copyTo = join(home, 'copyTo')
+  const moveTo = join(home, 'moveTo')
+  mkdirSync(copyTo)
+  mkdirSync(moveTo)
+  const want = readFileSync(loose)
+  const sameFile = (p) => existsSync(p) && statSync(p).isFile() && readFileSync(p).equals(want)
+  const bin = fakeBin(join(base, 'fake'))
+  let app
+  let win
+  try {
+    ;({ app, win } = await binApp(bin, home))
+    ok(size < 1024, `the archive is under 1 KB, so its size reads in bytes (${size})`)
+    await typePath(win, home)
+    ok(await until(async () => (await shownDir(win))?.toLowerCase() === home.toLowerCase(), 8000, 50), `the Explorer shows the folder (${await shownDir(win)})`)
+    const row = win.locator(`${BIN_LIST} .browse-row`).filter({ has: win.locator('.browse-name-text', { hasText: /^app\.asar$/ }) }).first()
+    await row.waitFor({ timeout: 8000 })
+    ok(
+      await until(async () => (await row.innerText()).includes(`${size} B`), 8000, 100),
+      `the list shows app.asar as a file of ${size} B (${(await row.innerText()).replace(/\s+/g, ' ')})`
+    )
+    const st = await win.evaluate((p) => window.prism.statFile(p), loose)
+    ok(st && st.isFolder === false && st.size === size, `its stat is a file of ${size} bytes (${JSON.stringify(st)})`)
+    const folder = await win.evaluate((p) => window.prism.folderSize(p, 'asar-e2e'), proj)
+    ok(folder && folder.bytes === size + 3 && folder.files === 2, `proj counts the .asar's bytes as one file (${JSON.stringify(folder)})`)
+
+    const copied = await win.evaluate(([to, p]) => window.prism.copyInto(to, [p]), [copyTo, proj])
+    ok(copied && copied.pasted === 1 && copied.failed === 0, `the copy lands (${JSON.stringify(copied)})`)
+    ok(sameFile(join(copyTo, 'proj', 'resources', 'app.asar')), 'the copied .asar is an identical file')
+
+    const moved = await win.evaluate(([p, to]) => window.prism.moveEntries([p], to, 'keep-both'), [proj2, moveTo])
+    ok(moved && !existsSync(proj2), `the move lands (${JSON.stringify(moved)})`)
+    ok(sameFile(join(moveTo, 'proj2', 'resources', 'app.asar')), 'the moved .asar is an identical file')
+
+    // INTO A ZIP (review, 2026-11-11): adm-zip reads the sources with its own
+    // fs, the patched one in the zip worker. An added .asar file became an
+    // EMPTY folder entry 'app.asar/' that still counted as added, so a move
+    // into the zip binned the original; a folder holding one failed to add.
+    const AdmZip = (await import('adm-zip')).default
+    const zipPath = join(home, 'pack.zip')
+    const seed = new AdmZip()
+    seed.addFile('seed.txt', Buffer.from('seed'))
+    seed.writeZip(zipPath)
+    const added = await win.evaluate(([z, a, b]) => window.prism.archiveAdd(z, [a, b], '', false), [zipPath, loose, proj])
+    const addedN = typeof added === 'object' ? added.added.length : added
+    ok(addedN === 2 && added.failed.length === 0, `the .asar and the folder holding one go into the zip (${JSON.stringify(added)})`)
+    const packed = new AdmZip(zipPath)
+    const member = (name) => packed.getEntry(name)
+    ok(member('app.asar') && !member('app.asar/') && member('app.asar').getData().equals(want), 'the zip holds app.asar as an identical file, not an empty folder')
+    ok(member('proj/resources/app.asar')?.getData().equals(want), 'and the folder\'s app.asar as an identical file')
+
+    const purged = await win.evaluate((p) => window.prism.purgeFile(p), proj)
+    ok(purged === true && !existsSync(proj), `the source folder can then be deleted for good (${purged})`)
+    const purgedLoose = await win.evaluate((p) => window.prism.purgeFile(p), loose)
+    ok(purgedLoose === true && !existsSync(loose), `and the loose .asar too, never held open (${purgedLoose})`)
+  } finally {
+    await app?.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
  * THE DELETE QUESTION IS ONE COMPONENT (#500, #503, #504; owner, 2026-11-10:
  * "minimal text"). Against a FAKE bin (PRISM_E2E_BIN_DIRS): nothing touches the
  * owner's real one, and the fixtures are this scenario's own.
@@ -29935,6 +30115,8 @@ await run(binRestoreScenario)
 await run(binClashScenario)
 await run(binDeleteScenario)
 await run(binEmptyScenario)
+await run(binAsarScenario)
+await run(asarFilesScenario)
 await run(deleteQuestionScenario)
 await run(binUndoScenario)
 await run(binUndoAwayScenario)

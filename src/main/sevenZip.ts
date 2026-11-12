@@ -69,8 +69,8 @@ export function sevenFailReason(raw: string): 'password' | 'failed' {
   const wanted = /wrong password|cannot open encrypted|enter password \(will not be echoed\)/i
   return wanted.test(raw) ? 'password' : 'failed'
 }
-import { existsSync } from 'fs'
-import { cp, mkdtemp, rename, rm } from 'fs/promises'
+import { existsSync } from 'fs' // own-fs: the bundled 7z.exe, Prism's own file
+import { cp, mkdtemp, rename, rm } from './userFs'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'

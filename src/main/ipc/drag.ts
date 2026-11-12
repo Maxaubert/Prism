@@ -1,5 +1,5 @@
 import { app, ipcMain, nativeImage, type WebContents } from 'electron'
-import { stat } from 'fs/promises'
+import { stat } from '../userFs'
 import { CALL, PUSH } from '@shared/channels'
 import { insideDesktop } from '../desktopAccess'
 import { createDragOut, type DragOut } from '../dragOut'

@@ -1,5 +1,5 @@
 import { execFile } from './spawnWorker'
-import { mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdtemp, rm, writeFile } from './userFs'
 import { tmpdir } from 'os'
 import { extname, join } from 'path'
 import { createLru } from './lru'
@@ -168,9 +168,9 @@ export async function decodeImage(ffmpeg: string, file: string, mtimeMs: number)
  * window and the media Range handler with it.
  */
 export async function tiffPages(file: string): Promise<number> {
-  let fh: import('fs/promises').FileHandle | null = null
+  let fh: import('./userFs').FileHandle | null = null
   try {
-    const { open } = await import('fs/promises')
+    const { open } = await import('./userFs')
     fh = await open(file, 'r')
     const head = Buffer.alloc(8)
     await fh.read(head, 0, 8, 0)

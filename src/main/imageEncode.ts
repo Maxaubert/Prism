@@ -1,4 +1,4 @@
-import { stat } from 'fs/promises'
+import { stat } from './userFs'
 import { extOf } from '@shared/path'
 import type { CopyFormat } from '@shared/imageCopy'
 import { execFile } from './spawnWorker'

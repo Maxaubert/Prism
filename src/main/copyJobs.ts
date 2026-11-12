@@ -1,5 +1,4 @@
-import { constants } from 'fs'
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
+import { constants, copyFile, mkdtemp, readFile, rm, writeFile } from './userFs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { CopyFormat } from '@shared/imageCopy'

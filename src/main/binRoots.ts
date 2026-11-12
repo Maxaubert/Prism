@@ -1,4 +1,4 @@
-import { access } from 'fs/promises'
+import { access } from './userFs'
 import { isAbsolute, join, parse } from 'path'
 import { isLocalFixed } from './driveKinds'
 import { execFile } from './spawnWorker'

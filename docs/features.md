@@ -3,6 +3,43 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
+
+The owner, with a screenshot: Delete permanently on 4 binned folders said "4 of 4 could not be deleted" (diag
+`bin-delete FAILED: 4 asked, 0 landed`), and an Empty before it had left the same 4 ("4 of 8390"). They were an
+installed Electron app and two node projects, and each still held only its `.asar` (`resources\app.asar`,
+`node_modules\electron\dist\resources\default_app.asar`, `dist\win-unpacked\resources\app.asar`).
+
+- **Cause**: Electron patches Node's `fs` in main, in worker threads and in utility processes, so a path through
+  an `.asar` file is an archive FOLDER. `stat` called the file a folder of 0 bytes, `rm` and `rename` failed, a
+  copy said "Invalid package", and the first touch (a listing's stat, a size count) opened the archive and held
+  it open for the life of the process, so everything after it was EBUSY. Measured in Electron 43 on this PC:
+  the patched `rm` of a folder holding an `.asar` fails with EBUSY in main and in a worker thread;
+  `original-fs`'s succeeds.
+- **The rule**: every operation on the USER's files imports from `src/main/userFs.ts`, which is Electron's
+  `original-fs` (Node's fs without the patch) and plain `fs` outside Electron (vitest aliases `original-fs` to
+  `fs`). That covers the bin (list, restore, delete, Empty, Prism's own delete), `file:purge`, copy, paste, move,
+  rename, new folder, duplicate, folder sizes and their cache, listing and its details, search, watch, Properties,
+  drag-out, archives and extraction, the viewers' reads, thumbnails and the workers (`docWorker`, `zipWorker`,
+  `heicWorker`). `process.noAsar` is never set: Prism's own code, worker scripts and renderer files live in its
+  app.asar. Left on the patched `fs` on purpose: Prism's own files and state (the phone's page bundle, bundled
+  tool lookups, settings, logs, caches under userData), marked `// own-fs:` where a user-file module needs one.
+- **The review after it** (2026-11-11) found four more. adm-zip reads and writes with its OWN `require('fs')`: an
+  `.asar` added to a zip became an EMPTY folder entry that still counted as added, so a move into the zip binned
+  the original, and a folder holding one failed to add. Every `new AdmZip` in `zipOps.ts` now gets
+  `{ fs: userFs }`. `fsmedia://` picks its fs per path (`mediaFs`): a path THROUGH an `.asar` is Prism's own
+  pdf.js asset and keeps the patched fs, every other path is the user's. The phone's stat route and its
+  `sendFile`, the tab restore's stats (`tabs.ts`) and the member temp folder (`memberTemp.ts`) use `userFs` too,
+  so none of them reads an `.asar` as a folder or holds it open.
+- **Held by** `userFs.test.ts` (each user-file module imports `./userFs` and never Node's fs; every adm-zip in
+  `zipOps.ts` gets the plain fs; `mediaFs` picks the patched fs only through an `.asar`) and two e2e
+  scenarios on a hand-written real `.asar`: `binAsar` (Delete permanently on two binned folders holding one, then
+  Empty on the third, against a FAKE bin) and `asarFiles` (the list shows `app.asar` as a file of its real size,
+  Properties' stat and a folder's size agree, a copy and a move land an identical FILE, a loose `.asar` and a
+  folder holding one go into a zip as identical files, and the sources can then be deleted). Both failed on the
+  old code: the folders stayed, the size read 0 B, the copy failed "Invalid package" and the move was refused as
+  busy; without the adm-zip fix the folder failed to add and neither source could then be deleted.
+
 ## The Recycle Bin in the Explorer (owner, 2026-11-10)
 
 The owner: "add recycle bin to the bottom of the explorer page". Two choices: a plain "Recycle Bin" row, the LAST

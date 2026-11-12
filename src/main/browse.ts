@@ -1,4 +1,4 @@
-import { stat } from 'fs/promises'
+import { stat } from './userFs'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import { containerCandidates } from '@shared/archivePlace'
 import { container } from './archiveBrowse'

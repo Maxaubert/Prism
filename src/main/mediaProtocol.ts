@@ -1,6 +1,6 @@
-import { createReadStream } from 'fs'
-import { stat, readFile } from 'fs/promises'
+import * as patchedFs from 'fs' // own-fs: only for Prism's own assets inside app.asar (mediaFs)
 import { Readable } from 'node:stream'
+import * as userFsp from './userFs'
 import { join } from 'path'
 import { THUMB_KEY_RE } from '@shared/thumbTypes'
 import { parseByteRange } from './byteRange'
@@ -46,6 +46,36 @@ export const THUMB_HOST = 'thumb'
  *  showed a 1.2s "Receive mojo message" stall in the renderer (see below). */
 export const WHOLE_BUFFER_MAX = 8 * 1024 * 1024
 const CHUNK = 1024 * 1024
+
+/** A path that runs THROUGH an .asar archive: only Prism's own asset tree
+ *  (pdf.js cmaps, fonts, wasm in the packaged app.asar) passes the wall so. */
+const THROUGH_ASAR = /\.asar[\\/]/i
+
+/**
+ * The fs that reads one path (owner, 2026-11-11, the .asar bug). Prism's OWN
+ * assets inside its app.asar need Electron's patched fs, the only one that
+ * reads through the archive. Every other path is the user's file, read with
+ * the plain fs (userFs.ts): a user's app.asar is a file, not a 0-byte folder,
+ * and a request for it never holds the archive open (EBUSY on a later delete).
+ */
+export function mediaFs(p: string): {
+  stat: typeof userFsp.stat
+  readFile: typeof userFsp.readFile
+  createReadStream: typeof patchedFs.createReadStream
+} {
+  if (THROUGH_ASAR.test(p)) {
+    return {
+      stat: patchedFs.promises.stat,
+      readFile: patchedFs.promises.readFile,
+      createReadStream: patchedFs.createReadStream
+    }
+  }
+  return {
+    stat: userFsp.stat,
+    readFile: userFsp.readFile,
+    createReadStream: userFsp.userFs.createReadStream
+  }
+}
 
 /**
  * A picture main MADE (a decoded TIFF or PSD, a raw's preview, a HEIC), as a
@@ -102,7 +132,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     const key = new URL(request.url).pathname.slice(1)
     if (!THUMB_KEY_RE.test(key)) return new Response(null, { status: 404 })
     try {
-      const buf = await readFile(join(dir, key))
+      const buf = await userFsp.readFile(join(dir, key))
       return new Response(buf, {
         status: 200,
         headers: {
@@ -130,9 +160,10 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     // Async since the phone server (2026-09-06) started answering a LAN's
     // worth of Range requests through here: a sync stat on main's one thread
     // was cheap for one window and is the wrong shape for many phones.
-    let st: Awaited<ReturnType<typeof stat>>
+    const fsx = mediaFs(filePath)
+    let st: Awaited<ReturnType<typeof fsx.stat>>
     try {
-      st = await stat(filePath)
+      st = await fsx.stat(filePath)
     } catch {
       return new Response(null, { status: 404 })
     }
@@ -215,7 +246,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
     // files stream, arriving in chunks that never block.
     if (type.startsWith('image/') && size <= WHOLE_BUFFER_MAX) {
       try {
-        const buf = await readFile(filePath)
+        const buf = await fsx.readFile(filePath)
         return new Response(buf, {
           status: 200,
           headers: {
@@ -229,7 +260,7 @@ export function createMediaServer(deps: MediaServerDeps): (request: Request) => 
       }
     }
     const open = (opts?: { start: number; end: number }): NodeJS.ReadableStream => {
-      const s = createReadStream(filePath, opts)
+      const s = fsx.createReadStream(filePath, opts)
       s.on('error', () => s.destroy())
       return s
     }
