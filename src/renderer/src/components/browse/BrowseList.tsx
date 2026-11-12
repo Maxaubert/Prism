@@ -331,9 +331,18 @@ export function BrowseList(props: Props): JSX.Element {
     setLive((l) => ({ ...l, top, from: top }))
     props.onScroll(top)
   }
+  /** Where the list's OWN last scroll put it (a restore, a zoom's anchor, a
+   *  reveal, a follow): the scroll event that lands there is never the hand's,
+   *  whatever input came just before it. */
+  const own = useRef<number | null>(null)
+  /** Set the scroll as the list's own move. */
+  const ownScroll = (node: HTMLDivElement, top: number): void => {
+    node.scrollTop = top
+    own.current = node.scrollTop
+  }
   const liveTop = live.top
   useLayoutEffect(() => {
-    if (scroller.current && !props.loading) scroller.current.scrollTop = live.top
+    if (scroller.current && !props.loading) ownScroll(scroller.current, live.top)
     // Only when a position is TAKEN from the tab (or the load ends), never
     // per scroll: the list is already where it scrolled to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -716,7 +725,7 @@ export function BrowseList(props: Props): JSX.Element {
         cols,
         lead
       })
-      node.scrollTop = target / scale
+      ownScroll(node, target / scale)
       handUp(node.scrollTop)
     } else if (
       gridOn &&
@@ -737,7 +746,8 @@ export function BrowseList(props: Props): JSX.Element {
         cols: prev.cols,
         lead
       })
-      node.scrollTop =
+      ownScroll(
+        node,
         anchorScroll({
           ...a,
           pointerY: 0,
@@ -747,6 +757,7 @@ export function BrowseList(props: Props): JSX.Element {
           cols,
           lead
         }) / scale
+      )
       handUp(node.scrollTop)
     }
     // When the cells' size or count per line changed (the zoom, or the width,
@@ -822,7 +833,7 @@ export function BrowseList(props: Props): JSX.Element {
     // pressed before results existed needs one positioning pass, never a
     // repeated correction of fractional native scroll coordinates.
     if (pending === Infinity) {
-      node.scrollTop = Math.max(0, (contentH - height) / scale)
+      ownScroll(node, Math.max(0, (contentH - height) / scale))
       if (node.scrollTop !== scrollTop) onScroll(node.scrollTop)
     }
     if (entry === undefined) {
@@ -897,9 +908,9 @@ export function BrowseList(props: Props): JSX.Element {
     const top = cellTop(divided?.divider(index - 1) ? index - 1 : index)
     const bottom = cellBottom(index)
     const visibleTop = node.scrollTop * scale
-    if (top < visibleTop) node.scrollTop = top / scale
+    if (top < visibleTop) ownScroll(node, top / scale)
     else if (bottom > visibleTop + node.clientHeight)
-      node.scrollTop = (bottom - node.clientHeight) / scale
+      ownScroll(node, (bottom - node.clientHeight) / scale)
     handUp(node.scrollTop)
   }
   const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
@@ -947,8 +958,11 @@ export function BrowseList(props: Props): JSX.Element {
    * stops until the selection CHANGES (an arrow, a click, a pick from
    * outside). The hand is told apart from the list's own scrolls by its
    * INPUT, never by the scroll event: a scroll counts as the hand's while one
-   * of those inputs holds it or for HAND_MS after the last of them. Scrolling
-   * back to the selection by hand follows again.
+   * of those inputs holds it or for HAND_MS after the last of them, unless it
+   * lands where the list's own last write put it (`own`). Scrolling back to
+   * the selection by hand follows again. The hand's choice is remembered per
+   * tab and place (`handLeft`), so a tab switch or Back that puts the same
+   * position back does not snap to the selection either.
    *
    * Cheap: the index is walked only when the selection or the listing
    * changes (`rowIndexOf`, memoized), and a scroll asks a sum or two.
@@ -965,17 +979,38 @@ export function BrowseList(props: Props): JSX.Element {
     return cellTop(index) >= visibleTop - 1 && cellBottom(index) <= visibleTop + node.clientHeight + 1
   }
   const detached = useRef(false)
-  const followed = useRef<string | null>(null)
-  const followNow = useRef({ index: followIndex, inView: cellInView })
+  /** The tab and the place on screen (one list serves every tab). */
+  const viewKey = `${props.tabId ?? ''}\u0000${placeKey}`
+  /**
+   * Where the hand LEFT a selection out of view, per tab and place: a tab
+   * switch, Back or Forward that puts that same position back is still the
+   * hand's choice and is not followed. Any other position (a new history
+   * entry, a sort's reset) follows again.
+   */
+  const handLeft = useRef(new Map<string, { path: string; top: number }>())
+  /** The selection, the place and the restore the follow last judged. */
+  const followed = useRef<{ view: string; path: string | null; taken: number } | null>(null)
+  /** Ctrl+A dropped the Ctrl cursor: the selection it falls back to is no new pick. */
+  const cursorDropped = useRef(false)
+  const followNow = useRef({ index: followIndex, inView: cellInView, path: followPath, view: viewKey })
   useLayoutEffect(() => {
-    followNow.current = { index: followIndex, inView: cellInView }
+    followNow.current = { index: followIndex, inView: cellInView, path: followPath, view: viewKey }
   })
+  /** The selection is out of view by the user's own doing: keep it that way here. */
+  const leave = (node: HTMLDivElement, view: string, path: string | null, away: boolean): void => {
+    detached.current = away
+    if (away && path) handLeft.current.set(view, { path, top: node.scrollTop })
+    else handLeft.current.delete(view)
+  }
   /** A scroll event: the hand's, it decides whether the list still follows. */
   const scrollFollow = (node: HTMLDivElement): void => {
+    const mine = own.current
+    if (mine !== null && Math.abs(node.scrollTop - mine) < 1) return
+    own.current = null
     const h = hand.current
     if (!h.hold && performance.now() - h.at > HAND_MS) return
-    const { index, inView } = followNow.current
-    detached.current = index >= 0 && !inView(node, index)
+    const { index, inView, path, view } = followNow.current
+    leave(node, view, path, index >= 0 && !inView(node, index))
   }
   useLayoutEffect(() => {
     const node = scroller.current
@@ -1026,19 +1061,35 @@ export function BrowseList(props: Props): JSX.Element {
   // After the tab's own scroll is put back (the effect at the top) and after
   // a zoom's anchor: neither is fought while the selection is in view anyway.
   useLayoutEffect(() => {
-    if (followPath !== followed.current) {
-      // A new selection: the list follows again, whatever the hand did.
-      followed.current = followPath
-      detached.current = false
-      hand.current = { at: -Infinity, hold: hand.current.hold }
-    }
     const node = scroller.current
+    const was = followed.current
+    if (!was || was.view !== viewKey || was.taken !== live.taken) {
+      // A place shown again (a tab switch, Back, the tab's scroll put back):
+      // the position the hand left this same selection out of view at is
+      // kept; anything else follows.
+      const left = handLeft.current.get(viewKey)
+      detached.current = !!left && left.path === followPath && Math.abs(left.top - live.top) <= 1
+      if (!detached.current) handLeft.current.delete(viewKey)
+    } else if (was.path !== followPath) {
+      // A new selection: the list follows again, whatever the hand did. Ctrl+A
+      // letting go of the Ctrl cursor picks nothing new: the row the selection
+      // was already on is not scrolled to.
+      if (cursorDropped.current && node)
+        leave(node, viewKey, followPath, followIndex >= 0 && !cellInView(node, followIndex))
+      else {
+        detached.current = false
+        handLeft.current.delete(viewKey)
+      }
+    }
+    cursorDropped.current = false
+    followed.current = { view: viewKey, path: followPath, taken: live.taken }
     if (!node || props.loading || props.message || detached.current || followIndex < 0) return
     if (followIndex >= count) return
     if (!cellInView(node, followIndex)) scrollToRow(node, followIndex)
     // cellInView and scrollToRow read this render's geometry, listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    viewKey,
     followPath,
     followIndex,
     count,
@@ -1084,6 +1135,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (k === 'clear') return !!props.onClear?.()
     if (k === 'select-all') {
       if (!count || !props.onSelectAll) return false
+      if (cursor !== null && cursor !== props.selectedPath) cursorDropped.current = true
       setCursor(null)
       props.onSelectAll()
       return true

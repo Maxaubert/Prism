@@ -27934,9 +27934,11 @@ async function caretTracksScenario(fixtures) {
  *   2. a click on a row the bottom edge cuts, then Delete five times in a row:
  *      the next row is selected and fully in view every time;
  *   3. a sort change, both ways: the selection stays in view;
- *   4. Ctrl+wheel zoom with the pointer at the top, the selection at the bottom;
+ *   4. Ctrl+wheel zoom with the pointer at the top, the selection at the bottom,
+ *      and a window made shorter under a selection near the bottom;
  *   5. wheel away by hand: nothing snaps back, not even when a new file lands
- *      in the folder; then Down picks the next file and brings it into view;
+ *      in the folder, nor after another tab and back (the tab's scroll put
+ *      back is the hand's); then Down picks the next file and brings it into view;
  *   6. the grid: a sort change, a wheel away and Right, and back from the viewer.
  */
 async function selectionInViewScenario(fixtures) {
@@ -28069,19 +28071,23 @@ async function selectionInViewScenario(fixtures) {
     ok(await shows(kept), `and ascending again (${await said()})`)
 
     // 4. Zoom: the selection at the bottom, Ctrl+wheel up with the pointer at the top.
-    const bottom = await win.evaluate((l) => {
-      const list = document.querySelector(l)
-      const lb = list.getBoundingClientRect()
-      const rows = [...list.querySelectorAll('.browse-row[data-browse-path]')].filter((e) => {
-        const r = e.getBoundingClientRect()
-        return r.top >= lb.top && r.bottom <= lb.bottom
-      })
-      const row = rows[rows.length - 2]
-      const r = row.getBoundingClientRect()
-      return { path: row.getAttribute('data-browse-path'), x: r.left + 60, y: (r.top + r.bottom) / 2 }
-    }, LIST)
-    await win.mouse.click(bottom.x, bottom.y)
-    const low = leaf(bottom.path)
+    /** Click the last but one row wholly in view; its name. */
+    const pickNearBottom = async () => {
+      const bottom = await win.evaluate((l) => {
+        const list = document.querySelector(l)
+        const lb = list.getBoundingClientRect()
+        const rows = [...list.querySelectorAll('.browse-row[data-browse-path]')].filter((e) => {
+          const r = e.getBoundingClientRect()
+          return r.top >= lb.top && r.bottom <= lb.bottom
+        })
+        const row = rows[rows.length - 2]
+        const r = row.getBoundingClientRect()
+        return { path: row.getAttribute('data-browse-path'), x: r.left + 60, y: (r.top + r.bottom) / 2 }
+      }, LIST)
+      await win.mouse.click(bottom.x, bottom.y)
+      return leaf(bottom.path)
+    }
+    let low = await pickNearBottom()
     ok(await shows(low), `${low}, near the bottom, is selected (${await said()})`)
     const m = await listMiddle()
     await win.mouse.move(m.x, m.top + 15)
@@ -28103,6 +28109,18 @@ async function selectionInViewScenario(fixtures) {
     }
     await sleep(400)
     ok(await shows(low), `and after zooming back out (${await said()})`)
+    // A shorter window: the row near the bottom would be cut off, the list follows it.
+    low = await pickNearBottom()
+    ok(await shows(low), `${low}, near the bottom again, is selected (${await said()})`)
+    const size = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    const setSize = (w, h) =>
+      app.evaluate(({ BrowserWindow }, [sw, sh]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(sw, sh), [w, h])
+    await setSize(size[0], size[1] - 160)
+    await sleep(700)
+    ok(await shows(low), `a window 160px shorter keeps ${low} in view (${size} -> ${await said()})`)
+    await setSize(size[0], size[1])
+    await sleep(700)
+    ok(await shows(low), `and the window back to its size (${await said()})`)
 
     // 5. Scrolled away by hand: it stays away, through a listing refresh; Down brings it back.
     await handWheel(1500, 4)
@@ -28115,6 +28133,45 @@ async function selectionInViewScenario(fixtures) {
     ok(!(await drawnInView(low)) && Math.abs(s.top - away) < 200, `a new file in the folder does not snap the list back (${away} -> ${JSON.stringify(s)})`)
     await sleep(1200)
     ok(!(await drawnInView(low)), `nor does waiting (${await said()})`)
+    // Another tab and back: the tab's scroll is put back where the hand left
+    // it, and that is not followed either (one list serves every tab).
+    const leftAt = (await look()).top
+    const TAB = '[role="tablist"] [role="tab"]'
+    const tabCount = () => win.locator(TAB).count()
+    const frontTab = () => win.evaluate((t) => [...document.querySelectorAll(t)].findIndex((e) => e.getAttribute('aria-selected') === 'true'), TAB)
+    const tabsBefore = await tabCount()
+    const ours = await frontTab()
+    const newTab = await win.evaluate((d) => {
+      const was = { mode: localStorage.getItem('prism.newtab.mode'), folder: localStorage.getItem('prism.newtab.folder') }
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', d)
+      return was
+    }, base)
+    await win.keyboard.press('Control+t')
+    ok(await until(async () => (await tabCount()) === tabsBefore + 1 && (await frontTab()) !== ours, 6000), `Ctrl+T opens another tab (${tabsBefore} -> ${await tabCount()})`)
+    await sleep(1000)
+    await win.locator(TAB).nth(ours).click()
+    ok(await until(async () => (await frontTab()) === ours, 6000), `and a press on the folder's tab comes back (${await frontTab()})`)
+    await sleep(1200)
+    s = await look()
+    ok(!(await drawnInView(low)) && Math.abs(s.top - leftAt) < 3, `back on the tab, the list is where the hand left it, not on ${low} (${leftAt} -> ${JSON.stringify(s)})`)
+    await win.locator(TAB).nth(tabsBefore).click()
+    await until(async () => (await frontTab()) === tabsBefore, 6000)
+    await sleep(500)
+    await win.keyboard.press('Control+w')
+    await until(async () => (await tabCount()) === tabsBefore, 6000)
+    if ((await frontTab()) !== ours) await win.locator(TAB).nth(ours).click()
+    ok(await until(async () => (await tabCount()) === tabsBefore && (await frontTab()) === ours, 6000), `the other tab closes (${await tabCount()})`)
+    await sleep(1200)
+    s = await look()
+    ok(!(await drawnInView(low)) && Math.abs(s.top - leftAt) < 3, `and after it closed, still where the hand left it (${JSON.stringify(s)})`)
+    await win.evaluate((was) => {
+      for (const [k, v] of [['prism.newtab.mode', was.mode], ['prism.newtab.folder', was.folder]])
+        if (v === null) localStorage.removeItem(k)
+        else localStorage.setItem(k, v)
+    }, newTab)
+    // The keys go to the list again.
+    await win.locator(LIST).focus()
     // The next file still there (the deletes took a run of them).
     const left = readdirSync(dir).filter((n) => n.startsWith('f')).sort()
     const next = left[left.indexOf(low) + 1]
