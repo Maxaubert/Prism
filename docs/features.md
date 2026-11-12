@@ -1323,9 +1323,11 @@ me back". This REPLACES the old "rows keep the saved scroll" rule (back from the
   scrolls (a restore, a zoom's anchor, a reveal, a follow) never do, even inside that window: a scroll that
   lands where the list's own last write put it is the list's (`own`). A new selection does not wipe the
   hand's window, so a wheel's smooth scroll still running after a click is still the hand's.
-- **Not covered**: in rows, back from the viewer keeps the pick the list had, not the file the viewer's Up
-  and Down walked to (the grid takes that file, Stage 5); the follow brings that old pick into view. Which
-  file rows should pick is the owner's call. A search hit whose page of results is not loaded yet is
+- **Back from the viewer picks the last viewed file, in rows as in the grid** (owner, 2026-11-12, "Last
+  viewed"): the viewer's Up and Down walk without moving the list's pick, so on Back the list quietly picks
+  the file that was on show and follows it into view. `selectionInView` holds it (ArrowDown in the viewer,
+  Back, rows show that file picked and in view).
+- **Not covered**: a search hit whose page of results is not loaded yet is
   followed once that page arrives. The same file picked again from outside while the hand is away (it is
   already the selection) does not bring it back.
 - **Cheap**: the selection's index is walked only when the selection or the listing changes (memoized
@@ -2329,8 +2331,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (the preview pane), Enter and the common keys are the list's own, untouched. **Left and Right are the
   grid's only**: in the list they still reach the viewer (owner, 2026-09-01); `gridKey(e, false)` is null for
   them. A rename box's keys are never taken. Back from the viewer in a grid quietly picks the file that was
-  on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; rows
-  keep the pick they had, and since 2026-11-12 bring it into view too ("The list follows the selection").
+  on show (the viewer's Up and Down walk without moving the list's pick) and scrolls its tile into view; since 2026-11-12 rows do the same ("The list follows the selection").
   Held by `gridNav.test.ts`, `gridKeys.test.ts` and the `gridKeys` e2e.
   **THE GRID IS REACHABLE** (zoom grid Stage 6, 2026-11-10; spec 5.4, 5.5, 5.7): `ZOOM_MAX_AVAILABLE` is 9 and the
   test-only `prism.explorer.zoomMax` key is gone. **Sweep**: a press on blank space (a gap, the right margin,

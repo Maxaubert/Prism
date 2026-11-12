@@ -17616,7 +17616,15 @@ async function dragZipInsideScenario(fixtures) {
     z.addFile('sub/keep.txt', Buffer.from('keep'))
     z.writeZip(zipPath)
   }
-  const names = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  // A read while Prism is still writing the zip (EBUSY, or no END header yet)
+  // is "not yet", not a crash: `until` asks again.
+  const names = () => {
+    try {
+      return new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+    } catch {
+      return []
+    }
+  }
   const { app, win } = await launch(join(dir, 'anchor.txt'))
   const name = (suffix) => zipRow(win, suffix).first().locator('.browse-name-text')
   try {
@@ -27949,6 +27957,10 @@ async function selectionInViewScenario(fixtures) {
   mkdirSync(dir, { recursive: true })
   const name = (i) => `f${String(i).padStart(3, '0')}.txt`
   for (let i = 1; i <= 300; i++) writeFileSync(join(dir, name(i)), `${i}\n`)
+  // Pictures after the text files: a text file keeps the arrows in the viewer, a picture walks.
+  const PNG_BYTES = readFileSync(join(ROOT, 'build', 'icon.png'))
+  const pic = (i) => `p${String(i).padStart(2, '0')}.png`
+  for (let i = 1; i <= 12; i++) writeFileSync(join(dir, pic(i)), PNG_BYTES)
   const bin = fakeBin(join(base, 'fake'), ['C'])
   const LIST = '[data-testid="browse-list"]'
   const leaf = (p) => /[^\\/]*$/.exec(p ?? '')?.[0] ?? ''
@@ -28032,6 +28044,17 @@ async function selectionInViewScenario(fixtures) {
     await until(async () => (await win.locator(FOLDER_LIST).count()) === 0, 8000)
     await toList(win)
     ok(await shows(name(280)), `and ${name(280)}, far down: selected and in view (${await said()})`)
+    // Back from the viewer in rows picks the LAST VIEWED file (owner, 2026-11-12).
+    await typePath(win, join(dir, pic(3)))
+    await until(async () => (await viewing(win)).includes(pic(3)), 8000)
+    await sleep(500)
+    for (let i = 0; i < 3; i++) {
+      await win.keyboard.press('ArrowDown')
+      await sleep(250)
+    }
+    ok(await until(async () => (await viewing(win)).includes(pic(6)), 8000), `Down three times in the viewer walks to ${pic(6)} (${await viewing(win)})`)
+    await toList(win)
+    ok(await shows(pic(6)), `rows: back from the viewer, the last viewed ${pic(6)} is selected and in view, not ${pic(3)} (${await said()})`)
 
     // 2. A row the bottom edge cuts, then five deletes in a row.
     const cut = await win.evaluate((l) => {

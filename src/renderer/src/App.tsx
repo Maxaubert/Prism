@@ -119,7 +119,7 @@ import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
 import { explorerHeadVars } from './lib/explorerSize'
-import { atStep, explorerZoom, headSizeOf, setExplorerZoom, useExplorerZoom } from './lib/explorerZoom'
+import { explorerZoom, headSizeOf, setExplorerZoom, useExplorerZoom } from './lib/explorerZoom'
 import { zoomBlankMenu } from './menus/zoomMenu'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
@@ -869,11 +869,11 @@ export default function App(): JSX.Element {
     if (viewerDirectory && active && !sameRoot(viewerDirectory, active.browse.path))
       void browsing.navigate(viewerDirectory)
     else {
-      // A GRID COMES BACK TO THE FILE ON SHOW (Stage 5, spec 5.2): Up and Down
-      // in the viewer walk the folder without moving the list's pick, so the
-      // grid is told which tile that was (a quiet pick, nothing opens) and
-      // scrolls it into view. Rows keep the pick they had, as they always did.
-      if (file && atStep(explorerZoom()).kind === 'tile') browsing.select(file.path, true)
+      // THE LIST COMES BACK TO THE FILE ON SHOW (Stage 5, spec 5.2; rows too,
+      // owner 2026-11-12): Up and Down in the viewer walk the folder without
+      // moving the list's pick, so the list is told which file that was (a
+      // quiet pick, nothing opens) and follows it into view.
+      if (file) browsing.select(file.path, true)
       browsing.showFolder()
     }
   }, [viewerDirectory, active, browsing, file])
