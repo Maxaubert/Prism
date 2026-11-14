@@ -342,7 +342,17 @@ export function BrowseList(props: Props): JSX.Element {
   }
   const liveTop = live.top
   useLayoutEffect(() => {
-    if (scroller.current && !props.loading) ownScroll(scroller.current, live.top)
+    const node = scroller.current
+    if (!node || props.loading) return
+    ownScroll(node, live.top)
+    // A POSITION THE FOLDER CANNOT REACH IS NOT KEPT (owner, 2026-11-14, a
+    // screenshot: Back to a zip's 20 rows drew them eight rows down under a
+    // blank band). Back puts a place's saved scroll back, but a folder that
+    // now fits (a taller window, a smaller zoom) clamps it to where it can go,
+    // and when the list was already there no scroll event says so: the rows
+    // were drawn at the saved position. They are drawn where the list IS.
+    const at = node.scrollTop
+    if (Math.abs(at - live.top) > 1) setLive((l) => (l.taken === live.taken ? { ...l, top: at } : l))
     // Only when a position is TAKEN from the tab (or the load ends), never
     // per scroll: the list is already where it scrolled to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
