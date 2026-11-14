@@ -1327,6 +1327,12 @@ me back". This REPLACES the old "rows keep the saved scroll" rule (back from the
   viewed"): the viewer's Up and Down walk without moving the list's pick, so on Back the list quietly picks
   the file that was on show and follows it into view. `selectionInView` holds it (ArrowDown in the viewer,
   Back, rows show that file picked and in view).
+- **A saved scroll the folder cannot reach is not drawn** (owner, 2026-11-14, a screenshot: Back to a zip's 20 rows
+  drew them eight rows down under a blank band). Back puts a place's saved scroll back; when the folder now fits
+  (a taller window, a smaller zoom) the browser clamps it, and when the list was already at that spot no scroll
+  event says so. The list reads back where it really is after every scroll it sets and draws the rows there.
+  `backShortList` holds it, frame by frame (a short window, the short folder scrolled to its end, a long folder,
+  the window tall again, Back).
 - **Not covered**: a search hit whose page of results is not loaded yet is
   followed once that page arrives. The same file picked again from outside while the hand is away (it is
   already the selection) does not bring it back.
