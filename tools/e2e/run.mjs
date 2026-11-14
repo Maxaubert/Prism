@@ -26132,6 +26132,10 @@ async function zipLockedScenario(fixtures) {
   writeFileSync(join(dir, 'broken.zip'), Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(64, 7)]))
   writeFileSync(join(dir, 'notes.txt'), 'beside\n')
   const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('prism-zip-')))
+  // The PC's own Prism keeps its run folder here too while it runs: only a
+  // folder this run made is judged (2026-11-14, it failed on the owner's).
+  const members = join(tmpdir(), 'prism-members')
+  const runsBefore = new Set(existsSync(members) ? readdirSync(members) : [])
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
   let runDir
   try {
@@ -26152,8 +26156,7 @@ async function zipLockedScenario(fixtures) {
     await win.locator('input[aria-label="Archive password"]').fill('letmein')
     await win.keyboard.press('Enter')
     ok(await until(async () => (await win.locator('input[aria-label="Archive password"]').count()) === 0 && (await win.locator('[data-member-gate]').count()) === 0, 10000), 'the right one opens it')
-    const members = join(tmpdir(), 'prism-members')
-    const runs = existsSync(members) ? readdirSync(members) : []
+    const runs = (existsSync(members) ? readdirSync(members) : []).filter((r) => !runsBefore.has(r))
     ok(runs.length >= 1, `members land under the run's prism-members folder (${runs.join(', ')})`)
     const after = readdirSync(tmpdir()).filter((n) => n.startsWith('prism-zip-') && !before.has(n))
     ok(after.length === 0, `nothing new in %TEMP%\\prism-zip-* (${after.join(', ')})`)
@@ -28228,6 +28231,143 @@ async function selectionInViewScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'selection-in-view-grid.png') })
   } finally {
     await win.evaluate(() => { localStorage.removeItem('prism.explorer.zoom'); localStorage.removeItem('prism.explorer.size') }).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * BACK TO A SHORT FOLDER DRAWS ITS ROWS AT THE TOP (owner, 2026-11-14, a
+ * screenshot: Backspace out of a long folder handed over by a command left a
+ * zip's 20 rows eight rows down under a blank band). A position the list is
+ * handed that the folder cannot scroll to must not push the rows down.
+ */
+async function backShortListScenario(fixtures) {
+  console.log('back to a short folder: its rows start at the top')
+  const base = join(fixtures, 'backshort')
+  rmSync(base, { recursive: true, force: true })
+  const small = join(base, 'small')
+  const big = join(base, 'big')
+  mkdirSync(small, { recursive: true })
+  mkdirSync(big, { recursive: true })
+  for (let i = 1; i <= 16; i++) writeFileSync(join(small, `s${String(i).padStart(2, '0')}.txt`), `${i}\n`)
+  for (let i = 1; i <= 300; i++) writeFileSync(join(big, `b${String(i).padStart(3, '0')}.txt`), `${i}\n`)
+  const LIST = '[data-testid="browse-list"]'
+  const { app, win } = await launchWith(NO_INDEX, join(small, 's01.txt'))
+  /** The first row's distance below the list's top, the row height, and the list's own scroll. */
+  const gap = () =>
+    win.evaluate((l) => {
+      const list = document.querySelector(l)
+      const rows = [...list.querySelectorAll('.browse-row[data-browse-path]')]
+      if (!rows.length) return null
+      const first = rows.reduce((a, r) => (r.getBoundingClientRect().top < a.getBoundingClientRect().top ? r : a))
+      const lb = list.getBoundingClientRect()
+      const rb = first.getBoundingClientRect()
+      return { name: /[^\\/]*$/.exec(first.getAttribute('data-browse-path'))[0], gap: Math.round(rb.top - lb.top), row: Math.round(rb.height), scroll: Math.round(list.scrollTop) }
+    }, LIST)
+  /** Before a move: every frame for 2 s, the largest gap above the short folder's first row once it shows. */
+  const watchFrames = () =>
+    win.evaluate((l) => {
+      const w = { worst: 0, frames: 0 }
+      globalThis.__backShort = w
+      const t0 = performance.now()
+      const tick = () => {
+        const list = document.querySelector(l)
+        const row = list?.querySelector('.browse-row[data-browse-path$="s01.txt" i]')
+        if (list && row) {
+          w.frames++
+          w.worst = Math.max(w.worst, Math.round(row.getBoundingClientRect().top - list.getBoundingClientRect().top))
+        }
+        if (performance.now() - t0 < 2000) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }, LIST)
+  const framesSaid = async (what) => {
+    await sleep(2200)
+    const w = await win.evaluate(() => globalThis.__backShort)
+    ok(w.frames > 0 && w.worst < 26, `${what}: no frame draws the first row below the top (${JSON.stringify(w)})`)
+  }
+  const atTop = async (what) => {
+    await framesSaid(what)
+    // The FIRST frame after landing counts: on the owner's PC nothing came
+    // along later to put the rows back.
+    let g = null
+    await until(async () => {
+      g = await gap()
+      return !!g && g.name === 's01.txt'
+    }, 4000, 30)
+    ok(!!g && g.name === 's01.txt' && g.gap < g.row, `${what}: the short folder's first row is at the top of the list at once (${JSON.stringify(g)})`)
+    await sleep(1500)
+    g = await gap()
+    ok(!!g && g.gap < g.row, `${what}: and stays there (${JSON.stringify(g)})`)
+  }
+  const deepInBig = async () => {
+    await win.waitForSelector(`${LIST} .browse-row[data-browse-path$="b001.txt" i]`, { timeout: 10000 })
+    await win.locator(LIST).focus()
+    await win.keyboard.press('End')
+    ok(await until(async () => (await win.evaluate((l) => document.querySelector(l).scrollTop, LIST)) > 2000, 4000), 'the long folder is scrolled far down')
+    await sleep(800)
+  }
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector(`${LIST} .browse-row[data-browse-path]`, { timeout: 45000 })
+    await sleep(500)
+    // 1. Typed in the address field, scrolled to its end, then Backspace.
+    await typePath(win, big)
+    await deepInBig()
+    await watchFrames()
+    await win.keyboard.press('Backspace')
+    await atTop('Backspace after a typed path')
+    // 2. The short folder scrolled to its end in a short window, the long
+    // folder, the window tall again, then Backspace: Back hands the list a
+    // position the short folder can no longer scroll to.
+    const size = await app.evaluate(({ BrowserWindow }) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).getSize())
+    const setSize = (w, h) =>
+      app.evaluate(({ BrowserWindow }, [sw, sh]) => (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]).setSize(sw, sh), [w, h])
+    await setSize(size[0], 420)
+    await sleep(700)
+    await win.locator(LIST).focus()
+    await win.keyboard.press('End')
+    const deep = await win.evaluate((l) => document.querySelector(l).scrollTop, LIST)
+    ok(deep > 52, `in a short window the short folder scrolls (${deep}px)`)
+    await sleep(800)
+    await typePath(win, big)
+    ok(await until(async () => sameDir(await shownDir(win), big), 8000), `the long folder, typed in the short window (${await shownDir(win)})`)
+    await sleep(800)
+    await setSize(size[0], size[1])
+    await sleep(700)
+    await win.locator(LIST).focus()
+    await watchFrames()
+    await win.keyboard.press('Backspace')
+    const fits = await until(
+      async () => sameDir(await shownDir(win), small) && (await win.evaluate((l) => { const n = document.querySelector(l); return n.scrollHeight <= n.clientHeight + 1 }, LIST)),
+      4000
+    )
+    ok(fits, `back in the short folder, which now fits the window (${await shownDir(win)})`)
+    await atTop('Backspace to a folder whose saved scroll no longer fits')
+    // 3. The owner's way (2026-11-14): the short folder's LAST file open in the
+    // viewer, a long folder handed over by a command, then Back to the list.
+    await listRow(win, 's16.txt').dblclick()
+    ok(await until(async () => (await viewing(win)).includes('s16'), 8000), `s16.txt open in the viewer (${await viewing(win)})`)
+    const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+    await handoff(big)
+    ok(await until(async () => sameDir(await shownDir(win), big), 8000), `the long folder handed over (${await shownDir(win)}, tabs ${tabsBefore} -> ${await win.locator('[role="tablist"] [role="tab"]').count()})`)
+    await deepInBig()
+    // Back to the first tab when the hand-over made its own.
+    const tabs = await win.locator('[role="tablist"] [role="tab"]').count()
+    if (tabs > tabsBefore) {
+      await watchFrames()
+      await win.locator('[role="tablist"] [role="tab"]').nth(tabsBefore - 1).click()
+      await sleep(800)
+      await toList(win)
+    } else {
+      await win.locator(LIST).focus()
+      await watchFrames()
+      await win.keyboard.press('Backspace')
+    }
+    await atTop('back to the short folder after its last file was viewed')
+    await win.screenshot({ path: join(SHOTS, 'back-short-list.png') })
+  } finally {
     await app.close().catch(() => {})
     rmSync(base, { recursive: true, force: true })
   }
@@ -30427,6 +30567,7 @@ await run(rowPasteScenario)
 await run(deleteLastScenario)
 await run(deleteFocusScenario)
 await run(selectionInViewScenario)
+await run(backShortListScenario)
 await run(busyQuickScenario)
 await run(busyHoldScenario)
 await run(busyPasteScenario)
