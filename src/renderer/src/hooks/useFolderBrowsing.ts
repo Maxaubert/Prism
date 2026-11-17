@@ -522,7 +522,14 @@ export function useFolderBrowsing(
       // Said even when a later navigation overtook it: the read still ran,
       // and a slow one is what the log is for.
       openFolderCrumb(next?.path ?? target, 'navigate', t0, next?.listing, !!cached)
-      if (serial.current.get(tabId) !== request) return
+      if (serial.current.get(tabId) !== request) {
+        // AN OVERTAKEN NAVIGATION TAKES ITS WAIT WITH IT (owner, 2026-11-15:
+        // a zip "kept loading and loading never finishing"). What overtook it
+        // (a pick, the pane put off) may set no wait of its own, and a wait
+        // left naming this folder kept the list waiting for good.
+        setWaitingFor((w) => (w && w.tabId === tabId && w.path === target ? null : w))
+        return
+      }
       // The cached cursor is already committed. A later watch/explicit refresh
       // owns its new contents; this earlier scan must not overwrite that result.
       if (
@@ -879,7 +886,11 @@ export function useFolderBrowsing(
   const togglePreview = useCallback((why?: string) => {
     if (!active || !id) return
     const preview = !active.browse.preview
-    if (!preview) {
+    // A flag put back off that nobody asked for (`unasked`: a file from Windows
+    // set it, and window mode shows no pane) cancels nothing: it moved the
+    // serial under the zip that same arrival was walking into, and the zip's
+    // rows were dropped (owner, 2026-11-15, `zipHandoffWindow` e2e).
+    if (!preview && why !== 'unasked') {
       serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       pauseTab(id)
     }

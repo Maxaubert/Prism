@@ -22580,6 +22580,60 @@ async function previewPage(app, win) {
   return null
 }
 
+/**
+ * A ZIP FROM WINDOWS WITH THE PREVIEW IN ITS OWN WINDOW (owner, 2026-11-15:
+ * "triggerd the zip bug agian its happenign now"). The arrival brings the
+ * pinned Explorer forward with the preview flag on (Preview mode), and window
+ * mode puts that flag back off in the next commit. Putting it off moved the
+ * tab's open serial, so the zip's read, out at that moment, counted as
+ * overtaken: its rows were dropped, the address said the zip, the tab kept the
+ * folder before it and the list waited for good. The zip lands, and no wait is
+ * left behind.
+ */
+async function zipHandoffWindowScenario(fixtures) {
+  console.log('a zip from Windows, preview in its own window (owner, 2026-11-15)')
+  const dir = join(fixtures, 'ziphandoffwin')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'notes.txt'), 'beside\n')
+  const AdmZip = (await import('adm-zip')).default
+  const pack = new AdmZip()
+  pack.addFile('inside-one.txt', Buffer.from('one\n'))
+  pack.addFile('inside-two.txt', Buffer.from('two\n'))
+  pack.writeZip(join(dir, 'pack.zip'))
+  const { app, win } = await launchWith(NO_INDEX, join(dir, 'notes.txt'))
+  let windowMode = false
+  const rowsNow = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')].map((r) =>
+        (r.getAttribute('data-browse-path') ?? '').replace(/^.*\\/, '')
+      )
+    )
+  try {
+    await explorerAt(win, dir)
+    await pickStyleSegment(win, 'preview-opens', 'Window')
+    windowMode = true
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await sleep(500)
+    for (const round of [1, 2]) {
+      await handoff(join(dir, 'pack.zip'))
+      const landed = await until(async () => (await rowsNow()).includes('inside-one.txt'), 8000)
+      ok(landed, `round ${round}: a zip handed over lists its members (${(await rowsNow()).join(', ')})`)
+      const at = await win.locator('.browse-path').getAttribute('data-path')
+      ok(/pack\.zip$/i.test(at ?? ''), `round ${round}: and the tab is in it (${at})`)
+      // Out again for the next round, from the folder it came from.
+      await win.locator('[data-testid="browse-list"]').focus()
+      await win.keyboard.press('Backspace')
+      await until(async () => (await rowsNow()).includes('pack.zip'), 8000)
+      await sleep(400)
+    }
+  } finally {
+    if (windowMode) await pickStyleSegment(win, 'preview-opens', 'Panel').catch(() => {})
+    await app.close()
+  }
+}
+
 async function previewWindowScenario(fixtures) {
   console.log('the preview in its own window, Quick Look style (owner, 2026-11-08)')
   const dir = join(fixtures, 'previewwindow')
@@ -30450,6 +30504,7 @@ await run(zipFolderScenario)
 await run(previewClearsScenario)
 await run(previewSlideListScenario)
 await run(previewWindowScenario)
+  await run(zipHandoffWindowScenario)
 await run(openByPathScenario)
 await run(markdownPreviewScenario)
 await run(sheetColoursScenario)
