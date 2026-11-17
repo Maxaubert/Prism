@@ -1333,6 +1333,12 @@ me back". This REPLACES the old "rows keep the saved scroll" rule (back from the
   event says so. The list reads back where it really is after every scroll it sets and draws the rows there.
   `backShortList` holds it, frame by frame (a short window, the short folder scrolled to its end, a long folder,
   the window tall again, Back).
+- **A zip from Windows lands with the preview in its own window** (owner, 2026-11-15: a zip "kept loading and
+  loading never finishing", caught live). The arrival turns the preview flag on (Preview mode) and window mode puts
+  it back off at once; that switch-off moved the tab's open serial, so the zip's read, still out, was dropped as
+  overtaken, and its wait stayed: the address said the zip, the tab the folder before, the list waited for good.
+  A switch-off nobody asked for (`unasked`) cancels nothing now, and any overtaken navigation takes its own wait
+  with it. `zipHandoffWindow` holds it (two handoffs of a zip in window mode, each listing its members).
 - **Not covered**: a search hit whose page of results is not loaded yet is
   followed once that page arrives. The same file picked again from outside while the hand is away (it is
   already the selection) does not bring it back.
