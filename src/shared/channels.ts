@@ -171,6 +171,7 @@ export const CALL = {
 
   driveDetails: 'drive:details',
   driveCleanup: 'drive:cleanup',
+  folderBreakdown: 'folder:breakdown',
 
   folderSize: 'folder:size',
   folderSizesCached: 'folder:sizes-cached',

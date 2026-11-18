@@ -11,7 +11,8 @@ import { mediaPicture, mediaProps } from '../propsMedia'
 import { detectText, TEXT_PROBE_BYTES } from '../textProps'
 import { driveModel } from '../driveModel'
 import { hashFile } from '../fileHash'
-import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
+import type { DriveDetails, FolderBreakdown, MediaProps, TextProps } from '@shared/props'
+import { breakdownOf, breakdownTarget } from '../folderBreakdown'
 import { ffmpegTools } from '../bundledTools'
 import type { MainCtx } from './context'
 
@@ -124,6 +125,21 @@ export function registerPropsIpc(ctx: MainCtx): void {
         ? { total: usage.total, free: Math.min(Math.max(usage.free, 0), usage.total) }
         : {}),
       folders: sized
+    }
+  })
+  // A FOLDER'S OWN RING (owner, 2026-11-17): a click on a slice shows that
+  // folder's folders, and so on down. Sizes and folder names only, as the
+  // drive's ring above answers them for the root, and a plain drive path only.
+  ipcMain.handle(CALL.folderBreakdown, async (_e, p: unknown): Promise<FolderBreakdown | null> => {
+    const folder = breakdownTarget(p)
+    if (!folder) return null
+    try {
+      const entries = await readdir(folder, { withFileTypes: true })
+      const paths = entries.filter((e) => e.isDirectory()).map((e) => join(folder, e.name))
+      const sizes = await getIndexedFolderSizes([folder, ...paths]).catch(() => null)
+      return breakdownOf(folder, paths, sizes)
+    } catch {
+      return null
     }
   })
   // Windows' own Disk Cleanup for that drive: Prism has no cleaner of its own.

@@ -4,6 +4,7 @@ import {
   DONUT_REST,
   donutBytes,
   donutSlices,
+  folderRing,
   sharePercent,
   usedFraction
 } from './donut'
@@ -84,5 +85,27 @@ describe('donutBytes', () => {
     expect(donutBytes(4096)).toBe('4 KB')
     expect(donutBytes(100)).toBe('1 KB')
     expect(donutBytes(0)).toBe('Empty')
+  })
+})
+
+describe('folderRing', () => {
+  const folders = [
+    { name: 'Admin', path: 'C:\\Users\\Admin', bytes: 700 * GB },
+    { name: 'Public', path: 'C:\\Users\\Public', bytes: 200 * GB }
+  ]
+  it('is the folder whole: its folders, then its own files last and grey', () => {
+    const ring = folderRing({ bytes: 1000 * GB, files: 100 * GB, folders }, 'Users')
+    expect(ring.map((s) => s.name)).toEqual(['Admin', 'Public', 'Files in Users'])
+    expect(ring.map((s) => s.fraction)).toEqual([0.7, 0.2, 0.1])
+    expect(ring[2]).toMatchObject({ files: true, color: DONUT_REST })
+    expect(ring[0].color).toBe(DONUT_COLOURS[0])
+  })
+  it('has no files row when nothing sits in it directly', () => {
+    expect(folderRing({ bytes: 900 * GB, files: 0, folders }, 'Users').some((s) => s.files)).toBe(false)
+  })
+  it('a folder with no folders is one grey slice, the whole ring', () => {
+    const ring = folderRing({ bytes: 4 * GB, files: 4 * GB, folders: [] }, 'Clips')
+    expect(ring).toHaveLength(1)
+    expect(ring[0]).toMatchObject({ name: 'Files in Clips', fraction: 1, files: true })
   })
 })

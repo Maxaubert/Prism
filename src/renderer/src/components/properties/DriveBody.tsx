@@ -18,7 +18,10 @@ function connectionOf(details: DriveDetails): string {
  * its name, the donut of its top-level folders, the facts, and the one
  * footer with more than Close: Windows' Disk Cleanup on the left. No Open:
  * a Properties window says what a thing is, it never opens it (owner, same
- * day: "remove the open button. that should never be in properties").
+ * day: "remove the open button. that should never be in properties"). The
+ * one Open is the ring's own, for a folder clicked into (owner, 2026-11-17,
+ * chose "an Open button beside the current folder's name"): the drive itself
+ * still has none.
  * Until main answers (and on the phone, where it never does) the places
  * panel's own numbers stand in, so the window is never empty.
  */
@@ -72,7 +75,7 @@ export function DriveBody({
       <Header icon={<DriveGlyph />} title={driveName(drive.path, drive)} sub={sub} />
       {details ? (
         <div className="mt-4">
-          <DriveDonut details={details} onOpenFolder={onOpenFolder ?? (() => {})} />
+          <DriveDonut details={details} root={drive.path} onOpenFolder={onOpenFolder ?? (() => {})} />
         </div>
       ) : (
         <div className="mt-4 grid h-[150px] place-items-center italic text-[var(--p-dim2)]">Reading…</div>

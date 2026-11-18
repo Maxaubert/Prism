@@ -37,7 +37,7 @@ import type { DragOutRequest, DragOutResult, DragPrepareResult, NativeDragRecord
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type { StripReport, TabCarry, TabHover, TabMerge, TearEnd, TearEvent, TearRequest } from '@shared/tabTear'
 import type { FolderHandlerStatus } from '@shared/folderHandler'
-import type { DriveDetails, MediaProps, TextProps } from '@shared/props'
+import type { DriveDetails, FolderBreakdown, MediaProps, TextProps } from '@shared/props'
 import type {
   ArchiveAddResult,
   ArchiveMoveResult,
@@ -356,6 +356,9 @@ const api = {
   propsText: (path: string): Promise<TextProps | null> => ipcRenderer.invoke(CALL.propsText, path),
   /** A drive root's (`C:\`) model, connection, space and top-level folders. */
   driveDetails: (root: string): Promise<DriveDetails | null> => ipcRenderer.invoke(CALL.driveDetails, root),
+  /** One folder's folders and loose files by size, for the drive's ring. */
+  folderBreakdown: (path: string): Promise<FolderBreakdown | null> =>
+    ipcRenderer.invoke(CALL.folderBreakdown, path),
   /** Windows' own Disk Cleanup for that drive. */
   driveCleanup: (root: string): Promise<boolean> => ipcRenderer.invoke(CALL.driveCleanup, root),
   /** A file's SHA-256, streamed in main. `done` is the hex, or null when it
