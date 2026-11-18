@@ -736,7 +736,10 @@ export class PhoneServer {
     // what this phone may read NOW, every time, like every other route, and
     // a stream that fails it is stopped rather than left running.
     const job = jobs.file(route.job)
-    if (!job || !this.deps.access.may(token, job)) {
+    // A file this phone's own answers granted (a zip member extracted to temp)
+    // passes too, the same rule /api/play opened the job under (audit
+    // 2026-11-18, #533: the member's stream was refused and every job stopped).
+    if (!job || !(this.grants.has(token, job) || this.deps.access.may(token, job))) {
       void jobs.stopFor(token)
       return void json(res, 404, { error: 'no such stream' })
     }
