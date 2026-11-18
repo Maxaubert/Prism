@@ -1307,6 +1307,21 @@ The owner chose "all 5 bugs" from the 2026-11-18 audit. Each has a test that fai
   "name (2)" (`cutSameFolder` e2e).
 - **A zip under a folder with a Turkish 'İ'** finds its inner path (`archivePlace.test.ts`).
 
+## A busy folder sorted by size (owner, 2026-11-18)
+
+Owner, 2026-11-18, on `C:\Users\Admin\AppData\Local`: "loads for a long time and folders pop in making the
+list scroll ... sometimes i have to go in then out then back into a folder to get it to show the biggest
+folders". Two causes, two fixes:
+- **Another program's write no longer holds the index back.** The folder's watch names the entries that
+  changed (`DirChange.entries`), so one child's change stales that child and the folder, not every
+  sibling, and such a change is a SOFT marker: the five-second "the index may lag" guard is for Prism's
+  own writes only. Before, AppData\Local's constant writes turned every size into a disk walk.
+- **Under a Size sort every folder is measured**, the rows on screen first. Only the rows on screen were,
+  so a big folder further down never reached the top until a revisit.
+Held by the `busyFolderSizes` e2e (sixty folders, the two biggest last by name, a writer making files in
+one of them every 150 ms) and `folderSizeCache.test.ts`. The sort itself now follows the tab (see
+"ARRIVING NEVER SELECTS").
+
 ## The list follows the selection (owner, 2026-11-12)
 
 Owner, 2026-11-12: "there are many cases where a file is selected but not in the main view automaticaly, so
