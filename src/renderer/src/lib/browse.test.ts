@@ -93,6 +93,23 @@ describe('folder history', () => {
     state = travelBrowseState(state, 1)
     expect(state.path).toBe(other)
     expect(browseLocation(state)).toEqual({ ...right, selected: null })
+  })
+
+  it('the order picked last goes everywhere, a revisit and Back included (owner, 2026-11-18)', () => {
+    // "sorting by size isnt kept between folders": a folder visited earlier
+    // under Name used to bring Name back.
+    const size = { key: 'size', direction: 'desc' } as const
+    let state = navigateBrowseState(newBrowse(root), other)
+    state = updateBrowseLocation(state, { sort: size, scrollTop: 300 })
+    state = navigateBrowseState(state, root)
+    expect(browseLocation(state).sort).toEqual(size)
+    state = travelBrowseState(state, -1)
+    expect(state.path).toBe(other)
+    expect(browseLocation(state).sort).toEqual(size)
+    expect(browseLocation(state).scrollTop).toBe(300)
+    state = travelBrowseState(state, -1)
+    expect(state.path).toBe(root)
+    expect(browseLocation(state).sort).toEqual(size)
     // A revisit by a crumb or a sidebar place is the same: nothing marked.
     // And it leaves the search (#281): the only visit was the results, whose
     // scroll is not the folder's, so it starts at the top.

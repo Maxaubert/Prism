@@ -32,7 +32,9 @@ it('watches only an explicitly selected owned folder and releases the old watche
   expect(await browseWatch('owner', first, emit)).toBe(true)
   writeFileSync(join(first, '.env'), 'new=hidden')
   await expect.poll(() => changes.length).toBeGreaterThan(0)
-  expect(changes[0]).toEqual({ root: first, dirs: [first] })
+  // The changed entry is named too, so a folder size stales only it
+  // (owner, 2026-11-18: AppData\Local).
+  expect(changes[0]).toEqual({ root: first, dirs: [first], entries: [join(first, '.env')] })
 
   // Granting another path (for a cwd report or preview) does not change the
   // selected watcher. It follows only browseWatch's explicit surface choice.

@@ -77,20 +77,20 @@ export function navigateBrowseState(
 ): SavedBrowse {
   const same = samePath(browse.path, path)
   if (same && !isSearch(browseLocation(browse))) return { ...browse, surface: 'folder' }
-  // Revisiting a place restores its order and scroll even by a breadcrumb or
-  // shortcut; never its selection (arrivalMark) and never a search it held:
-  // the scroll of a result list is not the folder's.
+  // Revisiting a place restores its scroll even by a breadcrumb or shortcut;
+  // never its selection (arrivalMark) and never a search it held: the scroll
+  // of a result list is not the folder's. THE ORDER IS THE TAB'S (owner,
+  // 2026-11-18: "sorting by size isnt kept between folders"): the sort picked
+  // last goes everywhere, a revisit and Back included. It replaces "a
+  // revisit restores its order".
+  const sort = { ...browseLocation(browse).sort }
   const visits = browse.history.filter((entry) => samePath(entry.path, path))
   const plain = visits.findLast((entry) => !isSearch(entry))
   const previous = plain ?? visits.at(-1)
   const selected = arrivalMark(path, shown, same ? undefined : browse.path)
   const entry = previous
-    ? { ...previous, path, selected, query: '', scrollTop: plain ? previous.scrollTop : 0 }
-    : {
-        ...newBrowse(path).history[0],
-        selected,
-        sort: { ...browseLocation(browse).sort }
-      }
+    ? { ...previous, path, selected, query: '', scrollTop: plain ? previous.scrollTop : 0, sort }
+    : { ...newBrowse(path).history[0], selected, sort }
   const history = [...browse.history.slice(0, browse.cursor + 1), entry].slice(-MAX_HISTORY)
   return { ...browse, path, history, cursor: history.length - 1, surface: 'folder' }
 }
@@ -128,7 +128,12 @@ export function travelBrowseState(browse: SavedBrowse, delta: number, shown?: st
   if (cursor === browse.cursor) return browse
   const target = browse.history[cursor]
   const history = browse.history.slice()
-  history[cursor] = { ...target, selected: arrivalMark(target.path, shown, browse.path) }
+  // Back and Forward keep the order picked last too (owner, 2026-11-18).
+  history[cursor] = {
+    ...target,
+    selected: arrivalMark(target.path, shown, browse.path),
+    sort: { ...browseLocation(browse).sort }
+  }
   return { ...browse, history, cursor, path: target.path, surface: 'folder' }
 }
 

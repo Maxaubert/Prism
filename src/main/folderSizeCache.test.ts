@@ -285,6 +285,42 @@ describe('persistent folder size cache', () => {
     expect(indexedSizes).toHaveBeenCalledOnce()
   })
 
+  // AppData\Local (owner, 2026-11-18): other programs write there every
+  // second, and each write held the index back, so every size was a walk.
+  it('a change another program made asks the index again, it does not walk the disk', async () => {
+    let bytes = 13
+    const indexedSizes = vi.fn(
+      async (paths: readonly string[]) => new Map(paths.map((path) => [path, { bytes }]))
+    )
+    const scan = vi.fn(async () => result(999))
+    const cache = new FolderSizeCache({ directory, indexedSizes, scan })
+    expect(await cache.get(root, controller().signal)).toMatchObject({ bytes: 13, source: 'index' })
+    bytes = 39
+    await cache.invalidate([join(root, 'data')], undefined, { soft: true })
+    expect(await cache.get(root, controller().signal)).toMatchObject({ bytes: 39, source: 'index', stale: false })
+    expect(scan).not.toHaveBeenCalled()
+    // And a warm-up of the folder still goes through the index.
+    await cache.invalidate([join(root, 'data')], undefined, { soft: true })
+    await cache.prefetchIndexed([root])
+    expect(indexedSizes).toHaveBeenCalledTimes(3)
+  })
+
+  it('a change in one folder leaves its sibling fresh', async () => {
+    const a = join(root, 'a')
+    const b = join(root, 'b')
+    await mkdir(a)
+    await mkdir(b)
+    const indexedSizes = vi.fn(
+      async (paths: readonly string[]) => new Map(paths.map((path) => [path, { bytes: 5 }]))
+    )
+    const cache = new FolderSizeCache({ directory, indexedSizes })
+    await cache.get(a, controller().signal)
+    await cache.get(b, controller().signal)
+    await cache.invalidate([a], undefined, { soft: true })
+    expect((await cache.readCached([a, b]))[b]).toMatchObject({ stale: false })
+    expect((await cache.readCached([a, b]))[a]).toMatchObject({ stale: true })
+  })
+
   it('keeps the index settling guard when marker overflow evicts a changed path', async () => {
     const indexedSizes = vi.fn(
       async (paths: readonly string[]) => new Map(paths.map((path) => [path, { bytes: 13 }]))
