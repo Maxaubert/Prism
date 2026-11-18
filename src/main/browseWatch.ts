@@ -1,3 +1,4 @@
+import { join } from 'path'
 import { userFs, type FSWatcher } from './userFs'
 import type { DirChange } from '@shared/types'
 
@@ -6,7 +7,13 @@ interface BrowseWatch {
   watcher: FSWatcher
   timer: ReturnType<typeof setTimeout> | null
   firstChange: number
+  /** The names heard since the last emit; null once one came without a
+   *  name or too many came, so the whole folder is reported. */
+  names: Set<string> | null
 }
+
+/** More changed entries than this in one burst: report the folder instead. */
+const MAX_NAMED = 64
 
 const watches = new Map<string, BrowseWatch>()
 
@@ -66,7 +73,12 @@ export async function setBrowseWatch(
       const current = watches.get(tabId)
       if (!current || current.watcher !== watcher) return
       const now = Date.now()
-      if (!current.firstChange) current.firstChange = now
+      if (!current.firstChange) {
+        current.firstChange = now
+        current.names = new Set()
+      }
+      if (inside || !name || !current.names || current.names.size >= MAX_NAMED) current.names = null
+      else current.names.add(String(name))
       if (current.timer) clearTimeout(current.timer)
       // A continuously written file still updates the list at least once
       // a second. Ordinary bursts settle before the one refresh is emitted.
@@ -74,11 +86,18 @@ export async function setBrowseWatch(
       current.timer = setTimeout(() => {
         current.timer = null
         current.firstChange = 0
+        const named = current.names
+        current.names = null
         const at = inside ? inside.report : path
-        if (watches.get(tabId) === current) emit({ root: at, dirs: [at] })
+        if (watches.get(tabId) !== current) return
+        emit(
+          named && named.size
+            ? { root: at, dirs: [at], entries: [...named].map((n) => join(path, n)) }
+            : { root: at, dirs: [at] }
+        )
       }, delay)
     })
-    const current: BrowseWatch = { path: key, watcher, timer: null, firstChange: 0 }
+    const current: BrowseWatch = { path: key, watcher, timer: null, firstChange: 0, names: null }
     watches.set(tabId, current)
     watcher.on('error', () => {
       if (watches.get(tabId) !== current) return
