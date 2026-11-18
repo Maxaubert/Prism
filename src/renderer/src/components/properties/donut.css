@@ -2,8 +2,8 @@
    The ring on the left, its legend scrolling beside it, as tall as the ring. */
 .donut-pair {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 32px;
   align-items: center;
   margin-top: 12px;
 }

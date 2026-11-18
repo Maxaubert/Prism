@@ -55,7 +55,9 @@ export function PropertiesDialog({
       attrs={{ 'data-props-window': '' }}
       // A tall body (a film with many tracks) scrolls inside the box rather
       // than past the window's edge.
-      className={`${DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
+      // A drive's box is wider (owner, 2026-11-18: "a bit wider and bigger to
+      // give things more room"): the ring and its legend side by side.
+      className={`${drive ? DIALOG_BOX.replace('max-w-[420px]', 'max-w-[580px]').replace(' p-5 ', ' p-7 ') : DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
     >
       {drive ? (
         <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />

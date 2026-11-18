@@ -26627,7 +26627,7 @@ async function propertiesWindowScenario(fixtures) {
       const r = svg.getBoundingClientRect()
       const cx = r.left + r.width / 2
       const cy = r.top + r.height / 2
-      const radius = (r.width / 150) * 65 // the ring's middle (DriveDonut: (150 - 20) / 2)
+      const radius = (r.width / 190) * 84 // the ring's middle (DriveDonut: (190 - 22) / 2)
       for (let a = 0; a < 360; a += 2) {
         const x = cx + radius * Math.cos((a * Math.PI) / 180)
         const y = cy + radius * Math.sin((a * Math.PI) / 180)

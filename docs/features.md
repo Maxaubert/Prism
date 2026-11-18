@@ -4792,6 +4792,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   holds it (Users, the profile, AppData, Back, Backspace, a crumb, Open), with
   `PRISM_E2E_SIZES` standing in for the index on the second desktop; `folderRing` and
   `folderBreakdown` unit tests.
+  **A DRIVE'S WINDOW IS WIDER** (owner, 2026-11-18: "make this window a bit wider and bigger to
+  give things a bit more space and room"). A drive's Properties box is 580px wide with 28px
+  padding (every other kind stays 420px), the ring is 190px with a 22px band (150 and 20 before),
+  and 32px sits between the ring and its legend, so long names like "Program Files (x86)" fit.
+  `diskDrill` and `propertiesWindow` e2e cover it.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one
