@@ -14,9 +14,11 @@ import '../browse/browse.css'
 import './donut.css'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 
-/** The ring (spec: 150px, 20px ring) and the gap between two slices. */
-const SIZE = 150
-const STROKE = 20
+/** The ring and the gap between two slices: 190px, 22px ring (owner,
+ *  2026-11-18: "a bit wider and bigger to give things more room"; the
+ *  spec's 150px and 20px before). */
+const SIZE = 190
+const STROKE = 22
 const HOT_STROKE = STROKE + 6
 const GAP = 2
 const R = (SIZE - STROKE) / 2
