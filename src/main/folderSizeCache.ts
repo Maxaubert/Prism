@@ -37,6 +37,9 @@ interface Marker {
   path: string
   id: string
   at: number
+  /** Heard from a folder watch, not written by Prism: the index sees such a
+   *  change as soon as anyone, so it does not hold the index back. */
+  soft?: true
 }
 
 interface InvalidationSnapshot {
@@ -200,15 +203,11 @@ export class FolderSizeCache {
           .filter((name) => name.endsWith('.json'))
           .map(async (name) => {
             try {
-              const marker = JSON.parse(await readFile(join(markerDirectory, name), 'utf8')) as {
-                path: string
-                id: string
-                at: number
-              }
+              const marker = JSON.parse(await readFile(join(markerDirectory, name), 'utf8')) as Marker
               return typeof marker.path === 'string' &&
                 typeof marker.id === 'string' &&
                 typeof marker.at === 'number'
-                ? marker
+                ? { path: marker.path, id: marker.id, at: marker.at, ...(marker.soft === true ? { soft: true as const } : {}) }
                 : null
             } catch {
               return null
@@ -257,8 +256,11 @@ export class FolderSizeCache {
     if (snapshot.globalAt !== undefined && this.now() - snapshot.globalAt < 5000) return true
     // Index notifications can lag a successful rename/write. Verify recent
     // edits on disk rather than saving the pre-edit index answer as fresh.
+    // Not for a change some other program made (a soft marker; owner,
+    // 2026-11-18): AppData\Local is written every second, and each write held
+    // the index back from every folder in it, so each size became a disk walk.
     return snapshot.markers.some(
-      (marker) => intersects(target, marker.path) && this.now() - marker.at < 5000
+      (marker) => !marker.soft && intersects(target, marker.path) && this.now() - marker.at < 5000
     )
   }
 
@@ -377,7 +379,11 @@ export class FolderSizeCache {
    * once), so during an npm install the tree refreshed late and the writes
    * flooded the pool a playing film reads through. The changed folders are now
    * collapsed to the outermost ones and written a few at a time. */
-  async invalidate(paths: readonly string[], noted?: () => void): Promise<void> {
+  async invalidate(
+    paths: readonly string[],
+    noted?: () => void,
+    options: { soft?: boolean } = {}
+  ): Promise<void> {
     if (!paths.length) {
       noted?.()
       return
@@ -398,7 +404,12 @@ export class FolderSizeCache {
       noted?.()
       return
     }
-    const markers = changed.map((path) => ({ path, id: randomUUID(), at: this.now() }))
+    const markers: Marker[] = changed.map((path) => ({
+      path,
+      id: randomUUID(),
+      at: this.now(),
+      ...(options.soft ? { soft: true as const } : {})
+    }))
     for (const marker of markers) this.pending.set(marker.path, marker)
     noted?.()
     try {

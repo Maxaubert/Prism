@@ -118,10 +118,22 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     () => (recorded ? [] : (props.listing?.folders.map((folder) => folder.path) ?? [])),
     [props.listing, recorded]
   )
+  // UNDER A SIZE SORT EVERY FOLDER IS WANTED (owner, 2026-11-18: "sometimes
+  // i have to go in then out then back into a folder to get it to show the
+  // biggest folders"). The order hangs on folders off screen too, so the
+  // rows on screen go first and the rest follow; under any other sort only
+  // the rows on screen are measured, as before.
+  const bySize = props.sort.key === 'size'
+  const wanted = useMemo(() => {
+    if (recorded) return []
+    if (!bySize) return visibleFolders
+    const seen = new Set(visibleFolders)
+    return [...visibleFolders, ...folderPaths.filter((path) => !seen.has(path))]
+  }, [recorded, bySize, visibleFolders, folderPaths])
   const measured = useFolderSizes(
     folderPaths,
     !recorded && props.pending === 'none' && !props.searchState?.running && !props.searchState?.window,
-    recorded ? [] : visibleFolders
+    wanted
   )
   const folderSizes = useMemo((): FolderSizes => {
     if (!recorded || !props.listing) return measured

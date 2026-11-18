@@ -110,6 +110,7 @@ import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import type {
+  DirChange,
   OpenPayload,
   TextRead
 } from '@shared/types'
@@ -638,9 +639,11 @@ function openLink(url: string): void {
  * 2026-10-26) is the only caller; the recursive root watcher it replaced went
  * with the roots (2026-10-28).
  */
-function folderChanged(change: { root: string; dirs: string[] }): void {
+function folderChanged(change: DirChange): void {
   // Our index and cache writes must not invalidate themselves recursively.
-  const directories = change.dirs.filter((path) =>
+  // The changed entries when the watch named them (owner, 2026-11-18): one
+  // child's change stales that child and the folder, not every sibling.
+  const directories = (change.entries ?? change.dirs).filter((path) =>
     [indexDirectory, sizeCacheDirectory].every((privatePath) => {
       const rel = relative(privatePath, path)
       return rel !== '' && (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel))
@@ -657,7 +660,7 @@ function folderChanged(change: { root: string; dirs: string[] }): void {
     windows.sendToAll(PUSH.dirChanged, change)
   }
   void folderSizes
-    .invalidate(directories, tell)
+    .invalidate(directories, tell, { soft: true })
     .catch(() => {})
     .finally(tell)
 }

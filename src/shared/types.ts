@@ -200,6 +200,10 @@ export interface BrowseDetails {
 export interface DirChange {
   root: string
   dirs: string[]
+  /** The entries in `dirs` that changed, when the watcher named every one
+   *  (owner, 2026-11-18: AppData\Local loaded slowly). Only folder sizes use
+   *  it: a change to one child stales that child, not all its siblings. */
+  entries?: string[]
 }
 
 /** An app the "Open in" submenu can hand a file to. `id` is the executable's
