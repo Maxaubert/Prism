@@ -2014,6 +2014,77 @@ async function cutSameFolderScenario(fixtures) {
   }
 }
 /**
+ * A BUSY FOLDER SORTED BY SIZE (owner, 2026-11-18: "C:\Users\Admin\AppData\Local
+ * ... loads for a long time and folders pop in ... sometimes i have to go in
+ * then out then back into a folder to get it to show the biggest folders").
+ * Sixty folders, the two biggest last by name (off screen), and a program
+ * writing into one of them every 150 ms the whole time. Sorted by size, the
+ * biggest are on top with no scroll: every folder is measured under a size
+ * sort, and the writes no longer hold the index back (PRISM_E2E_SIZES stands
+ * in for it on the second desktop).
+ */
+async function busyFolderSizesScenario(fixtures) {
+  console.log('a busy folder sorted by size')
+  const GB = 1024 ** 3
+  const dir = join(fixtures, 'busy-sizes')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const sizes = {}
+  for (let i = 0; i < 60; i++) {
+    const name = `f${String(i).padStart(2, '0')}`
+    mkdirSync(join(dir, name))
+    writeFileSync(join(dir, name, 'a.txt'), 'x')
+    sizes[join(dir, name)] = (i + 1) * 1024 ** 2
+  }
+  sizes[join(dir, 'f59')] = 100 * GB
+  sizes[join(dir, 'f58')] = 50 * GB
+  writeFileSync(join(dir, 'anchor.txt'), 'anchor')
+  const table = join(fixtures, 'busy-sizes.json')
+  writeFileSync(table, JSON.stringify(sizes))
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SIZES: table }, join(dir, 'anchor.txt'))
+  let tick = 0
+  const writer = setInterval(() => {
+    try {
+      // A new file each time (a rewrite of one does not touch the folder):
+      // the folder's watch hears f10 change, as AppData\Local's does.
+      rmSync(join(dir, 'f10', `t${tick - 1}.txt`), { force: true })
+      writeFileSync(join(dir, 'f10', `t${tick++}.txt`), 'x')
+    } catch {}
+  }, 150)
+  const rows = () =>
+    win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').evaluateAll((els) =>
+      els.map((e) => (e.getAttribute('data-browse-path') ?? '').split('\\').pop())
+    )
+  const cell = (key) => win.locator(`.browse-list-area .browse-columns .browse-column-${key}`)
+  try {
+    await explorerAt(win, dir)
+    ok(
+      await until(async () => (await rows()).includes('f00'), 15000),
+      'the folder lists'
+    )
+    await sleep(1500) // the writer is going; the folder's watch has heard it
+    await cell('size').click()
+    await sleep(200)
+    await cell('size').click() // biggest first
+    const top = async () => (await rows()).slice(0, 2).join(',')
+    ok(
+      await until(async () => (await top()) === 'f59,f58', 8000),
+      `sorted by size, the biggest two are on top without a scroll (${await top()})`
+    )
+    // And it stays so while the writes go on.
+    await sleep(2500)
+    ok((await top()) === 'f59,f58', `and stays so while the folder is written (${await top()})`)
+    // Into a folder and out: the order is the tab's, so Size holds.
+    await win.locator('[data-testid="browse-list"] .browse-row[data-browse-path$="f59"]').dblclick()
+    await until(async () => !(await rows()).includes('f00'), 8000)
+    await win.keyboard.press('Backspace')
+    ok(await until(async () => (await top()) === 'f59,f58', 8000), `back out, still biggest first (${await top()})`)
+  } finally {
+    clearInterval(writer)
+    await app.close()
+  }
+}
+/**
  * PASTE BELONGS ON A ROW, and deleting the last file must not close the tab.
  *
  * A full folder has no dead space to right-click, and the one strip that is
@@ -30761,6 +30832,7 @@ await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
 await run(rowPasteScenario)
+await run(busyFolderSizesScenario)
 await run(cutSameFolderScenario)
 await run(deleteLastScenario)
 await run(deleteFocusScenario)
