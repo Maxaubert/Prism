@@ -27,6 +27,22 @@ export interface DonutFolder {
   name: string
   path: string
   bytes: number
+  /** The files directly in the folder on show: grey, and not a way in. */
+  files?: boolean
+}
+
+/**
+ * A FOLDER'S OWN RING (owner, 2026-11-17): its folders as they came (biggest
+ * first), then one row for the files that sit directly in it, last and grey
+ * ("Files in Users"). The ring's whole is the folder, so it is always full.
+ */
+export function folderRing(
+  breakdown: { bytes: number; files: number; folders: readonly DonutFolder[] },
+  name: string
+): DonutSlice[] {
+  const rows: DonutFolder[] = [...breakdown.folders]
+  if (breakdown.files > 0) rows.push({ name: `Files in ${name}`, path: '', bytes: breakdown.files, files: true })
+  return donutSlices(rows, breakdown.bytes)
 }
 
 export interface DonutSlice extends DonutFolder {
@@ -49,7 +65,7 @@ export function donutSlices(folders: DonutFolder[], total: number | undefined): 
     const fraction = Math.min(raw, Math.max(0, 1 - at))
     const slice: DonutSlice = {
       ...f,
-      color: i < DONUT_COLOURS.length ? DONUT_COLOURS[i] : DONUT_REST,
+      color: !f.files && i < DONUT_COLOURS.length ? DONUT_COLOURS[i] : DONUT_REST,
       fraction,
       offset: at,
       drawn: fraction >= DONUT_FLOOR

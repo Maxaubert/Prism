@@ -6,6 +6,7 @@ import { managedIndexerRuntime, type IndexerEndpoint } from './indexerRuntime'
 import { findRunningEverything, forgetRunningEverything } from './existingEverything'
 import type { BrowseSearchWindowRequest } from '@shared/browse'
 import { createLru } from './lru'
+import { readFile } from 'fs/promises'
 
 const indexedRoots = createLru<string, number>(64)
 // ES 1.1.0.38 uses UINT64_MAX to disable a count cap inherited from es.ini.
@@ -32,6 +33,33 @@ async function* queryEndpoints(root: string, signal: AbortSignal): AsyncGenerato
   if (exe && !signal.aborted) yield { exe, instance: managed?.endpoint.instance ?? '' }
 }
 
+/**
+ * Under `--e2e` only: `PRISM_E2E_SIZES` names a JSON file of folder path to
+ * bytes, answered in the index's place. The e2e runs on a second desktop,
+ * where this PC's Everything cannot be reached (`propertiesWindow` skips its
+ * drive step for that), and the drive ring's drill-down is held there with it
+ * (`diskDrill`). A path the file does not name is one the index does not know.
+ */
+async function e2eSizes(): Promise<((paths: readonly string[]) => Map<string, { bytes: number }>) | null> {
+  const file = process.argv.includes('--e2e') ? process.env.PRISM_E2E_SIZES : undefined
+  if (!file) return null
+  const table = new Map<string, number>()
+  try {
+    const raw = JSON.parse(await readFile(file, 'utf8')) as Record<string, number>
+    for (const [path, bytes] of Object.entries(raw)) table.set(resolve(path).toLowerCase(), bytes)
+  } catch {
+    return () => new Map()
+  }
+  return (paths) => {
+    const out = new Map<string, { bytes: number }>()
+    for (const path of paths) {
+      const bytes = table.get(resolve(path).toLowerCase())
+      if (bytes !== undefined) out.set(path, { bytes })
+    }
+    return out
+  }
+}
+
 /** Indexed totals cover indexed descendants; callers label them as indexed estimates. */
 export async function getIndexedFolderSizes(
   paths: readonly string[],
@@ -39,6 +67,8 @@ export async function getIndexedFolderSizes(
 ): Promise<Map<string, { bytes: number }> | null> {
   if (!paths.length) return new Map()
   if (signal.aborted) return null
+  const fake = await e2eSizes()
+  if (fake) return fake(paths)
   for await (const endpoint of queryEndpoints(dirname(paths[0]), signal)) {
     const values = await folderSizesFrom(endpoint, paths, signal)
     if (values?.size) return values

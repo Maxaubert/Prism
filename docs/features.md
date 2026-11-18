@@ -4778,6 +4778,20 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   then D), and its tags. TEXT and code: language, encoding, line endings, counts. Every FILE: an
   on-demand SHA-256 with a copy button. `propertiesWindow` e2e (25 checks) and unit tests for
   every parser.
+  **THE DRIVE'S RING GOES IN** (owner, 2026-11-17: "let me click for example users and it then
+  opens a new diagram which shows within that folder what takes up space, then let me redo this
+  over and over, it should also be possible to go back"; mockup layout A picked over B, Back
+  inside the ring). A slice or a row no longer opens the folder: it shows that folder's own ring,
+  its folders from the search index biggest first, then its loose files in one grey row ("Files in
+  Users") that is no way in; shares are of the folder on show. A place row over the ring holds
+  Back (also Backspace and Alt+Left, taken before the Explorer behind), the trail (a crumb jumps
+  there) and Open, which opens the folder on show in the Explorer and shuts the window (the owner
+  chose it, so the drive's "no Open" now holds for the drive only). The row is there from the
+  start and the legend keeps its height: the window never jumps. Each folder is asked once per
+  window (`folder:breakdown`, sizes and names only, plain drive paths only). `diskDrill` e2e
+  holds it (Users, the profile, AppData, Back, Backspace, a crumb, Open), with
+  `PRISM_E2E_SIZES` standing in for the index on the second desktop; `folderRing` and
+  `folderBreakdown` unit tests.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one

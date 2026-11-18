@@ -26387,6 +26387,97 @@ async function closeProps(win) {
 }
 
 /**
+ * A FOLDER'S OWN RING (owner, 2026-11-17: "let me click for example users and
+ * it then opens a new diagram which shows within that folder what takes up
+ * space, then let me redo this over and over, it should also be possible to go
+ * back"). Layout A of the mockup: a place row over the ring, Back, the trail,
+ * and Open for the folder on show. Sizes come from a table in the index's
+ * place (`PRISM_E2E_SIZES`): this PC's Everything is out of reach on the
+ * second desktop. The folders are the real ones: C:\, C:\Users, the profile.
+ */
+async function diskDrillScenario(fixtures) {
+  console.log('disk ring: click into a folder, and back (owner, 2026-11-17)')
+  const GB = 1024 ** 3
+  const home = homedir()
+  const me = basename(home)
+  const table = join(fixtures, 'disk-drill-sizes.json')
+  writeFileSync(
+    table,
+    JSON.stringify({
+      'C:\\Users': 1500 * GB,
+      'C:\\Windows': 60 * GB,
+      [home]: 1400 * GB,
+      'C:\\Users\\Public': 20 * GB,
+      [join(home, 'AppData')]: 390 * GB, // Local + Roaming exactly: no files row
+      [join(home, 'AppData', 'Local')]: 300 * GB,
+      [join(home, 'AppData', 'Roaming')]: 90 * GB
+    })
+  )
+  const { app, win } = await launchWith({ ...NO_INDEX, PRISM_E2E_SIZES: table }, join(fixtures, 'notes.txt'))
+  const body = '[data-props-body="drive"]'
+  const rows = () => win.locator(`${body} .donut-row .donut-name`).evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  const here = () => win.locator(`${body} .donut-pair`).getAttribute('data-donut-path', { timeout: 500 }).catch(() => null)
+  const trail = () => win.locator(`${body} [data-donut-crumb]`).evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  const height = () => win.locator('[data-props-window]').evaluate((e) => Math.round(e.getBoundingClientRect().height))
+  const at = async (path, name) => {
+    const ok_ = await until(async () => (await here()) === path && (await rows()).includes(name), 8000)
+    return ok_
+  }
+  const into = async (name) => {
+    await win.locator(`${body} .donut-row`, { hasText: name }).first().click()
+  }
+  try {
+    await explorerAt(win, fixtures)
+    const cDrive = win.locator('.folder-browser .browse-places section[aria-label="This PC"] .browse-drive[title="C:\\\\"]')
+    ok(await until(async () => (await cDrive.count()) === 1, 15000), 'C: is in This PC')
+    await cDrive.click({ button: 'right' })
+    await win.locator('[role="menu"] [role="menuitem"]:has-text("Properties")').click()
+    ok(await at('C:\\', 'Users'), `the drive's ring has Users from the table (${(await rows()).join(', ')})`)
+    ok((await win.locator(`${body} [data-donut-back]`).isDisabled()), 'at the drive, Back is dimmed')
+    ok((await win.locator(`${body} [data-donut-open]`).count()) === 0, 'and there is no Open')
+    const h0 = await height()
+    await win.locator('[data-props-window]').screenshot({ path: join(SHOTS, 'disk-drill-drive.png') })
+
+    // In: Users, the profile, AppData. Each is its own ring.
+    await into('Users')
+    ok(await at('C:\\Users', me), `a click on Users shows Users' folders (${(await rows()).join(', ')})`)
+    ok((await trail()).join(' > ') === 'C: > Users', `the trail says where (${(await trail()).join(' > ')})`)
+    ok(/in Users/.test((await win.locator(`${body} .donut-centre`).textContent()) ?? ''), 'the centre names the folder')
+    await win.locator('[data-props-window]').screenshot({ path: join(SHOTS, 'disk-drill-users.png') })
+    await into(me)
+    ok(await at(home, 'AppData'), `and again: the profile's folders (${(await rows()).join(', ')})`)
+    await into('AppData')
+    ok(await at(join(home, 'AppData'), 'Local'), `and again: AppData (${(await rows()).join(', ')})`)
+    ok((await rows()).includes('Files in AppData') === false, 'no files row when the folders fill it')
+    ok((await height()) === h0, `the window keeps its height all the way down (${h0} then ${await height()})`)
+
+    // Out: the Back button, then the keyboard, then a crumb.
+    await win.locator(`${body} [data-donut-back]`).click()
+    ok(await at(home, 'AppData'), 'Back goes up one')
+    await win.keyboard.press('Backspace')
+    ok(await at('C:\\Users', me), 'Backspace goes up one more')
+    ok((await win.locator('[data-props-window]').count()) === 1, 'and the window is still open')
+    await into(me)
+    await at(home, 'AppData')
+    await win.locator(`${body} [data-donut-crumb]`, { hasText: 'C:' }).click()
+    ok(await at('C:\\', 'Users'), 'a crumb jumps straight to the drive')
+
+    // Open: the folder on show, in the Explorer, and the window shuts.
+    await into('Users')
+    await at('C:\\Users', me)
+    await win.locator(`${body} [data-donut-open]`).click()
+    ok(await until(async () => (await win.locator('[data-props-window]').count()) === 0, 5000), 'Open shuts the window')
+    ok(
+      await until(async () => (await win.locator('.browse-path').getAttribute('data-path'))?.toLowerCase() === 'c:\\users', 8000),
+      `and the Explorer is at C:\\Users (${await win.locator('.browse-path').getAttribute('data-path')})`
+    )
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(table, { force: true })
+  }
+}
+
+/**
  * THE PROPERTIES WINDOW, PER KIND (owner, 2026-10-12; spec
  * `docs/superpowers/specs/2026-10-12-properties-window-design.md`, Tests).
  * Opened from the Explorer's row menu on a CRLF text file, a .py, a folder,
@@ -30591,6 +30682,7 @@ await run(explorerVerbsScenario)
 await run(pasteProgressScenario)
 await run(opOutcomeLogScenario)
 await run(propertiesWindowScenario)
+  await run(diskDrillScenario)
 await run(photoInfoKeyScenario)
 await run(imageSaveCopyScenario)
 await run(batchCopiesScenario)
