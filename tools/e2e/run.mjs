@@ -2049,7 +2049,9 @@ async function busyFolderSizesScenario(fixtures) {
       // the folder's watch hears f10 change, as AppData\Local's does.
       rmSync(join(dir, 'f10', `t${tick - 1}.txt`), { force: true })
       writeFileSync(join(dir, 'f10', `t${tick++}.txt`), 'x')
-    } catch {}
+    } catch {
+      // A write that lost a race with the app's own read: the next tick goes on.
+    }
   }, 150)
   const rows = () =>
     win.locator('[data-testid="browse-list"] .browse-row[data-browse-path]').evaluateAll((els) =>
