@@ -174,8 +174,13 @@ export function useFileOps({
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
-      // Unsaved text follows the file to its new name.
-      rekeyBuffer(path, r.path)
+      // Unsaved text follows the file to its new name, and every file under a
+      // renamed folder follows it too (audit 2026-11-18, #533: a folder's
+      // dirty child stayed under the old path, and Save all then hit 'gone').
+      for (const buffer of [...buffers.current.values()]) {
+        const moved = movedPath(buffer.path, [{ from: path, to: r.path }])
+        if (moved !== buffer.path) rekeyBuffer(buffer.path, moved)
+      }
       // So does a folder's icon, and the icons under it (D9). An undo or redo
       // renames through here too.
       followFolderIcons([{ from: path, to: r.path }])
@@ -194,7 +199,7 @@ export function useFileOps({
       else reopen(cur)
       return r.path
     },
-    [file, reopen, rekeyBuffer, setAsk, setRefreshKey, setUndoState]
+    [file, reopen, rekeyBuffer, buffers, setAsk, setRefreshKey, setUndoState]
   )
 
   /**

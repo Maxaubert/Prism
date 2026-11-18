@@ -89,6 +89,10 @@ function wrapFor(name: string, pref: WrapPref): Extension {
   return wrapsFor(pref, isProse(name)) ? EditorView.lineWrapping : []
 }
 
+/** The "changed on disk" answers already acted on, across every editor and
+ *  remount: one Reload re-reads the file once, never again later. */
+const takenAnswers = new WeakSet<object>()
+
 export function CodeView({
   path,
   name,
@@ -427,8 +431,12 @@ export function CodeView({
 
   // The user answered the question. Reload takes theirs; keeping mine just
   // lifts the guard, so the NEXT external write asks again.
+  // Each answer is taken ONCE (audit 2026-11-18, #533): App keeps the last
+  // one, and checkDisk changes with fullscreen, so a fullscreen toggle or a
+  // remount re-ran an old Reload over edits made since.
   useEffect(() => {
-    if (!answer || answer.path !== pathRef.current) return
+    if (!answer || answer.path !== pathRef.current || takenAnswers.has(answer)) return
+    takenAnswers.add(answer)
     asking.current = false
     if (answer.reload) void checkDisk(true)
   }, [answer, checkDisk])

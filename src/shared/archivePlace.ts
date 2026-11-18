@@ -48,8 +48,12 @@ export function innerOf(base: string, path: string): string | null {
   const b = key(base)
   const p = path.replace(/\//g, '\\').replace(/\\+$/, '')
   if (p.toLowerCase() === b) return ''
-  if (!p.toLowerCase().startsWith(b + '\\')) return null
-  return p.slice(b.length + 1).replace(/\\/g, '/')
+  // Cut at the base's OWN length, not its lowercased key's (audit 2026-11-18,
+  // #533): a Turkish 'İ' lowercases to two code units, so the key is longer
+  // than the path it came from and the cut ate the inner name's first letter.
+  const n = trimSep(base.replace(/\//g, '\\')).length
+  if (p[n] !== '\\' || key(p.slice(0, n)) !== b) return null
+  return p.slice(n + 1).replace(/\\/g, '/')
 }
 
 /** The address-bar path of a name inside a container whose root is `base`. */

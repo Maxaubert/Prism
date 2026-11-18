@@ -1294,6 +1294,19 @@ went with Explorer only (2026-10-26); this is the same rule in the Explorer's li
 - **Held by** `landMarks.test.ts`, `undoApply.test.ts` and e2e `landingMarks` (Duplicate, an undone delete
   scrolled to from the top, redo, a paste of two, an undone drop move, Extract here).
 
+## Audit bugs fixed (2026-11-18, #533)
+
+The owner chose "all 5 bugs" from the 2026-11-18 audit. Each has a test that fails without its fix:
+- **A folder rename carries the unsaved text inside it.** Every buffer under the folder is rekeyed, as a
+  move already did (`useFileOps.test.ts`).
+- **One Reload from disk reads the file once.** A fullscreen toggle or remount no longer re-runs an old
+  answer over new typing (`reload` e2e).
+- **A film from a zip streams to the phone.** `/hls` passes a job on the phone's grant, like `/api/play`
+  (`server.test.ts`).
+- **A cut pasted back into its own folder does nothing**, like a drag put back down; it used to make
+  "name (2)" (`cutSameFolder` e2e).
+- **A zip under a folder with a Turkish 'İ'** finds its inner path (`archivePlace.test.ts`).
+
 ## The list follows the selection (owner, 2026-11-12)
 
 Owner, 2026-11-12: "there are many cases where a file is selected but not in the main view automaticaly, so

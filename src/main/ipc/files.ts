@@ -618,6 +618,10 @@ export function registerShellIpc(ctx: MainCtx): void {
         failedWith(s, 'into itself')
         continue
       }
+      // A cut pasted back into its own folder does nothing, like a drag put
+      // back down (audit 2026-11-18, #533): it used to rename the item to
+      // "name (2)", since its own name was taken by itself.
+      if (moving && resolve(dirname(s)).toLowerCase() === resolve(destDir).toLowerCase()) continue
       // What this item has actually started writing, for the clean-up below:
       // a name it never wrote to is not its to remove.
       let writing: string | null = null
