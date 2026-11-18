@@ -5,7 +5,87 @@
   grid-template-columns: 150px minmax(0, 1fr);
   gap: 20px;
   align-items: center;
-  margin-top: 16px;
+  margin-top: 12px;
+}
+
+/* THE PLACE ROW (owner, 2026-11-17, mockup layout A): Back, the trail and
+   Open over the ring. There from the start, so a click in never moves the
+   window. */
+.donut-place {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+}
+.donut-back {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 4px;
+  color: var(--p-text-soft);
+}
+.donut-back:hover:not(:disabled) {
+  background: var(--p-hover-hi);
+  color: var(--p-text);
+}
+.donut-back:disabled {
+  color: var(--p-dim2);
+  opacity: 0.45;
+}
+.donut-crumbs {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.donut-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+/* The far end stays whole; earlier crumbs give way first. */
+.donut-crumb-wrap:last-child {
+  flex: none;
+}
+.donut-crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--p-dim);
+}
+.donut-crumb:hover:not(:disabled) {
+  background: var(--p-hover);
+  color: var(--p-text);
+}
+.donut-crumb[aria-current] {
+  color: var(--p-text);
+  font-weight: 600;
+  cursor: default;
+}
+.donut-sep {
+  padding: 0 1px;
+  color: var(--p-dim2);
+}
+.donut-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 4px;
+  background: var(--p-control);
+  color: var(--p-text-soft);
+}
+.donut-open:hover {
+  background: var(--p-hover-hi);
+  color: var(--p-text);
 }
 
 .donut-ring {
@@ -91,6 +171,41 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A lit row says a click goes in. */
+.donut-chev {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: -1px;
+  color: var(--p-dim);
+  opacity: 0;
+}
+.donut-row[data-hot] .donut-chev {
+  opacity: 1;
+}
+/* The files directly in the folder: no way in. */
+.donut-row[data-files] {
+  cursor: default;
+  font-style: italic;
+  color: var(--p-dim);
+}
+.donut-slice[data-files] {
+  cursor: default;
+}
+.donut-in {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donut-reading {
+  font-style: italic;
+  color: var(--p-dim2);
+}
+.donut-empty {
+  margin: 0;
+  padding: 6px 8px 0;
+  color: var(--p-dim2);
 }
 .donut-num {
   font-variant-numeric: tabular-nums;

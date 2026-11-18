@@ -73,3 +73,14 @@ export interface DriveDetails {
    *  null when the index could not answer. */
   folders: Array<{ path: string; name: string; bytes: number }> | null
 }
+
+/** One folder's own ring in the drive's Properties (owner, 2026-11-17): its
+ *  folders with their sizes from the search index, biggest first, and the
+ *  bytes of the files that sit directly in it. */
+export interface FolderBreakdown {
+  /** The whole folder. */
+  bytes: number
+  /** Files directly in it: the whole less its folders, never below 0. */
+  files: number
+  folders: Array<{ path: string; name: string; bytes: number }>
+}
