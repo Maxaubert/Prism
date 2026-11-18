@@ -1980,6 +1980,40 @@ async function zoomFloorScenario(fixtures) {
 }
 
 /**
+ * A CUT PASTED BACK INTO ITS OWN FOLDER DOES NOTHING (audit 2026-11-18,
+ * #533). Its own name was "taken" by itself, so the paste picked
+ * "name (2)" and renamed it. Explorer leaves it alone; so does Prism now.
+ */
+async function cutSameFolderScenario(fixtures) {
+  console.log('cut and paste into the same folder')
+  const dir = join(fixtures, 'cut-same')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'keep.txt'), 'keep')
+  writeFileSync(join(dir, 'other.txt'), 'other')
+  const { app, win } = await launch(join(dir, 'other.txt'))
+  const menuItem = (label) => win.locator(`[role="menu"] [role="menuitem"]:has-text("${label}")`).first()
+  try {
+    await toList(win, 45000)
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
+    await sleep(500)
+    await listRow(win, 'keep.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await menuItem('Cut').click()
+    await win.waitForFunction(() => window.prism.clipboardHasFiles(), undefined, { timeout: 10000 })
+    await listRow(win, 'other.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await until(async () => !(await menuItem('Paste').isDisabled()), 6000, 100)
+    await menuItem('Paste').click()
+    await sleep(2000)
+    const names = readdirSync(dir).sort()
+    ok(names.join(',') === 'keep.txt,other.txt', `the folder is as it was (${names.join(', ')})`)
+    ok(readFileSync(join(dir, 'keep.txt'), 'utf-8') === 'keep', 'and keep.txt is untouched')
+  } finally {
+    await app.close()
+  }
+}
+/**
  * PASTE BELONGS ON A ROW, and deleting the last file must not close the tab.
  *
  * A full folder has no dead space to right-click, and the one strip that is
@@ -30727,6 +30761,7 @@ await run(arrowKeysScenario)
 await run(chromeHideScenario)
 await run(zoomFloorScenario)
 await run(rowPasteScenario)
+await run(cutSameFolderScenario)
 await run(deleteLastScenario)
 await run(deleteFocusScenario)
 await run(selectionInViewScenario)
