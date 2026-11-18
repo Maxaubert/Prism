@@ -2551,7 +2551,11 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   place, a crumb, Up, Back or Forward marks nothing, and in particular not what an earlier visit
   selected - the subfolder you had come out of used to come back marked. The ONE exception is
   the file on display (preview pane or full view), marked when you arrive at its folder
-  (`browse.ts` `arrivalMark`). Order and scroll are still remembered; the arrows start at the top.
+  (`browse.ts` `arrivalMark`). Scroll is still remembered; the arrows start at the top. The ORDER
+  is the tab's since 2026-11-18 (owner: "sorting by size isnt kept between folders"): the sort
+  picked last goes to every folder, a revisit, Back and Forward included, replacing "a revisit
+  restores its order". Downloads and the Recycle Bin keep their own default until a header is
+  clicked there. `browse.test.ts` holds it.
   NARROWED 2026-09-23 (#204, owner: "say you navigate admin -> documents -> claude, then you use
   backspace to go back ... when you move back to documents, the claude folder should be
   highlighted, when you go to admin, documents should be highlighted"): arriving at the DIRECT
