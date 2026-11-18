@@ -47,6 +47,11 @@ describe('places inside archives (#300)', () => {
     expect(innerOf(base, 'c:\\D\\X.zip\\Wind\\src')).toBe('Wind/src')
     expect(innerOf(base, 'C:\\d\\x.zipper\\a')).toBeNull()
     expect(innerOf(base, 'C:\\d')).toBeNull()
+    // A Turkish 'İ' lowercases to two code units: the cut must not eat a
+    // letter of the inner name (audit 2026-11-18, #533).
+    expect(innerOf('C:\\İzmir\\x.zip', 'C:\\İzmir\\x.zip\\Wind\\src')).toBe('Wind/src')
+    expect(innerOf('C:\\İİ\\x.zip', 'c:\\İİ\\X.ZIP\\a')).toBe('a')
+    expect(innerOf('C:\\İzmir\\x.zip', 'C:\\İzmir\\x.zipper\\a')).toBeNull()
     expect(placeOf(base, 'Wind/src')).toBe('C:\\d\\x.zip\\Wind\\src')
     expect(placeOf(base, '')).toBe(base)
     expect(memberOf({ base }, 'C:\\d\\x.zip\\Wind\\a.txt')).toBe('Wind/a.txt')
