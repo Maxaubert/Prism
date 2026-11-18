@@ -1106,6 +1106,22 @@ async function reloadScenario(fixtures) {
       .waitForFunction(() => document.querySelectorAll('[aria-label="Unsaved changes"]').length === 0, null, { timeout: 5000 })
       .then(() => true, () => false)
     ok(clean, 'and the file is clean again afterwards')
+
+    // One Reload reads the disk ONCE (audit 2026-11-18, #533): typing after it
+    // and then going fullscreen and back used to re-run the old answer and put
+    // the disk text over the new typing.
+    await win.locator('.cm-line').last().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('-after-reload')
+    await sleep(300)
+    await win.keyboard.press('F11')
+    await sleep(900)
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok(
+      (await win.textContent('.cm-content')).includes('-after-reload'),
+      'typing after a Reload survives fullscreen and back'
+    )
   } finally {
     await app.close()
   }
