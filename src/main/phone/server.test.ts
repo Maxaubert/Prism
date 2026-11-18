@@ -185,6 +185,13 @@ beforeEach(async () => {
     },
     archiveExtract: async (_p, entry, password) => {
       lastPw = password
+      // A film inside the zip too: its stream must pass the same grant (#533).
+      if (entry === 'inner/clip.mkv') {
+        const film = join(cache, 'extracted', 'clip.mkv')
+        mkdirSync(join(cache, 'extracted'), { recursive: true })
+        writeFileSync(film, 'abcd')
+        return { ok: true, path: film, kind: 'video' }
+      }
       if (entry !== 'inner/pic.png') return { ok: false, reason: 'failed' }
       const out = join(cache, 'extracted', 'pic.png')
       mkdirSync(join(cache, 'extracted'), { recursive: true })
@@ -711,6 +718,28 @@ describe('PhoneServer', () => {
     const none = await play(token, 'clip.mkv')
     expect(none).toMatchObject({ mode: 'none' })
     expect(String(none.reason)).toContain('ffmpeg')
+  })
+
+  it('a film extracted from a zip streams under its grant (audit 2026-11-18, #533)', async () => {
+    const a = await pair()
+    expect(((await (await api(a, 'archive', 'z.zip')).json()) as ArchiveListing).ok).toBe(true)
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    const auth = { authorization: `Bearer ${a}` }
+    const x = (await (
+      await fetch(url(`/api/archive/extract?path=${zip}&entry=${encodeURIComponent('inner/clip.mkv')}`), { headers: auth })
+    ).json()) as { ok: true; path: string }
+    expect(x.ok).toBe(true)
+    const hls = (await (
+      await fetch(url(`/api/play?path=${encodeURIComponent(x.path)}&can=h264,aac,mp4`), { headers: auth })
+    ).json()) as { mode: string; url: string }
+    expect(hls.mode).toBe('hls')
+    // The playlist and a segment answer; the wall used to refuse them and
+    // stop every job this phone had.
+    expect((await fetch(url(hls.url))).status).toBe(200)
+    expect((await fetch(url(hls.url.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    // Its grant gone, the stream goes too.
+    server.dropGrants(a)
+    expect((await fetch(url(hls.url))).status).toBe(404)
   })
 
   it('an hls job belongs to the phone that opened it', async () => {
