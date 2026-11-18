@@ -20,7 +20,10 @@ const film: ViewerFile = {
 
 // One render of the hook, effects not run: what the file operations do with
 // the state they were started from.
-function ops(openBrowseFile: FileOpsDeps['openBrowseFile']): ReturnType<typeof useFileOps> {
+function ops(
+  openBrowseFile: FileOpsDeps['openBrowseFile'],
+  extra: Partial<FileOpsDeps> = {}
+): ReturnType<typeof useFileOps> {
   const browse = newBrowse('C:\\films', 'viewer')
   const active = newTab(
     { root: 'C:\\films', files: [film], index: 0, browse, role: 'explorer' },
@@ -45,7 +48,8 @@ function ops(openBrowseFile: FileOpsDeps['openBrowseFile']): ReturnType<typeof u
     buffers: { current: new Map() },
     undoState: { done: [], undone: [] },
     flashUndo: noop,
-    archiveActions: { drop: noop }
+    archiveActions: { drop: noop },
+    ...extra
   } as unknown as FileOpsDeps
   let result!: ReturnType<typeof useFileOps>
   function Probe(): null {
@@ -57,6 +61,31 @@ function ops(openBrowseFile: FileOpsDeps['openBrowseFile']): ReturnType<typeof u
 }
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('a folder rename carries the unsaved text inside it (audit 2026-11-18, #533)', () => {
+  it('rekeys a dirty file under the renamed folder, and leaves a sibling folder alone', async () => {
+    vi.stubGlobal('window', {
+      prism: { renameFile: async () => ({ ok: true, path: 'C:\\films\\D2' }), mediaUrl: (p: string) => p }
+    })
+    const buffers = {
+      current: new Map([
+        ['c:\\films\\d\\a.txt', { path: 'C:\\films\\D\\a.txt', text: 'x' }],
+        ['c:\\films\\d\\sub\\b.txt', { path: 'C:\\films\\D\\sub\\b.txt', text: 'y' }],
+        ['c:\\films\\dx\\c.txt', { path: 'C:\\films\\Dx\\c.txt', text: 'z' }]
+      ])
+    }
+    const rekeyBuffer = vi.fn()
+    await ops(vi.fn(async () => true), { buffers, rekeyBuffer } as unknown as Partial<FileOpsDeps>).runRename(
+      'C:\\films\\D',
+      'D2',
+      'ask'
+    )
+    expect(rekeyBuffer.mock.calls).toEqual([
+      ['C:\\films\\D\\a.txt', 'C:\\films\\D2\\a.txt'],
+      ['C:\\films\\D\\sub\\b.txt', 'C:\\films\\D2\\sub\\b.txt']
+    ])
+  })
+})
 
 describe('a rename or delete elsewhere does not start the film on screen (2026-10-16)', () => {
   it('re-shows the paused film without the intent to play after renaming another file', async () => {
