@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { SettingBlock } from 'prism-term-core/renderer/settings/layout/SettingBlock'
 import { SettingRow } from 'prism-term-core/renderer/settings/layout/SettingRow'
+import { Slider } from 'prism-term-core/renderer/settings/fields'
 import { SettingsSection } from 'prism-term-core/renderer/settings/layout/SettingsSection'
 import { TRANSPORT_GROUPS, TRANSPORT_STYLES, type TransportStyle } from '../../lib/transport'
 import { DEFAULT_THEME_ID } from '../../lib/viz/styles'
@@ -130,18 +131,15 @@ function ProgressView({
                 : band.sub
           }
         >
-          <span className="w-[36px] text-right font-mono text-[11.5px] tabular-nums text-[var(--p-dim)]">{transportBg}%</span>
-          <input
+          <Slider
             id="transport-bg"
-            type="range"
             min={0}
             max={100}
             step={5}
             value={transportBg}
-            aria-label={band.label}
-            onChange={(e) => onPickTransportBg(Number(e.target.value))}
-            className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-            style={{ accentColor: 'var(--p-accent-solid)' }}
+            label={band.label}
+            format={(v) => `${v}%`}
+            onChange={onPickTransportBg}
           />
         </SettingRow>
       </SettingsSection>

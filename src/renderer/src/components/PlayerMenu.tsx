@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { SWITCH_KNOB_ON, SWITCH_ON } from 'prism-term-core/renderer/settings/fields'
+import { SWITCH_KNOB_ON, SWITCH_ON, Slider } from 'prism-term-core/renderer/settings/fields'
 import type { MediaControls } from '../hooks/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { useDismiss } from '../hooks/useDismiss'
@@ -277,18 +277,17 @@ export function PlayerMenu({
                 </button>
               </div>
               <div className="px-3 pb-2">
-                <input
-                  type="range"
+                <Slider
+                  variant="menu"
                   min={0.25}
                   max={2}
                   step={0.05}
                   value={c.rate}
-                  onChange={(e) => c.setRate(Number(e.target.value))}
-                  onDoubleClick={() => c.setRate(1)}
-                  aria-label="Playback speed"
-                  data-menu-slider
-                  className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                  style={{ accentColor: 'var(--p-accent-solid)' }}
+                  onChange={c.setRate}
+                  onReset={() => c.setRate(1)}
+                  label="Playback speed"
+                  format={speedLabel}
+                  data={{ 'data-menu-slider': '' }}
                 />
               </div>
             </div>

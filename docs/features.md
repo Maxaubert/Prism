@@ -3,6 +3,12 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the slider (owner, 2026-11-19, #524)
+
+There is one slider, `Slider` in the settings core (`settings/fields.tsx`): a native range worn in the switch's colours,
+an accent fill up to a white thumb. The Settings page's "Control band opacity" uses it (step 5, its value said at the
+right), and so does the player menu's custom speed, in its `menu` variant: full width, no value beside it, a double
+click puts it back (`onReset`). Neither draws a native range of its own any more. Held by `components/slider.test.ts`.
 ## Shared look: the phone's drive row (owner, 2026-11-19, #524)
 
 The phone's This PC page does the Explorer's drive sums, from `lib/driveUsage.ts` (`usedFraction`, `usedWidth`,
