@@ -39,6 +39,18 @@ export function returnsFocus(
   return !!before && before.isConnected === true && before !== body && (active === null || active === body)
 }
 
+/** A text field that already has the focus keeps it (#516): a dialog's field
+ *  focuses itself as it mounts, before the Modal's own effect runs, and the
+ *  primary button must not take the focus off it. */
+export function fieldHasFocus(
+  box: { contains: (n: never) => boolean } | null,
+  active: { tagName?: string } | null
+): boolean {
+  if (!box || !active || !box.contains(active as never)) return false
+  const tag = active.tagName?.toUpperCase()
+  return tag === 'INPUT' || tag === 'TEXTAREA'
+}
+
 const swallow = (e: { preventDefault: () => void; stopPropagation: () => void }): void => {
   e.preventDefault()
   e.stopPropagation()
@@ -108,6 +120,7 @@ export function Modal({
     if (!el) return
     // A colour picker opened again inside it as it mounted keeps the focus.
     if (document.activeElement?.closest('[data-colour-popover]') && el.contains(document.activeElement)) return
+    if (fieldHasFocus(el, document.activeElement)) return
     ;(el.querySelector<HTMLElement>(focus) ?? el).focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey])

@@ -43,6 +43,11 @@ export const DIALOG_BODY = 'mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-d
 // A name or a path inside a question's body, a step brighter than the line.
 export const DIALOG_EMPHASIS = 'text-[var(--p-text)]'
 
+// THE ONE TEXT FIELD OF A DIALOG (#516): the password field's look, which the
+// rename and search fields now wear too. The caller adds its own margin.
+export const DIALOG_INPUT =
+  'w-full rounded border border-[color:var(--p-divider)] bg-[var(--p-bg)] px-2 py-1.5 text-[12.5px] text-[var(--p-text)] outline-none focus:border-[color:var(--p-accent-hi)]'
+
 export type DialogButton = {
   /** The app's accent: the act of the question. */
   primary?: boolean

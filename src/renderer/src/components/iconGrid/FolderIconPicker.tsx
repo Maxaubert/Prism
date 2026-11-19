@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { fuzzyFilter } from '../../lib/fuzzy'
 import { loadFolderIconSet, useFolderIconSet } from '../../lib/folderIconSetLoad'
+import { DialogInput } from '../DialogInput'
 import { IconGrid } from './IconGrid'
 import { enterPick } from './gridMath'
 import { ICON_GRID_LABEL, ICON_SEARCH_LABEL, iconStatus } from './pickerText'
@@ -49,15 +50,11 @@ export function FolderIconPicker({
   const field = useRef<HTMLInputElement>(null)
   const grid = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    field.current?.focus()
-  }, [])
 
   return (
     <div className="mt-3" data-folder-icon-picker>
-      <input
+      <DialogInput
         ref={field}
-        className="folder-icon-search"
         type="search"
         aria-label={ICON_SEARCH_LABEL}
         placeholder="Search icons"
@@ -69,15 +66,15 @@ export function FolderIconPicker({
             e.preventDefault()
             if (active < 0) setActive(0)
             grid.current?.focus()
-          } else if (e.key === 'Enter') {
-            e.preventDefault()
-            // The deferred list may be a key behind; Enter picks the best
-            // hit of what the field says now.
-            if (!set) return
-            const at = enterPick({ query, deferred, active, best: (q) => fuzzyFilter(set.hay, q)[0] })
-            const pick = !at ? undefined : 'list' in at ? icons[at.list] : set.icons[at.set]
-            if (pick) onPick(pick.name)
           }
+        }}
+        onEnter={() => {
+          // The deferred list may be a key behind; Enter picks the best
+          // hit of what the field says now.
+          if (!set) return
+          const at = enterPick({ query, deferred, active, best: (q) => fuzzyFilter(set.hay, q)[0] })
+          const pick = !at ? undefined : 'list' in at ? icons[at.list] : set.icons[at.set]
+          if (pick) onPick(pick.name)
         }}
       />
       <div className="mt-2">

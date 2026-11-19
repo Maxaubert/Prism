@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
-import { selectStem } from '../../lib/selectStem'
+import { useState, type JSX } from 'react'
 import { Dialog } from '../Dialog'
+import { DialogInput } from '../DialogInput'
 import { RENAME_WORDS, type RenameWords } from '../../dialogs/renameWording'
 
 /**
@@ -29,16 +29,7 @@ export function BrowseRename({
   select?: 'all' | 'stem'
 }): JSX.Element {
   const [value, setValue] = useState(name)
-  const input = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    const el = input.current
-    if (!el) return
-    el.focus()
-    if (select === 'stem') selectStem(el, name)
-    else el.select()
-    // Once, on open: the name is the one the dialog was opened for.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+
   return (
     <Dialog
       title={title}
@@ -46,18 +37,15 @@ export function BrowseRename({
       body={
         <label>
           {words.label}
-          <input
-            ref={input}
+          <DialogInput
             aria-label={words.label}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && value.trim()) {
-                event.preventDefault()
-                onSave(value)
-              }
-            }}
-            className="mt-2 block w-full rounded border border-[var(--p-divider)] bg-[var(--p-bg)] p-2 text-[var(--p-text)]"
+            select={select}
+            stemOf={name}
+            onEnter={() => onSave(value)}
+            canEnter={!!value.trim()}
+            className="mt-2 block"
             spellCheck={false}
             autoComplete="off"
           />

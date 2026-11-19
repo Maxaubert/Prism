@@ -3,6 +3,18 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: one dialog text field (owner, 2026-11-19, #516, first step)
+
+Every text field inside a dialog is `components/DialogInput.tsx`, the password field's box (`DIALOG_INPUT` in the core's
+dialogLook.ts: rounded, divider border, accent-hi border on focus, 12.5px) and its keys (`dialogInputKey`: every key stops
+at the field, Enter answers when the value is allowed). The password, rename and folder icon search fields use it; the
+rename field and the icon search were other looks (the search's 8px radius and grey focus border are gone) and the
+rename field now stops keys too. The Modal no longer moves the focus to the primary button when a field already has it
+(`fieldHasFocus`), so the field is not fought over. Left as they were, on purpose: the inline `RenameField` (a row, not a
+dialog), the toolbar and search popup fields (`.browse-field`, bars), the Settings and colour picker fields (the core's
+own frame) and the phone pages (their own page, own look). The wider TextField on `.browse-field` is the issue's
+later step. Held by `components/DialogInput.test.ts`.
+
 ## Shared look: one dialog button, one box width (owner, 2026-11-19, #514)
 
 Every dialog button, the update window's two, the progress card's and the Properties row's wear dialogButton, now in the

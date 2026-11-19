@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import { Dialog } from '../components/Dialog'
+import { DialogInput } from '../components/DialogInput'
 import { DialogName } from '../components/DialogName'
 
 // Its own file since #300: the archive panel (the phone's) and the Explorer's
@@ -18,8 +19,7 @@ export function PasswordDialog({
   onCancel: () => void
 }): JSX.Element {
   const [value, setValue] = useState('')
-  const input = useRef<HTMLInputElement>(null)
-  useEffect(() => input.current?.focus(), [])
+
   return (
     <Dialog
       title="This archive is password protected"
@@ -30,16 +30,13 @@ export function PasswordDialog({
             <DialogName>{name}</DialogName>
             {wrong ? '. Try again:' : ':'}
           </div>
-          <input
-            ref={input}
+          <DialogInput
             type="password"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation()
-              if (e.key === 'Enter' && value) onSubmit(value)
-            }}
-            className="mt-2.5 w-full rounded border border-[color:var(--p-divider)] bg-[var(--p-bg)] px-2 py-1.5 text-[12.5px] text-[var(--p-text)] outline-none focus:border-[color:var(--p-accent-hi)]"
+            onEnter={() => onSubmit(value)}
+            canEnter={!!value}
+            className="mt-2.5"
             aria-label="Archive password"
           />
         </div>
