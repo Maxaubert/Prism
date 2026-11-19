@@ -78,11 +78,6 @@ export const WIDTHS: Record<string, string> = {
   wide: 'w-full max-w-5xl',
   compact: 'w-full max-w-2xl'
 }
-export const WIDTH_LABELS: Array<[string, string]> = [
-  ['full', 'Full'],
-  ['wide', 'Wide'],
-  ['compact', 'Compact']
-]
 
 // The progress bar picks from the SAME colour schemes as the visualizer, with its
 // own selection and its own effect toggles (independent of the visualizer's).
@@ -330,11 +325,6 @@ export function savePreset(name: string): void {
 }
 
 export const deletePreset = (id: string): void => savePresets(state.presets.filter((p) => p.id !== id))
-export function resetPresets(): void {
-  localStorage.removeItem(K.presets)
-  localStorage.removeItem(K.presetsSeed)
-  apply({ presets: loadPresets() })
-}
 
 export function removeTheme(id: string): void {
   const next = state.removed.includes(id) ? state.removed : [...state.removed, id]
@@ -345,10 +335,6 @@ export function removeTheme(id: string): void {
     const survivor = THEMES.find((t) => t.id !== id && !next.includes(t.id))
     if (survivor) setTheme(survivor.id)
   }
-}
-export function restoreThemes(): void {
-  localStorage.removeItem(K.removed)
-  apply({ removed: [] })
 }
 
 /** The current settings, for callers that are not components. */

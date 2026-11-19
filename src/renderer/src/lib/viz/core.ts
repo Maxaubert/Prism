@@ -85,8 +85,6 @@ export interface VizStyle {
   create(W: number, H: number): DrawFn
 }
 
-export const BRAND_PALETTE = ['#5b5bd6', '#9a6cff', '#ff9a8b']
-
 const BINS = 1024 // analyser.frequencyBinCount at fftSize 2048
 const NYQUIST = 22050
 
