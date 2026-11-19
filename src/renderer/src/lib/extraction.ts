@@ -233,16 +233,8 @@ export function dispatch(a: ExtractAction, now = Date.now()): void {
   store.set(next)
 }
 
-export const extractState = store.get
-
 /** Is the window up? Read by the key guard, which is not a component. */
 export const extractionUp = (): boolean => store.get().phase !== 'idle'
 
 export const useExtraction = store.use
 
-/** Test seam. */
-export function resetExtraction(): void {
-  if (timer) clearTimeout(timer)
-  timer = null
-  store.set(IDLE)
-}

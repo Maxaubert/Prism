@@ -1,6 +1,7 @@
 import { app } from 'electron'
 // spawn-ok: the installer handoff, as the app quits.
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,12 +10,13 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { MAX_BODY_CHARS } from 'prism-term-core/shared/releaseNotes'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
+import { MAX_SIGNATURE_CHARS, UPDATE_PUBLIC_KEY, verifyInstaller } from './updateSignature'
 
 // The in-app update check. Releases publish themselves on every push to main
 // (release.yml), so the app's half is small: notice a newer v<version> on
 // GitHub, offer it in the title bar, and on Install download the installer and
-// hand off to it. No feed, no signatures beyond what GitHub serves - the same
-// trust as downloading the release by hand.
+// hand off to it. No feed. The installer must carry the release's own Ed25519
+// signature (<installer>.sig, #534 #10, updateSignature.ts) or nothing runs.
 //
 // The offer carries the release's NOTES since #168 (owner, 2026-09-19: the chip
 // "opens like a pop window, which shows the change log or like patch notes for
@@ -139,6 +141,15 @@ export async function installUpdate(
 ): Promise<boolean> {
   calls.installs += 1
   if (!isReleaseAssetUrl(url)) return false
+  // The name the signature covers is the one this url serves (#534 #10).
+  const name = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '')
+  if (!isInstallerName(name)) return false
+  // NEVER BACKWARDS: a genuine but older installer is signed too, so the
+  // version its signed name carries must be newer than this build, and it must
+  // come from that version's own release.
+  const version = /^Prism-Setup-x64-(.+)\.exe$/i.exec(name)?.[1] ?? ''
+  if (!newerVersion(version, app.getVersion())) return false
+  if (new URL(url).pathname !== `/${REPO}/releases/download/v${version}/${name}`) return false
   let dir: string | null = null
   try {
     const res = await fetch(url, { headers: { 'user-agent': 'Prism-update-check' }, signal })
@@ -147,12 +158,20 @@ export async function installUpdate(
     dir = await mkdtemp(join(tmpdir(), 'prism-update-'))
     const file = join(dir, 'Prism-Setup.exe')
     let got = 0
+    const hash = createHash('sha256')
     const body = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
     body.on('data', (c: Buffer) => {
       got += c.length
+      hash.update(c)
       if (total) onPct(Math.min(99, Math.round((got / total) * 100)))
     })
     await pipeline(body, createWriteStream(file), { signal })
+    // THE SIGNATURE (#534 #10), asked for after the download so a cancel
+    // never waits on it. Missing, oversized or wrong: nothing is run.
+    const sigRes = await fetch(`${url}.sig`, { headers: { 'user-agent': 'Prism-update-check' }, signal })
+    if (!sigRes.ok) throw new Error('no signature')
+    const sig = (await sigRes.text()).slice(0, MAX_SIGNATURE_CHARS + 2)
+    if (!verifyInstaller(name, hash.digest('hex'), sig, UPDATE_PUBLIC_KEY)) throw new Error('bad signature')
     // A cancel that arrives after the last byte still wins: nothing has been
     // spawned yet, and the user asked for nothing to be.
     if (signal?.aborted || !(await canInstall())) throw new Error('not installing')

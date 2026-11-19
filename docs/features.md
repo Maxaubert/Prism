@@ -3,6 +3,45 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## The in-app update runs only a signed installer (#534, owner, 2026-11-19)
+
+The audit (#534 #10) found that Install downloaded the installer from this repo's releases and ran
+it with no check: a swapped release asset would have run silently. The owner picked a **signed
+list** over a paid code certificate or a bare checksum.
+
+- release.yml signs each installer with an Ed25519 key (`tools/sign-update.mjs`) and publishes
+  `Prism-Setup-x64-<version>.exe.sig` beside it. The key lives only in the `PRISM_UPDATE_KEY`
+  Actions secret, plus one offline backup on the owner's PC (`%USERPROFILE%\.keys\prism-update-ed25519.pem`).
+- The app carries the public half (`src/main/updateSignature.ts`). After the download it fetches
+  the `.sig` and checks it against the installer's SHA-256 **and its file name**, so an old
+  genuine installer cannot pose as a newer version. No signature, a wrong one or junk: nothing runs.
+- **Never backwards**: the version in the installer's name must be newer than the running build, and the
+  url must be that version's own release (/releases/download/v<version>/<name>), checked before any download.
+- The tool refuses a key whose public half the app does not carry, so a wrong secret fails the
+  release instead of shipping installers no app accepts.
+- **A new key strands every installed copy**: they stop updating themselves until a build with the
+  new public half is installed by hand. Keep the backup.
+- Builds up to 0.138.8 do not check, so they still update to a signed release as before.
+- Held by `src/main/updateSignature.test.ts` (signs with the real tool and a throwaway key; the
+  install path spawns only for a valid signature).
+
+Same PR (#534 #20, #21): `SECURITY.md` and private vulnerability reporting, `.github/dependabot.yml`
+(npm weekly, actions monthly, PRs only), a read-only token in ci.yml and ui-gate.yml,
+`persist-credentials: false` on every checkout, and every action pinned to a commit SHA.
+## Dependencies: what ships, and SheetJS from its own CDN (#535, owner, 2026-11-19)
+
+- **Only what main loads is a dependency.** electron-builder packs every `dependencies` package into
+  app.asar, while Vite already bundles the renderer's. CodeMirror, `@lezer/highlight`, hls.js, pdf.js
+  (its side data is copied into `out/renderer/pdf` at build), React, react-markdown, rehype-raw and
+  remark-gfm moved to `devDependencies`, so no second copy ships. What main imports stays:
+  adm-zip, exifr, heic-convert, mammoth, qrcode, rehype-parse/sanitize/stringify, xlsx.
+  `tools/check-packed.mjs` still proves every one is in the asar on every package.
+- **SheetJS 0.20.3 from cdn.sheetjs.com**, pinned by URL with its integrity in the lockfile. The npm
+  `xlsx` (0.18.5) is abandoned and SheetJS ships its fixes only from its own CDN; it parses
+  untrusted spreadsheets on the doc worker.
+- `package.json` says `"license": "SEE LICENSE IN LICENSE"` and `"private": true`: it said MIT,
+  which the proprietary licence (v0.80.0 on) contradicts.
+
 ## Shared look: the zip panel wears the Explorer's header and band (owner, 2026-11-19, #519)
 
 - **The issue's premise is half stale.** On the desktop a zip already runs on `BrowseList` in archive mode (#300,
@@ -139,7 +178,8 @@ later step. Held by `components/DialogInput.test.ts`.
 ## Shared look: one dialog button, one box width (owner, 2026-11-19, #514)
 
 Every dialog button, the update window's two, the progress card's and the Properties row's wear dialogButton, now in the
-settings core (packages/term-core/renderer/components/dialogLook.ts, deep import enderer/components/dialogLook). It has a
+settings core (packages/term-core/renderer/components/dialogLook.ts, deep import 
+enderer/components/dialogLook). It has a
 disabled state (45 percent, no pointer, no hover; the update window wrote 45 and others 50 or 55), a selected variant
 (--p-sel-bg, the progress card's Open) next to primary (--p-accent), and a compact size for a control inside a row. No
 button has a focus ring (#272): the update window's had one, and loses it. The box takes its size as dialogBox({ width, pad })
