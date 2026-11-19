@@ -96,7 +96,5 @@ export function explorerHeadVars(id: ExplorerSize): Record<string, string> {
   }
 }
 
-export const useExplorerSize = pref.use
-
 /** For tests: read the store again, as a fresh launch would. */
 export const reloadExplorerSize = pref.reload

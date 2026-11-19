@@ -4,7 +4,6 @@
 // so a drop target can tell "this came from Prism" before it inspects us.
 // Files arriving from EXPLORER carry no payload - they show up as
 // dataTransfer.files instead, which is how the two are told apart.
-import { samePath } from '@shared/path'
 import type { NativeDragRecord } from '@shared/dragOut'
 import { ownDropFrom } from './dragOut'
 
@@ -56,11 +55,6 @@ export function dragPayload(dt: DataTransfer | null): DragPayload | null {
   return dt?.types?.includes?.(DRAG_MIME) ? getDrag() : null
 }
 
-/** A carried row is never its own destination or hover highlight. */
-export function dragIncludesPath(dt: DataTransfer | null, path: string): boolean {
-  const payload = dragPayload(dt)
-  return payload?.kind === 'files' && payload.paths.some((source) => samePath(source, path))
-}
 
 /**
  * THE OS DRAG IN FLIGHT (#103). Main tells every Prism window when a drag
@@ -89,9 +83,6 @@ export function endNative(token: number): void {
   }, NATIVE_GRACE_MS)
 }
 
-export function getNative(): NativeDragRecord | null {
-  return native
-}
 
 /**
  * What a drag over a target carries, as far as a DRAGOVER can tell (#103):
