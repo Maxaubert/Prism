@@ -5,7 +5,7 @@ import { markLanded } from '../../lib/landMarks'
 import { stoppedNote, withFileJob } from '../../lib/fileJob'
 import { parentDir } from '@shared/path'
 import type { UndoEntry } from '../../lib/undo'
-import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
+import { ClashDialog } from '../../dialogs/ClashDialog'
 import { ArchiveDeleteAsk } from '../../dialogs/DeleteAsks'
 import { NoticeDialog } from '../../dialogs/NoticeDialog'
 import { askArchivePassword, useArchiveQuestionUp } from '../../lib/archiveQuestion'
@@ -340,8 +340,10 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         />
       )}
       {clash && (
-        <ArchiveClashDialog
+        <ClashDialog
           names={clash.names}
+          where="archive"
+          canReplace={false}
           onCancel={() => {
             if (clash.kind === 'add') clash.settled?.()
             setClash(null)
