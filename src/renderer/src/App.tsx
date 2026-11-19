@@ -72,7 +72,6 @@ import {
   sameQuickAccessPath
 } from './lib/quickAccess'
 import { BrowseRename } from './components/browse/BrowseRename'
-import { NEW_FOLDER_WORDS, RENAME_WORDS } from './dialogs/renameWording'
 import { PropertiesDialog } from './components/properties/PropertiesDialog'
 import './components/browse/workspace.css'
 import { sortFilesOnce, useSort } from './lib/prefs/sortPrefs'
@@ -927,6 +926,23 @@ export default function App(): JSX.Element {
   // The folder Ctrl+Shift+N just made and is asking the name of: its dialog
   // says New folder, not Rename (owner, 2026-11-10). Any other entry is F2's.
   const [newFolderPath, setNewFolderPath] = useState<string | null>(null)
+  /** The inline rename ends (#523): the name is already trimmed and new. */
+  const submitBrowseRename = (name: string): void => {
+    const entry = browseRename
+    if (!entry) return
+    const wasNew = entry.path === newFolderPath
+    void runRename(entry.path, name, 'ask').then((to) => {
+      // The folder keeps the selection under its new name, so the
+      // keyboard ends on it (owner, 2026-11-10). Quiet: a mark, not a pick.
+      if (wasNew && to) browsing.select(to, true)
+    })
+    setNewFolderPath(null)
+    setBrowseRename(null)
+  }
+  const cancelBrowseRename = (): void => {
+    setNewFolderPath(null)
+    setBrowseRename(null)
+  }
   const [browseProps, setBrowseProps] = useState<(BrowseEntry & { drive?: BrowseDriveUsage }) | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
   const reportPasteError = useCallback(
@@ -1198,6 +1214,8 @@ export default function App(): JSX.Element {
   }, [])
   const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
   /** What a place inside an archive does (#300): its menus, keys and drops. */
+  /** The Explorer's list is on screen, so a rename happens in its row (#523). */
+  const browseListShown = !!(browsing.folder && active && browsing.location && !fullscreen)
   const archiveActions = useArchiveActions({
     navigate: (path) => void browsing.navigate(path),
     openNewTab: (path, isFolder) => openInNewTab(path, isFolder),
@@ -1214,7 +1232,16 @@ export default function App(): JSX.Element {
       copyPath: (path) => void clipboardText(path)
     }
   })
-  /** The Recycle Bin's Restore, Delete permanently and Empty (Recycle Bin,
+  // A rename never outlives the place it began in (#523): the field lives in a
+  // row, and another folder or tab has no such row. Adjusted during render.
+  const renamePlace = active ? `${active.id}|${active.browse.path}` : ''
+  const [renamePlaceSeen, setRenamePlaceSeen] = useState(renamePlace)
+  if (renamePlaceSeen !== renamePlace) {
+    setRenamePlaceSeen(renamePlace)
+    setBrowseRename(null)
+    setNewFolderPath(null)
+    archiveActions.cancelRename()
+  }  /** The Recycle Bin's Restore, Delete permanently and Empty (Recycle Bin,
    *  D13 to D18): jobs of their own, asked about before they destroy. */
   const binOps = useBinOps({
     setAsk,
@@ -1703,6 +1730,15 @@ export default function App(): JSX.Element {
                 onRename={(entry) =>
                   browseArchive ? archiveActions.rename(entry, browseArchive) : setBrowseRename(entry)
                 }
+                // The row or tile being renamed holds the field itself (#523, owner
+                // 2026-11-19: inline everywhere, a zip's member too).
+                renamingPath={browseArchive ? archiveActions.renamingPath : (browseRename?.path ?? null)}
+                onRenameSubmit={(name) =>
+                  browseArchive ? archiveActions.commitRename(name) : submitBrowseRename(name)
+                }
+                onRenameCancel={() =>
+                  browseArchive ? archiveActions.cancelRename() : cancelBrowseRename()
+                }
                 onDelete={(entry) =>
                   browseArchive
                     ? archiveActions.remove([entry.path], browseArchive)
@@ -2152,25 +2188,9 @@ export default function App(): JSX.Element {
           onClose={() => setBrowseProps(null)}
         />
       )}
-      {browseRename && (
-        <BrowseRename
-          name={browseRename.name}
-          words={browseRename.path === newFolderPath ? NEW_FOLDER_WORDS : RENAME_WORDS}
-          onCancel={() => {
-            setNewFolderPath(null)
-            setBrowseRename(null)
-          }}
-          onSave={(name) => {
-            const wasNew = browseRename.path === newFolderPath
-            void runRename(browseRename.path, name, 'ask').then((to) => {
-              // The folder keeps the selection under its new name, so the
-              // keyboard ends on it (owner, 2026-11-10). Quiet: a mark, not a pick.
-              if (wasNew && to) browsing.select(to, true)
-            })
-            setNewFolderPath(null)
-            setBrowseRename(null)
-          }}
-        />
+      {browseRename && !browseListShown && (
+        // Only a file open full view, where no row is on screen to hold the field.
+        <BrowseRename name={browseRename.name} onCancel={cancelBrowseRename} onSave={submitBrowseRename} />
       )}
       <AskDialogs ask={ask} layer="over" answers={askAnswers} />
       {moreMenu && (

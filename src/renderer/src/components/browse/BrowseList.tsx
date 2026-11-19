@@ -64,6 +64,7 @@ import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { ThumbImage } from './ThumbImage'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
+import { RenameField } from '../RenameField'
 import { landingTile } from '../../lib/landingGrid'
 import { LandingBar } from './LandingBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
@@ -133,6 +134,9 @@ type Props = Pick<
   | 'onSortChange'
   | 'onContextMenu'
   | 'onRename'
+  | 'renamingPath'
+  | 'onRenameSubmit'
+  | 'onRenameCancel'
   | 'onCopy'
   | 'query'
   | 'searchState'
@@ -1365,6 +1369,35 @@ export function BrowseList(props: Props): JSX.Element {
     focusRow(next)
   }
 
+  /** The inline rename field (#523) for the entry being renamed. */
+  const renameField = (entry: BrowseEntry, where: 'row' | 'tile'): JSX.Element => {
+    // The keyboard goes back to the list, unless the field closed because the
+    // hand went somewhere else (a click on a button, the address field).
+    const back = (): void => {
+      requestAnimationFrame(() => {
+        const list = scroller.current
+        const at = document.activeElement
+        if (!list || (at && at !== document.body && !list.contains(at))) return
+        const row = list.querySelector<HTMLElement>('[data-browse-path][tabindex="0"]')
+        ;(row ?? list).focus({ preventScroll: true })
+      })
+    }
+    return (
+      <RenameField
+        name={entry.name}
+        className={`browse-rename-field ${where === 'tile' ? 'browse-rename-tile' : ''}`}
+        onSubmit={(name) => {
+          props.onRenameSubmit?.(name)
+          back()
+        }}
+        onCancel={() => {
+          props.onRenameCancel?.()
+          back()
+        }}
+      />
+    )
+  }
+
   /**
    * WHAT A PRESS, A DRAG, A DROP, A DOUBLE CLICK AND A RIGHT-CLICK ON AN ENTRY
    * DO: one set for a row and a tile alike (Stage 4 pulled it out of the row,
@@ -1682,6 +1715,7 @@ export function BrowseList(props: Props): JSX.Element {
                         posInSet={index + 1}
                         setSize={count}
                         handlers={entryHandlers(entry, selected)}
+                        renameField={props.renamingPath === entry.path ? renameField(entry, 'tile') : undefined}
                       />
                     )
                   }}
@@ -1731,8 +1765,12 @@ export function BrowseList(props: Props): JSX.Element {
                     const below = rendered[offset + 1]
                     const joinUp = selected && !!above && isMarked(above.path)
                     const joinDown = selected && !!below && isMarked(below.path)
+                    // Being renamed (#523): the row is a plain box with the field in it,
+                    // no press, drag or drop of its own (the field's mouse is the field's).
+                    const renamingHere = props.renamingPath === entry.path
+                    const Row = renamingHere ? 'div' : 'button'
                     return (
-                      <button
+                      <Row
                         key={entry.path}
                         role="option"
                         aria-selected={selected}
@@ -1764,7 +1802,7 @@ export function BrowseList(props: Props): JSX.Element {
                         data-join-up={joinUp || undefined}
                         data-join-down={joinDown || undefined}
                         title={searching ? entry.path : undefined}
-                        {...entryHandlers(entry, selected)}
+                        {...(renamingHere ? {} : entryHandlers(entry, selected))}
                       >
                         <span className="browse-column-name browse-name">
                           {entry.isFolder
@@ -1828,11 +1866,15 @@ export function BrowseList(props: Props): JSX.Element {
                                   kind(look.icon)
                                 )
                               })()}
-                          <span className="browse-name-text">
-                            <span {...(searching ? {} : hiddenTitle(entry.name))}>
-                              {entry.name}
+                          {renamingHere ? (
+                            renameField(entry, 'row')
+                          ) : (
+                            <span className="browse-name-text">
+                              <span {...(searching ? {} : hiddenTitle(entry.name))}>
+                                {entry.name}
+                              </span>
                             </span>
-                          </span>
+                          )}
                         </span>
                         {/* THE BIN'S TWO COLUMNS (D7): where it was and when it was
                             deleted, right after the name. The full original path
@@ -1898,7 +1940,7 @@ export function BrowseList(props: Props): JSX.Element {
                             {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
                           </span>
                         )}
-                      </button>
+                      </Row>
                     )
                   })}
                 </div>

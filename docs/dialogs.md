@@ -41,8 +41,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 **Close-only dialogs and both Properties windows** (#520) say "Close" and use `DialogFooter` (`closeOnly` builds the choice). Properties of a file or drive is a `Dialog` with a `label` and a body that draws its own header; the phone window is a `Dialog`.
 
 Not here, on purpose: forms and panels that are more than a question. `browse/BrowseRename.tsx`
-(the rename field in a dialog; its words, Rename or New folder, are `dialogs/renameWording.ts`,
-pinned by its test), `properties/PropertiesDialog.tsx` and `PhoneDialog.tsx` (`Dialog` frames, above), the core's
+(the Rename dialog, kept only for F2 on a file open in full view, where no row holds the inline field, #523; every other rename is the inline `RenameField`), `properties/PropertiesDialog.tsx` and `PhoneDialog.tsx` (`Dialog` frames, above), the core's
 `UpdateDialog`, `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look), and
 `browse/BusyBar.tsx`, the loading bar over a held list (not a dialog: it covers one tab's list only,
 and the rest of the window stays yours).
