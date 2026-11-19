@@ -13,7 +13,7 @@ export { count }
 
 /** "9 Oct 2026, 21:14", the mockup's date; empty for a time nobody gave. */
 export function whenLabel(ms: number | undefined): string {
-  return formatWhen(ms).replace(/ (\d\d:\d\d)$/, ', $1')
+  return formatWhen(ms, { comma: true })
 }
 
 /** "1.6 MP": one decimal, which is how cameras print it. */

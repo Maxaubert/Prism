@@ -1,7 +1,7 @@
 import type { FileKind } from '@shared/types'
 import { parentDir } from '@shared/path'
 import { contents, count } from './emptyText'
-import { formatBytes, formatTime } from './format'
+import { formatBytes, formatTime, formatWhen } from './format'
 
 // What the Properties popup shows: label/value rows assembled per kind. The
 // cheap facts come from a stat; the interesting ones come from actually opening
@@ -180,6 +180,6 @@ export async function propsFor(root: string, path: string, name: string, kind: F
     }
   }
   rows.push({ label: 'Location', value: parentDir(path) })
-  if (stat) rows.push({ label: 'Modified', value: new Date(stat.mtimeMs).toLocaleString() })
+  if (stat && formatWhen(stat.mtimeMs)) rows.push({ label: 'Modified', value: formatWhen(stat.mtimeMs, { comma: true }) })
   return rows
 }
