@@ -144,6 +144,12 @@ export async function installUpdate(
   // The name the signature covers is the one this url serves (#534 #10).
   const name = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '')
   if (!isInstallerName(name)) return false
+  // NEVER BACKWARDS: a genuine but older installer is signed too, so the
+  // version its signed name carries must be newer than this build, and it must
+  // come from that version's own release.
+  const version = /^Prism-Setup-x64-(.+)\.exe$/i.exec(name)?.[1] ?? ''
+  if (!newerVersion(version, app.getVersion())) return false
+  if (new URL(url).pathname !== `/${REPO}/releases/download/v${version}/${name}`) return false
   let dir: string | null = null
   try {
     const res = await fetch(url, { headers: { 'user-agent': 'Prism-update-check' }, signal })

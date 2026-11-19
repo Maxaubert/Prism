@@ -15,6 +15,8 @@ list** over a paid code certificate or a bare checksum.
 - The app carries the public half (`src/main/updateSignature.ts`). After the download it fetches
   the `.sig` and checks it against the installer's SHA-256 **and its file name**, so an old
   genuine installer cannot pose as a newer version. No signature, a wrong one or junk: nothing runs.
+- **Never backwards**: the version in the installer's name must be newer than the running build, and the
+  url must be that version's own release (/releases/download/v<version>/<name>), checked before any download.
 - The tool refuses a key whose public half the app does not carry, so a wrong secret fails the
   release instead of shipping installers no app accepts.
 - **A new key strands every installed copy**: they stop updating themselves until a build with the
