@@ -3,6 +3,14 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the find bar (owner, 2026-11-19, #524)
+
+Ctrl+F in a PDF and in a markdown, office or ebook document draws one bar, `components/FindBar.tsx`, in DocFind's
+words and box: the field says "Find" (a screen reader still hears "Find in document"), the counter reads "2 of 5",
+"none" when nothing matches and nothing with no query, and the buttons carry their key in the tooltip. The PDF's pill
+and its "2 / 5", "0 / 0" are gone (`PdfFindBar.tsx` is deleted). The bar eats EVERY key typed in its field, so a
+letter never reaches an app shortcut behind it (the PDF's bar let all but Enter and Escape through); F3 steps like
+Enter. The words and keys are `lib/findBarKeys.ts`. Held by `components/FindBar.test.ts`.
 ## Shared look: the spinner and loading hints (owner, 2026-11-19, #524)
 
 There is one spinner, `Spinner` in `components/LoadingState.tsx`: an accent arc on a divider ring, a small 16px
