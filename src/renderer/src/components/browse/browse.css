@@ -164,7 +164,7 @@
 .folder-browser input:focus-visible {
   outline: none;
 }
-.folder-browser button:not(:disabled):hover {
+.folder-browser button:not(:disabled):not([data-selected]):hover {
   background: var(--p-hover);
 }
 .folder-browser svg {
@@ -815,53 +815,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 .browse-row .browse-column-modified {
   color: var(--p-dim);
 }
-/* A marked row is a TINT with a faint edge, Windows' own look (owner,
-   2026-10-03: "more transparent like selecting files in file explorer"). The
-   text and the columns keep their colours; theme.ts holds the tint down far
-   enough that they still read on it. The edge goes round a run of marked rows,
-   not between them, so a run is one block. Inset shadows: nothing moves. */
-.folder-browser .browse-row[data-selected],
-.folder-browser .browse-row[data-selected]:hover {
-  --sel-top: inset 0 1px 0 var(--p-sel-line);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
-  background-color: var(--p-sel-tint);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line),
-    inset -1px 0 0 var(--p-sel-line),
-    var(--sel-top),
-    var(--sel-bottom);
-}
-/* The list's marks dim the same way while the user acts in the sidebar
-   (#296), File Explorer's inactive selection: same edge round the block, the
-   dimmed tint and its edge. */
-.folder-browser[data-active-area='places'] .browse-row[data-selected],
-.folder-browser[data-active-area='places'] .browse-row[data-selected]:hover {
-  --sel-seen: var(--p-sel-tint-dim-seen);
-  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
-  background-color: var(--p-sel-tint-dim);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line-dim),
-    inset -1px 0 0 var(--p-sel-line-dim),
-    var(--sel-top),
-    var(--sel-bottom);
-}
-/* A CUT ROW DIMS (owner, 2026-10-28: "when you click ctrl x on an item
-   selected the highlight effect should get dimmed to indicate you clicked
-   ctrl x"): its highlight takes the inactive selection's dimmed tint and edge,
-   and its name and icon fade, File Explorer's cut look. Paste or a new copy
-   clears the mark (lib/fileClipboard). */
-.folder-browser .browse-row[data-selected][data-cut],
-.folder-browser .browse-row[data-selected][data-cut]:hover {
-  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
-  background-color: var(--p-sel-tint-dim);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line-dim),
-    inset -1px 0 0 var(--p-sel-line-dim),
-    var(--sel-top),
-    var(--sel-bottom);
-}
+/* A marked row or tile wears the one selection look, assets/selection.css (#524): the tint, the edge round a run, dimmed under [data-inactive] and on a cut row. */
 /* A ROW STILL BEING PASTED (owner, 2026-10-28): faded like a cut row, its
    size cell a thin bar filling as it copies. Inert until the file lands. */
 .browse-row[data-landing] .browse-name,
@@ -874,12 +828,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .browse-row[data-cut] .browse-name {
   opacity: 0.55;
-}
-.folder-browser .browse-row[data-selected][data-join-up] {
-  --sel-top: 0 0 0 transparent;
-}
-.folder-browser .browse-row[data-selected][data-join-down] {
-  --sel-bottom: 0 0 0 transparent;
 }
 /* A right-clicked row has no look of its own any more: the click selects it,
    File Explorer's rule (#296; owner, 2026-10-06), so it wears the tint above.

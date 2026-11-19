@@ -85,7 +85,8 @@ describe('focus still shows where the ring went', () => {
 
   it('no Explorer mark sets the background shorthand, which wipes the focus fill', () => {
     const hits = [...src('components/browse/browse.css').matchAll(/([^{}]*\[(?:aria-current|data-selected|data-menu|aria-pressed)[^{}]*)\{([^}]*)\}/g)]
-      .filter((m) => /(?:^|[;\s])background\s*:/.test(m[2]))
+      // :not([data-selected]) only steps a hover aside (selection.css, #524).
+      .filter((m) => m[1].replace(/:not\(\[data-selected\]\)/g, '').includes('[') && /(?:^|[;\s])background\s*:/.test(m[2]))
       .map((m) => m[1].trim())
     expect(hits).toEqual([])
   })

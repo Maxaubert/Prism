@@ -12,7 +12,6 @@ import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { KindIcon, iconColour } from './icons/FileIcons'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
-import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { dropVerb, effectOf, type DropTarget } from '../lib/drag/dropVerb'
@@ -157,6 +156,7 @@ function ArchiveInner({
     null
   )
   const [editing, setEditing] = useState<string | null>(null)
+  const [listFocused, setListFocused] = useState(false)
   // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
   // itself (meaning "this folder you are looking at").
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -769,7 +769,17 @@ function ArchiveInner({
                 2026-08-31). The rows carry the text inset themselves, at the
                 same px-4 the column header uses, so the columns still line
                 up. */}
-            <div data-arc-list className="min-h-0 flex-1 overflow-y-auto pb-1.5">
+            <div
+              data-arc-list
+              // The marks dim while the keys are elsewhere (selection.css), File
+              // Explorer's inactive selection (#524).
+              data-inactive={!listFocused || undefined}
+              onFocus={() => setListFocused(true)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setListFocused(false)
+              }}
+              className="min-h-0 flex-1 overflow-y-auto pb-1.5"
+            >
               {entries === null ? (
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
               ) : rows.length === 0 ? (
@@ -802,23 +812,25 @@ function ArchiveInner({
                           tabIndex={0}
                           data-arc-row={r.path}
                           aria-selected={sel.items.has(r.path)}
-                          data-selected={sel.items.has(r.path) || undefined}
+                          data-selected={(sel.items.has(r.path) && dropTarget !== r.path) || undefined}
                           className={`flex h-[28px] w-full cursor-pointer items-center gap-2 px-4 text-left text-[12.5px] outline-none ${
                             dropTarget === r.path
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
-                                ? // The tint is in `style`: a zip's list is a
+                                ? // The tint is selection.css's: a zip's list is a
                                   // file selection like the Explorer's (#257).
                                   'text-[var(--p-text-soft)]'
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
-                          style={
-                            dropTarget !== r.path && sel.items.has(r.path)
-                              ? markedLook({
-                                  top: rowIndex > 0 && sel.items.has(rows[rowIndex - 1].path),
-                                  bottom: rowIndex < rows.length - 1 && sel.items.has(rows[rowIndex + 1].path)
-                                })
-                              : undefined
+                          data-join-up={
+                            (rowIndex > 0 && sel.items.has(r.path) && sel.items.has(rows[rowIndex - 1].path)) ||
+                            undefined
+                          }
+                          data-join-down={
+                            (rowIndex < rows.length - 1 &&
+                              sel.items.has(r.path) &&
+                              sel.items.has(rows[rowIndex + 1].path)) ||
+                            undefined
                           }
                           // A drag out is a move or an extraction and a drop in
                           // is a write, and the phone has neither (#106).

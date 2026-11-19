@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './assets/selection.css';
 /* The shared core is a workspace package (prism-term-core), and Tailwind
    generates NOTHING from a package's markup until told to look: measured, its
    utilities were simply absent from the CSS. */
