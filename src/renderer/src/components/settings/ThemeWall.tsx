@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
+import { TOAST_LONG_MS } from '../../lib/sayCore'
 import { flushSync } from 'react-dom'
 import { Glyph } from 'prism-term-core/renderer/settings/layout/Glyph'
 import {
@@ -96,7 +97,7 @@ export function ThemeWall({
   // What it said leaves the page once heard.
   useEffect(() => {
     if (!say) return
-    const t = setTimeout(() => setSay(''), 2500)
+    const t = setTimeout(() => setSay(''), TOAST_LONG_MS)
     return () => clearTimeout(t)
   }, [say])
 

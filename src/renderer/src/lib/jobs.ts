@@ -22,9 +22,9 @@
  */
 import { useMemo, useSyncExternalStore } from 'react'
 import { createStore } from './store'
-import { logNote } from './noteLog'
+import { logSaid, NOTE_MS } from './sayCore'
 
-export type JobKind = 'paste' | 'add' | 'copies' | 'bin' | 'move' | 'undo' | 'duplicate'
+export type JobKind = 'paste' | 'add' | 'copies' | 'bin' | 'move' | 'undo' | 'duplicate' | 'note'
 
 export interface Job {
   id: string
@@ -70,9 +70,8 @@ export interface LandingItem {
  */
 export const MIN_SHOW_MS = 900
 
-/** How long a done note stays on the chip (#474: "Saved 37 copies, 2 could
- *  not be read"). Long enough to read a line, and then it goes by itself. */
-export const NOTE_MS = 5000
+/** How long a done note stays on the chip: one constant, in lib/sayCore (#517). */
+export { NOTE_MS }
 
 const store = createStore<readonly Job[]>([])
 let seq = 0
@@ -257,7 +256,7 @@ export function endJob(id: string, note?: string, opts: { forget?: boolean } = {
   const shown = Date.now() - job.since
   if (note) {
     // The note goes to the diagnostics log as it is shown (owner, 2026-11-06).
-    logNote(note, { op: job.kind, title: job.label })
+    logSaid(note, { op: job.kind, title: job.label })
     store.set(jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true, note, cancel: undefined } : j)))
     const now = Date.now()
     notesFreeAt = Math.max(now, notesFreeAt) + NOTE_MS
@@ -293,6 +292,20 @@ export function endJob(id: string, note?: string, opts: { forget?: boolean } = {
   leaving.set(
     id,
     setTimeout(() => remove(id), MIN_SHOW_MS - shown)
+  )
+}
+
+/** A line on the chip with no job behind it (say(), kind chip): it shows
+ *  for NOTE_MS, in turn after any note before it, and goes. */
+export function noteOnChip(text: string, op: string): void {
+  seq += 1
+  const id = `note-${seq}`
+  store.set([...store.get(), { id, kind: 'note', label: op, pct: 100, since: Date.now(), done: true, note: text }])
+  const now = Date.now()
+  notesFreeAt = Math.max(now, notesFreeAt) + NOTE_MS
+  leaving.set(
+    id,
+    setTimeout(() => remove(id), notesFreeAt - now)
   )
 }
 

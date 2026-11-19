@@ -1,4 +1,5 @@
 import { copyFilePaths } from '../lib/fileClipboard'
+import { TOAST_MS } from '../lib/sayCore'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { contents, EMPTY_ARCHIVE, EMPTY_FOLDER, plural } from '../lib/emptyText'
@@ -189,7 +190,7 @@ function ArchiveInner({
   const [justDone, setJustDone] = useState(false)
   useEffect(() => {
     if (!justDone) return
-    const t = window.setTimeout(() => setJustDone(false), 2200)
+    const t = window.setTimeout(() => setJustDone(false), TOAST_MS)
     return () => window.clearTimeout(t)
   }, [justDone])
   /**

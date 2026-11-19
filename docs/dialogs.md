@@ -32,7 +32,7 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `EmptyBinDialog` | "Empty the Recycle Bin?", "N items · size" and one bar per drive (used, in the accent the part it frees, "<free> free" left, "+<freed>" right). Cancel (the default) and Empty Recycle Bin | App (`bin-empty`): the strip, the list's empty space, the sidebar row |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
-| `NoticeDialog` | One line that did not work, one Close button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
+| `NoticeDialog` | One line that did not work, one Close button. Title "That didn't work" (`SAY_TITLE`) | App (`failed`), and `say(text, { kind: 'dialog' })` through `SayNotice` (archive notices) |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `components/archive/ArchiveQuestion.tsx` only, beside App: every route asks through `lib/archiveQuestion.ts`, so an archive never has two up |
 | `ArchiveDeleteDialog` | Delete members from a zip: the permanent question, no middle button | `archive/useArchiveOps.tsx` |
 | `ArchiveFactsDialog` | A zip member's facts (Close, the file window's list) | `browse/useArchiveActions.tsx` |

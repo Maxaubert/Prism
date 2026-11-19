@@ -3,6 +3,23 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared behaviour: one say() for every notice (owner, 2026-11-19, #517)
+
+- **`say(text, { op, level, kind })` (`lib/say.ts`) is the one way to tell the user** a thing finished or failed. It
+  ALWAYS writes the diagnostics log (a `note` line, owner 2026-11-06), then shows the text by `kind`: `toast` (the
+  default, a quick action: "Image copied", "Saved a.jpg", "Undid moving a.txt"), `chip` (the end of a long job, a line
+  on the jobs chip) or `dialog` (an error the user must read, the one NoticeDialog).
+- **One toast, `components/Toast.tsx`,** mounted once in App. It replaces the image viewer's black pill and App's undo
+  line. A new toast replaces the old one and gets its whole time.
+- **One wording and one set of times, `lib/sayCore.ts`:** `TOAST_MS` 1800, `TOAST_LONG_MS` 2600 (a toast that says
+  something failed), `NOTE_MS` 5000 (the chip), and the title `SAY_TITLE` "That didn't work". The archive notice used
+  to be titled "Archive"; it is "That didn't work" now. The hand-set 1800, 2200 and 2600 in `ImageView` are gone; the
+  "Extracted" button flash, the Properties copy tick and the theme wall line use the same constants.
+- **Stage notices log too:** a viewer's own error line (audio, video, code editor) writes its words to the log.
+- **Kept on purpose:** a failed action still raises a dialog (it needs reading, a 2 s toast is too short for it). The
+  fatal "Prism's window stopped working" box in `src/main/index.ts` stays a native box: no page exists to show it.
+  `ExtractWindow` keeps its own failure line and its log line (it is a window, not a notice).
+- Held by `lib/say.test.ts`; e2e `saveCopy` reads the toast by `[data-toast]`.
 ## Shared behaviour: rename is inline everywhere (owner, 2026-11-19, #523)
 
 - **Rename happens in the row.** F2 or the menu's Rename on an Explorer row, a grid tile, a zip member in the

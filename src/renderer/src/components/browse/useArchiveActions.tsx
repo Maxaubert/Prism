@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { TOAST_MS } from '../../lib/sayCore'
 import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
 import { baseName, parentDir } from '@shared/path'
@@ -132,7 +133,7 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   const flashDone = (): void => {
     setDone(true)
     if (doneTimer.current) clearTimeout(doneTimer.current)
-    doneTimer.current = setTimeout(() => setDone(false), 2000)
+    doneTimer.current = setTimeout(() => setDone(false), TOAST_MS)
   }
 
   const inners = (meta: ArchiveMeta, paths: string[]): string[] =>

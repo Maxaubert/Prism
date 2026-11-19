@@ -8,6 +8,7 @@ import { FolderIconDialog } from './FolderIconDialog'
 import { folderIconOf, readFolderIcons, type FolderIconChoice } from '../lib/folderIcons'
 import { ClashDialog } from './ClashDialog'
 import { NoticeDialog } from './NoticeDialog'
+import { SAY_TITLE } from '../lib/sayCore'
 import { UnsavedDialog } from './UnsavedDialog'
 
 /** What App does with each answer. Every dialog first clears the ask
@@ -188,6 +189,6 @@ export function AskDialogs({
       )
     }
     case 'failed':
-      return <NoticeDialog title="That didn't work" message={ask.message} op={ask.op} onClose={a.dismiss} />
+      return <NoticeDialog title={SAY_TITLE} message={ask.message} op={ask.op} onClose={a.dismiss} />
   }
 }

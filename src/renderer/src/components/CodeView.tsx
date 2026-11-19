@@ -39,6 +39,9 @@ import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 import { yieldsFindToExplorer } from '../lib/previewFind'
 import { landSave, saveTarget } from './codeSave'
 
+const TOO_LARGE = 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
+const UNREADABLE = 'This file could not be read. Nothing has been changed on disk.'
+
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
 // simply is the file. Markdown is the one exception, and it arrives here only
@@ -722,11 +725,11 @@ export function CodeView({
         </div>
       )}
       {unreadable && (
-        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92">
+        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92" text={unreadable === 'too-large' ? TOO_LARGE : UNREADABLE} op="code">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {unreadable === 'too-large'
-              ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
-              : 'This file could not be read. Nothing has been changed on disk.'}
+              ? TOO_LARGE
+              : UNREADABLE}
           </div>
         </StageNotice>
       )}

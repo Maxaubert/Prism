@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
+import { TOAST_MS } from '../../lib/sayCore'
 import { clipboardText } from '../../lib/clipboardText'
 import { closeOnly, DialogFooter } from '../Dialog'
 import { dialogButton } from 'prism-term-core/renderer/components/dialogLook'
@@ -158,7 +159,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
         if (!clipboardText(text)) return
         setCopied(true)
         window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(() => setCopied(false), 1500)
+        timer.current = window.setTimeout(() => setCopied(false), TOAST_MS)
       }}
       className={`inline-grid h-[22px] w-[22px] shrink-0 place-items-center rounded align-middle transition-colors focus-visible:outline-none ${
         copied
