@@ -1,0 +1,22 @@
+# Dependency update PRs (#534 #20). Every push to main ships a release, so a
+# stale dependency ships too; these open PRs only. Nothing merges by itself:
+# each one waits for CI and the owner's yes, like any other PR.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # The workflows pin actions to commit SHAs (#534 #21); this keeps the pins fresh.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
