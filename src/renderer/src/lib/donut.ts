@@ -9,6 +9,7 @@
  * 0.15% of the drive is not drawn (a hairline nobody can hover) but keeps its
  * legend row and its place, so the slices after it sit where they should.
  */
+import { formatBytes } from './format'
 
 export const DONUT_COLOURS = [
   'var(--p-accent)',
@@ -88,11 +89,6 @@ export function sharePercent(bytes: number, total: number | undefined): string {
   return p >= 1 ? `${Math.round(p)}%` : '<1%'
 }
 
-const KB = 1024
-const MB = KB ** 2
-const GB = KB ** 3
-const TB = KB ** 4
-
 /**
  * The donut's own sizes, as the approved mockup reads them: terabytes to two
  * places ("3.56 TB of 7.28 TB", a drive's scale), gigabytes to one under 100,
@@ -100,8 +96,6 @@ const TB = KB ** 4
  */
 export function donutBytes(b: number): string {
   if (!Number.isFinite(b) || b <= 0) return 'Empty'
-  if (b >= TB) return `${(b / TB).toFixed(2).replace(/\.?0+$/, '')} TB`
-  if (b >= GB) return `${(b / GB).toFixed(b >= 100 * GB ? 0 : 1).replace(/\.0$/, '')} GB`
-  if (b >= MB) return `${Math.round(b / MB)} MB`
-  return `${Math.max(1, Math.round(b / KB))} KB`
+  if (b < 1024) return '1 KB'
+  return formatBytes(b, { decimals: { KB: 0, MB: 0, TB: 2 }, trim: true })
 }

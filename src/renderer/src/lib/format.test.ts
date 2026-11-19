@@ -19,6 +19,20 @@ describe('formatBytes', () => {
     expect(formatBytes(-1)).toBe('')
     expect(formatBytes(NaN)).toBe('')
   })
+  it('drops a trailing zero on request, so 47.0 MB can read 47 MB', () => {
+    expect(formatBytes(47 * 1024 ** 2, { trim: true })).toBe('47 MB')
+    expect(formatBytes(2.4 * 1024, { trim: true })).toBe('2.4 KB')
+    expect(formatBytes(512 * 1024 ** 2, { trim: true })).toBe('512 MB')
+  })
+  it('takes decimals per unit', () => {
+    expect(formatBytes(47.4 * 1024 ** 2, { decimals: { MB: 0 } })).toBe('47 MB')
+    expect(formatBytes(3.5632 * 1024 ** 4, { decimals: { TB: 2 } })).toBe('3.56 TB')
+  })
+  it('says its own word for zero and nonsense', () => {
+    expect(formatBytes(0, { empty: 'Empty' })).toBe('Empty')
+    expect(formatBytes(NaN, { empty: '-' })).toBe('-')
+    expect(formatBytes(5, { empty: 'Empty' })).toBe('5 B')
+  })
 })
 
 describe('formatTime', () => {
@@ -36,6 +50,15 @@ describe('formatWhen', () => {
 
   it('pads the clock but not the day, the way a date is written', () => {
     expect(formatWhen(new Date(2026, 0, 9, 3, 5, 0).getTime())).toBe('9 Jan 2026 03:05')
+  })
+
+  it('puts a comma before the clock on request', () => {
+    expect(formatWhen(new Date(2026, 6, 4, 17, 14, 30).getTime(), { comma: true })).toBe('4 Jul 2026, 17:14')
+  })
+
+  it('says its own word for a time nobody gave', () => {
+    expect(formatWhen(0, { empty: 'never' })).toBe('never')
+    expect(formatWhen(undefined, { empty: 'never', comma: true })).toBe('never')
   })
 
   it('says nothing when the container carried no time', () => {

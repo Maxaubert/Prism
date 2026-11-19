@@ -23,6 +23,24 @@ files in one path and files before folders in another.
 - Held by `lib/emptyText.test.ts`, `lib/binView.test.ts`, `dialogs/deleteCopy.test.ts` and
   `components/iconGrid/pickerText.test.ts`.
 
+## Shared text: sizes and dates (owner, 2026-11-19, #510)
+
+`lib/format.ts` is the one place a size in bytes and a date become text. The same size printed as "47 MB" in one
+place and "47.0 MB" in another, the code banner said "5 MB" where the list said "5.0 MB", and Properties printed
+Modified with the machine's `toLocaleString()` for an unknown file type but "4 Jul 2026, 17:14" for text (with
+`whenLabel` fixing the comma by regex).
+
+- **`formatBytes(n, options)`**: the default is unchanged ("2.4 KB", "25.0 MB", "512 MB"). `decimals` sets the
+  decimals per unit, `trim` drops a trailing zero ("47 MB") and `empty` is the word for zero or nonsense. The drive
+  donut's `donutBytes` is now a thin caller (TB to two places, MB and KB whole, trimmed, "Empty" for nothing), and the
+  code banner's "N in all" calls `formatBytes` instead of its own rounding, so it reads "5.0 MB" like the list.
+- **`formatWhen(ms, options)`**: `comma` writes "4 Jul 2026, 17:14" and `empty` is the word for a time nobody
+  gave. `whenLabel` is `formatWhen` with `comma`, with no regex. Properties' Modified row for any file type and the
+  phone dialog's "seen ..." line go through it, so no date on screen follows the machine's locale. A phone never
+  seen reads "seen never".
+- Held by `lib/format.test.ts` and `lib/donut.test.ts` (the donut's strings did not change) and
+  `lib/propsFormat.test.ts`.
+
 ## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
 
 The owner, with a screenshot: Delete permanently on 4 binned folders said "4 of 4 could not be deleted" (diag

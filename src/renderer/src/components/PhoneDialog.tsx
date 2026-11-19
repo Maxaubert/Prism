@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneState } from '@shared/types'
 import { Switch } from 'prism-term-core/renderer/settings/fields'
+import { formatWhen } from '../lib/format'
 import { Dialog } from './Dialog'
 
 /**
@@ -124,7 +125,7 @@ export function PhoneDialog({
               <span data-phone-here>in {p.here ?? 'This PC'},</span>{' '}
               {state.watching.includes(p.token)
                 ? 'watching now'
-                : `seen ${new Date(p.seen).toLocaleString()}`}
+                : `seen ${formatWhen(p.seen, { comma: true, empty: 'never' })}`}
             </span>
             <button
               className="shrink-0 rounded px-2 py-0.5 text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"

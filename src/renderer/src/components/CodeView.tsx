@@ -28,6 +28,7 @@ import { LoadingState } from './LoadingState'
 import { StageNotice } from './StageNotice'
 import { codeMenu } from '../menus/viewers/code'
 import { lintKeymap } from '@codemirror/lint'
+import { formatBytes } from '../lib/format'
 import { isProse, langFor } from '../lib/code/codeLang'
 import { lintFor } from '../lib/code/codeLint'
 import { prismCodeTheme } from '../lib/code/codeTheme'
@@ -57,12 +58,6 @@ const wrapComp = new Compartment()
 // Read-only while FOLLOWING a file: a log that is still being written is a
 // view, not a buffer, and typing into one would be lost by the next chunk.
 const roComp = new Compartment()
-
-/** A byte count as the banner says it. */
-function mb(bytes: number): string {
-  const mbs = bytes / (1024 * 1024)
-  return mbs >= 1024 ? `${(mbs / 1024).toFixed(1)} GB` : `${Math.round(mbs)} MB`
-}
 
 /** How much of a file too big for the editor is worth showing. 2MB of tail
  *  is thousands of lines, which is what anybody opening a 900MB log wants. */
@@ -718,7 +713,7 @@ export function CodeView({
           differs from disk, or when the pencil put us in a mode to leave. */}
       {tailed && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
-          Showing the end of this file ({mb(tailed.size)} in all), and following it. Read-only.
+          Showing the end of this file ({formatBytes(tailed.size)} in all), and following it. Read-only.
         </div>
       )}
       {!tailed && following && (
