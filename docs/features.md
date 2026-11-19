@@ -3,6 +3,23 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared behaviour: rename is inline everywhere (owner, 2026-11-19, #523)
+
+- **Rename happens in the row.** F2 or the menu's Rename on an Explorer row, a grid tile, a zip member in the
+  Explorer, a member in the zip tab, and the archive's own Rename verb (its name in the panel header) all turn the
+  name into one `RenameField`: the stem selected, Enter or leaving the field commits, Escape cancels. The Explorer
+  used to ask in a dialog with the whole name selected, and the zip tab renamed in place; now there is one pattern.
+- **Ctrl+Shift+N names the new folder the same way**, in its row, starting from "New folder". Escape keeps the
+  name "New folder" (File Explorer's way). The dialog titles "Rename" and "New folder" and `dialogs/renameWording.ts`
+  are gone.
+- **One normaliser, `lib/renameName.ts` (`renamedTo`):** the name is trimmed, and an empty or unchanged name is a
+  Cancel. Every path goes through it (it was only some).
+- **A rename never outlives its place:** a folder, tab or archive change ends it.
+- **Kept on purpose:** F2 on a file open in full view has no row on screen to hold a field, so it still asks in the
+  small Rename dialog (`browse/BrowseRename.tsx`), now with the stem selected and the same normaliser. Whether that
+  case should edit the name in the title bar is the owner's call.
+- Held by `lib/renameName.test.ts` and `components/renameInline.test.ts`; e2e `deleteFocus`, `newFolderTitle`,
+  `gridRename`, the Explorer and zip rename steps drive the field in the row.
 ## Shared look: the player menu wears the context menu's panel and rows (owner, 2026-11-19, #522)
 
 - **One popup look, components/menuLook.ts** (MENU_PANEL, MENU_ROW, MENU_ROW_INK): the right-click menu's
@@ -75,7 +92,7 @@ at the field, Enter answers when the value is allowed). The password, rename and
 rename field and the icon search were other looks (the search's 8px radius and grey focus border are gone) and the
 rename field now stops keys too. The Modal no longer moves the focus to the primary button when a field already has it
 (`fieldHasFocus`), so the field is not fought over. Left as they were, on purpose: the inline `RenameField` (a row, not a
-dialog), the toolbar and search popup fields (`.browse-field`, bars), the Settings and colour picker fields (the core's
+dialog; the Explorer now renames in it too, #523), the toolbar and search popup fields (`.browse-field`, bars), the Settings and colour picker fields (the core's
 own frame) and the phone pages (their own page, own look). The wider TextField on `.browse-field` is the issue's
 later step. Held by `components/DialogInput.test.ts`.
 

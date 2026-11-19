@@ -94,3 +94,26 @@
 .browse-tile[data-folder-drop][data-drag-over='true'] {
   box-shadow: inset 0 0 0 2px var(--p-sel-line) !important;
 }
+
+/* THE INLINE RENAME FIELD (#523, owner 2026-11-19: rename is inline
+   everywhere). The row's or tile's name cell becomes this: the accent edge the
+   archive tab's field wears, the row's own font, no new look. */
+.browse-rename-field {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  height: calc(var(--browse-row-h, 26px) - 6px);
+  padding: 0 6px;
+  border: 1px solid var(--p-accent-hi);
+  border-radius: 4px;
+  background: var(--p-bg);
+  color: var(--p-text);
+  font: inherit;
+  outline: none;
+}
+.browse-rename-field.browse-rename-tile {
+  height: auto;
+  padding: 1px 4px;
+  text-align: center;
+}

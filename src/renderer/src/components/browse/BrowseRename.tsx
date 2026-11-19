@@ -1,49 +1,45 @@
 import { useState, type JSX } from 'react'
 import { Dialog } from '../Dialog'
 import { DialogInput } from '../DialogInput'
-import { RENAME_WORDS, type RenameWords } from '../../dialogs/renameWording'
+import { renamedTo } from '../../lib/renameName'
 
 /**
- * Rename in a dialog: the Explorer's rows, a member of a zip in the Explorer,
- * and an archive's own Rename verb. The Explorer selects the whole name
- * (whether it renames inline like the tree is the owner's call); the
- * archive's verb selects the stem. Inline renames are `RenameField`.
+ * Rename in a dialog, for ONE case only (#523, owner 2026-11-19: rename is
+ * inline everywhere): F2 on a file that is open full view, where no row or tile
+ * is on screen to hold the field. Every row, tile and zip member renames in
+ * place (`RenameField`). It answers like them: the stem selected, the name
+ * trimmed, an unchanged or empty name is Cancel (`renamedTo`).
  */
-
 export function BrowseRename({
   name,
   onSave,
-  onCancel,
-  words = RENAME_WORDS,
-  title = words.title,
-  select = 'all'
+  onCancel
 }: {
   name: string
   onSave: (name: string) => void
   onCancel: () => void
-  /** The dialog's words: Rename (the default) or a new folder's. */
-  words?: RenameWords
-  /** A title of its own over `words` (the archive's own Rename). */
-  title?: string
-  /** What is selected when it opens: the whole name, or up to the extension. */
-  select?: 'all' | 'stem'
 }): JSX.Element {
   const [value, setValue] = useState(name)
+  const answer = (): void => {
+    const next = renamedTo(name, value)
+    if (next) onSave(next)
+    else onCancel()
+  }
 
   return (
     <Dialog
-      title={title}
+      title="Rename"
       onCancel={onCancel}
       body={
         <label>
-          {words.label}
+          New name
           <DialogInput
-            aria-label={words.label}
+            aria-label="New name"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            select={select}
+            select="stem"
             stemOf={name}
-            onEnter={() => onSave(value)}
+            onEnter={answer}
             canEnter={!!value.trim()}
             className="mt-2 block"
             spellCheck={false}
@@ -53,13 +49,7 @@ export function BrowseRename({
       }
       choices={[
         { label: 'Cancel', onPick: onCancel },
-        {
-          label: words.done,
-          primary: true,
-          onPick: () => {
-            if (value.trim()) onSave(value)
-          }
-        }
+        { label: 'Rename', primary: true, onPick: answer }
       ]}
     />
   )

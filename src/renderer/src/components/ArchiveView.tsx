@@ -26,7 +26,7 @@ import { RenameInput } from './archive/RenameInput'
 import { ArcVerb } from './archive/ArcVerb'
 import { useArchiveListing } from './archive/useArchiveListing'
 import { useBandSelect } from './archive/useBandSelect'
-import { BrowseRename } from './browse/BrowseRename'
+import { RenameField } from './RenameField'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
@@ -611,7 +611,22 @@ function ArchiveInner({
           )}
         </span>
         <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">
-          {file.name}
+          {renamingSelf ? (
+            // Renaming the archive itself, in place like every rename (#523). The
+            // answer goes to App, which owns renaming (taken names, following the
+            // open file, the undo stack).
+            <RenameField
+              name={file.name}
+              onSubmit={(next) => {
+                setRenamingSelf(false)
+                onRenameSelf?.(next)
+              }}
+              onCancel={() => setRenamingSelf(false)}
+              className="w-[30rem] max-w-full rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-center text-[14px] font-semibold text-[var(--p-text)] outline-none"
+            />
+          ) : (
+            file.name
+          )}
         </div>
         <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
@@ -1039,21 +1054,6 @@ function ArchiveInner({
         />
       )}
       {ops.dialogs}
-      {renamingSelf && (
-        // Renaming the archive itself. The answer goes to App, which owns
-        // renaming (taken names, following the open file, the undo stack).
-        <BrowseRename
-          title="Rename archive"
-          select="stem"
-          name={file.name}
-          onCancel={() => setRenamingSelf(false)}
-          onSave={(v) => {
-            setRenamingSelf(false)
-            const next = v.trim()
-            if (next && next !== file.name) onRenameSelf?.(next)
-          }}
-        />
-      )}
 
     </div>
   )
