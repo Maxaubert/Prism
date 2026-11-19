@@ -38,7 +38,7 @@
   color: inherit;
 }
 /* Disabled strip buttons (nothing marked, an empty bin): present, quiet. */
-.browse-bin-strip .browse-archive-button:disabled {
+.browse-bin-strip .browse-place-button:disabled {
   opacity: 0.45;
   pointer-events: none;
 }

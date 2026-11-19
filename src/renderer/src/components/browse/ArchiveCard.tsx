@@ -39,6 +39,7 @@ import {
   type CardPick
 } from './archiveCardNav'
 import './archive.css'
+import './place-strip.css'
 
 type Row = { name: string; dir: boolean; size: number }
 
@@ -400,15 +401,15 @@ export function ArchiveCard({
         </div>
       </div>
       <div className="archive-card-verbs">
-        <button className="browse-archive-button" onClick={onOpen} data-archive-verb="open">
+        <button className="browse-place-button" onClick={onOpen} data-archive-verb="open">
           <FileMenuIcon name="open" />
           Open
         </button>
-        <button className="browse-archive-button" onClick={onExtractHere} data-archive-verb="extract-here">
+        <button className="browse-place-button" onClick={onExtractHere} data-archive-verb="extract-here">
           <FileMenuIcon name="extract" />
           Extract here
         </button>
-        <button className="browse-archive-button" onClick={onExtractTo} data-archive-verb="extract-to">
+        <button className="browse-place-button" onClick={onExtractTo} data-archive-verb="extract-to">
           <FileMenuIcon name="extract" />
           Extract to...
         </button>
