@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react'
-import { Modal } from '../components/Modal'
+import { Modal } from 'prism-term-core/renderer/components/Modal'
 import { DIALOG_BOX, DIALOG_TITLE, dialogButton } from '../components/dialogLook'
 import { pressAnswers, type DriveBar } from './deleteCopy'
 
@@ -104,8 +104,8 @@ export function DeleteQuestion({
       label={title}
       focusKey={title}
       onCancel={onCancel}
-      className={DIALOG_BOX}
-      attrs={{ 'data-delete-question': icon }}
+      boxClassName={DIALOG_BOX}
+      boxAttrs={{ 'data-delete-question': icon }}
     >
       <div className="flex gap-3">
         <svg

@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom'
 import { dispatch, failureText, fitPath, useExtraction } from '../lib/extraction'
 import { EXTRACT_WINDOW_ATTR } from '../lib/extractionGuard'
 import { logNote } from '../lib/noteLog'
-import { DIALOG_BOX, DIALOG_SCRIM } from './dialogLook'
+import { Modal } from 'prism-term-core/renderer/components/Modal'
+import { LAYER } from 'prism-term-core/renderer/components/layers'
+import { DIALOG_BOX } from './dialogLook'
 import { JobCard } from './JobCard'
 
 /**
@@ -40,9 +42,8 @@ import { JobCard } from './JobCard'
  * speaks on. No route renders anything of its own, which is the only
  * arrangement in which they cannot come to look different again.
  *
- * It is the app's Dialog to look at (the same strings, imported) and not the
- * Dialog component, whose contract is the opposite one: Escape and a click
- * outside CANCEL a Dialog, and here they must do nothing.
+ * It is the core's Modal with locked (Escape and a click outside do nothing,
+ * where they CANCEL a Dialog), on the same box look.
  *
  * IT CANNOT BE DISMISSED, in three layers, because any one alone leaks:
  * the scrim covers the app and swallows the mouse; `#root` is made `inert`,
@@ -116,12 +117,7 @@ function useFittedLine(
   }, [el, up])
 }
 
-function writeLine(
-  node: HTMLElement,
-  text: string,
-  fit: boolean,
-  font: { current: string }
-): void {
+function writeLine(node: HTMLElement, text: string, fit: boolean, font: { current: string }): void {
   const ctx = fit && text ? measurer() : null
   const width = node.clientWidth - 1
   if (!ctx || width <= 0) {
@@ -208,72 +204,55 @@ export function ExtractWindow(): JSX.Element | null {
       : `Extracting ${s.archive}`
 
   return createPortal(
-    <div
-      // App's Escape handler yields to anything that owns the key. The guard
-      // has already swallowed it by then; this is the second lock.
-      data-owns-escape
-      className={DIALOG_SCRIM.replace('z-50', 'z-[90]')}
-      role="presentation"
-      // A press on the scrim does nothing, and does not take the focus off
-      // the box either (which is what would let Tab wander nowhere).
-      onMouseDown={(e) => e.preventDefault()}
-      onContextMenu={(e) => e.preventDefault()}
-      // A file dropped on the window means "open this" to App, which listens
-      // on `window`. Not while the app is busy.
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
-    >
-      <div
-        ref={box}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
+    // THE CORE'S MODAL, LOCKED (#513): Escape, a press on the scrim, a menu and a
+    // dropped file do nothing and the Tab stays inside, the same frame as every
+    // question. It lies over the update window (layer busy).
+    <Modal
+      locked
+      layer={LAYER.busy}
+      label={label}
+      boxRef={box}
+      boxClassName={SHEET_BOX}
+      boxAttrs={{
         // The archive's name is drawn nowhere (no title, no caption): it is
         // here, on the pointer, and in the label a screen reader says.
-        title={s.archive}
-        {...{ [EXTRACT_WINDOW_ATTR]: '' }}
-        data-phase={s.phase}
-        data-extract-pct={failed || shown === null ? '' : shown}
-        className={`${SHEET_BOX} outline-none`}
-      >
-        {/* THE ONE PROGRESS CARD (#501): the same component the hold draws over
+        title: s.archive,
+        [EXTRACT_WINDOW_ATTR]: '',
+        'data-phase': s.phase,
+        'data-extract-pct': failed || shown === null ? '' : String(shown)
+      }}
+      onCancel={() => {}}
+    >
+      {/* THE ONE PROGRESS CARD (#501): the same component the hold draws over
             a tab's list; only the box around it differs. The count is the
             percentage (7-Zip reports a percentage, not items). */}
-        <JobCard
-          title={failed ? `Couldn't extract ${s.archive}` : `Extracting ${s.archive}`}
-          pct={pct}
-          fileRef={line}
-          count={failed || shown === null ? '' : `${shown}%`}
-          stopped={failed}
-          label={failed ? 'Stopped' : 'Extracting'}
-          // A request: the window stays, saying so, until main reports the
-          // process gone and the half-written files removed.
-          onCancel={() => {
-            dispatch({ type: 'cancel-asked' })
-            void window.prism.extractCancel(s.id)
-          }}
-          cancelDisabled={s.phase !== 'running'}
-          cancelAttrs={{ 'data-extract-cancel': '' }}
-          action={
-            failed
-              ? {
-                  label: 'Close',
-                  primary: true,
-                  onPress: () => dispatch({ type: 'dismiss' }),
-                  attrs: { 'data-extract-close': '' }
-                }
-              : undefined
-          }
-        />
-      </div>
-    </div>,
+      <JobCard
+        title={failed ? `Couldn't extract ${s.archive}` : `Extracting ${s.archive}`}
+        pct={pct}
+        fileRef={line}
+        count={failed || shown === null ? '' : `${shown}%`}
+        stopped={failed}
+        label={failed ? 'Stopped' : 'Extracting'}
+        // A request: the window stays, saying so, until main reports the
+        // process gone and the half-written files removed.
+        onCancel={() => {
+          dispatch({ type: 'cancel-asked' })
+          void window.prism.extractCancel(s.id)
+        }}
+        cancelDisabled={s.phase !== 'running'}
+        cancelAttrs={{ 'data-extract-cancel': '' }}
+        action={
+          failed
+            ? {
+                label: 'Close',
+                primary: true,
+                onPress: () => dispatch({ type: 'dismiss' }),
+                attrs: { 'data-extract-close': '' }
+              }
+            : undefined
+        }
+      />
+    </Modal>,
     document.body
   )
 }

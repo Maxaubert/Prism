@@ -17,7 +17,7 @@ change here is an ordinary Prism PR.
   `SettingBlock`, search, flash), the controls (`fields.tsx`, `ColourPicker.tsx`), `coreIndex.ts`, `sectionIds.ts`,
   `diagnosticsOptions.ts` and `sections/DiagnosticsPage.tsx`. Spec: `docs/superpowers/specs/2026-10-05-settings-redesign-design.md`.
 - `renderer/components/`: `UpdateChip`, `UpdateDialog`, `Modal` (every dialog's frame), `Tooltips`, `layers.ts`
-  (the overlay z-order). `renderer/lib/`: `updateFlow` + `useUpdateFlow`, `colour*`, `diag`, `tipPlace`, `hiddenTitle`.
+  (the overlay z-order and the one scrim `SCRIM`, tinted by the app's `--p-scrim`; deep import `renderer/components/layers`). `renderer/lib/`: `updateFlow` + `useUpdateFlow`, `colour*`, `diag`, `tipPlace`, `hiddenTitle`.
 - `main/`: the diagnostics log (`diagnostics`, `diagLog`, `stallWatch`, `memWatch`, `crashHooks`, `ipcTiming`,
   `diagIpc`), `updatePreview`, `atomicWrite`. `preload/diagApi.ts`, `shared/` (update types, release notes, `DGCH`).
 
