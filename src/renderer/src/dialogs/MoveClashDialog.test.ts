@@ -10,7 +10,7 @@ const fns = (): { onCancel: () => void; onKeepBoth: () => void; onReplace: () =>
 
 describe('MoveClashDialog', () => {
   it('names one clash, counts several', () => {
-    expect(specOf(MoveClashDialog({ names: ['a.txt'], ...fns() })).title).toBe('"a.txt" is already there')
+    expect(specOf(MoveClashDialog({ names: ['a.txt'], ...fns() })).title).toBe('a.txt is already there')
     expect(specOf(MoveClashDialog({ names: ['a.txt', 'b.txt'], ...fns() })).title).toBe(
       '2 names are already taken'
     )

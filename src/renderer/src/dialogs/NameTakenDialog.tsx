@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { Dialog } from '../components/Dialog'
-import { DIALOG_EMPHASIS } from '../components/dialogLook'
+import { DialogName } from '../components/DialogName'
 
 /** A rename onto a name the folder already has. */
 export function NameTakenDialog({
@@ -22,8 +22,8 @@ export function NameTakenDialog({
       title="That name is taken"
       body={
         <>
-          This folder already has a <span className={DIALOG_EMPHASIS}>{name}</span>. Keeping
-          both saves yours as <span className={DIALOG_EMPHASIS}>{suggestion}</span>;
+          This folder already has a <DialogName>{name}</DialogName>. Keeping
+          both saves yours as <DialogName>{suggestion}</DialogName>;
           replacing it sends the old one to the Recycle Bin.
         </>
       }

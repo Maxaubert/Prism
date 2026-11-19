@@ -16,7 +16,7 @@ export function MoveClashDialog({
   return (
     <Dialog
       title={
-        names.length > 1 ? `${names.length} names are already taken` : `"${names[0]}" is already there`
+        names.length > 1 ? `${names.length} names are already taken` : `${names[0]} is already there`
       }
       body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
       onCancel={onCancel}

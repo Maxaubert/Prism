@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { Dialog } from '../components/Dialog'
+import { DialogName } from '../components/DialogName'
 
 // Its own file since #300: the archive panel (the phone's) and the Explorer's
 // places inside archives ask the same question.
@@ -25,9 +26,9 @@ export function PasswordDialog({
       body={
         <div>
           <div>
-            {wrong
-              ? `That password didn't open "${name}". Try again:`
-              : `Enter the password to open "${name}":`}
+            {wrong ? "That password didn't open " : 'Enter the password to open '}
+            <DialogName>{name}</DialogName>
+            {wrong ? '. Try again:' : ':'}
           </div>
           <input
             ref={input}

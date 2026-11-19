@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { Dialog } from '../components/Dialog'
-import { DIALOG_EMPHASIS } from '../components/dialogLook'
+import { DialogName } from '../components/DialogName'
 
 /** A file with unsaved edits was rewritten on disk. Dismissing it keeps the
  *  user's version, the same as "Keep mine". */
@@ -18,7 +18,7 @@ export function FileChangedDialog({
       title="This file changed on disk"
       body={
         <>
-          Something outside Prism rewrote <span className={DIALOG_EMPHASIS}>{name}</span>{' '}
+          Something outside Prism rewrote <DialogName>{name}</DialogName>{' '}
           while you have unsaved changes in it. There is no merge: it is your version or the one
           on disk.
         </>

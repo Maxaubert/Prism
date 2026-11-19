@@ -30,24 +30,24 @@ export const ARCHIVE_COPY = {
   // Prism ships its own 7-Zip, so reaching this means the bundled copy is
   // missing rather than that the machine lacks one.
   aes: (name: string): string =>
-    `"${name}" is AES-encrypted, and the 7-Zip that opens those is missing from this install.`,
-  unreadable: (name: string): string => `Couldn't read "${name}" from the archive.`,
+    `${name} is AES-encrypted, and the 7-Zip that opens those is missing from this install.`,
+  unreadable: (name: string): string => `Couldn't read ${name} from the archive.`,
   addEncrypted: "Prism can't add to a password-protected archive.",
   addFailed: "Those couldn't be added to the archive.",
   renameFailed: (name: string): string =>
-    `Couldn't rename to "${name}". The name may be taken or invalid.`,
+    `Couldn't rename to ${name}. The name may be taken or invalid.`,
   otherArchive: 'That came from another archive. Extract it first, then add it here.',
   readOnly: "This archive can't be changed. Extract it to make changes.",
   moveEncrypted: "Prism can't rearrange a password-protected archive.",
   moveFailed: "Those couldn't be moved inside the archive.",
   deleteFailed: (failed: number, names: readonly string[]): string =>
     names.length === 1
-      ? `Couldn't delete "${names[0]}".`
+      ? `Couldn't delete ${names[0]}.`
       : `${failed} of ${names.length} couldn't be deleted from the archive.`,
   clashTitle: (names: readonly string[]): string =>
     names.length > 1
       ? `${names.length} names are already in the archive`
-      : `"${names[0]}" is already in the archive`,
+      : `${names[0]} is already in the archive`,
   clashBody: 'Keep both adds them beside what is there. Nothing has been written yet.'
 } as const
 
