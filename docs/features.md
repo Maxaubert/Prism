@@ -3,6 +3,26 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared text: counts, plurals and empty lists (owner, 2026-11-19, #509)
+
+One module, `lib/emptyText.ts`, words every count and every empty list. Before it, the Recycle Bin strip said
+"12000 items" while the Empty dialog said "12,000 items", the search status used the machine's locale, the
+no-match text had three wordings (and the phone said "Nothing matches."), and Properties listed folders before
+files in one path and files before folders in another.
+
+- **Counts** are always grouped the en-US way ("12,000 items"), never by the machine's locale (`count`).
+- **Plurals** go through `plural(n, 'item')` ("1 item", "12,000 items"; a third argument for "match" and
+  "matches"). The status bar, the bin strip and its menu, the delete and Empty dialogs, the archive strip and card,
+  the search popup and status, and the icon picker all use it.
+- **Contents** read "files, then folders" everywhere (`contents(files, folders)`): "3 files, 1 folder". The
+  folder part is left out when there is none, so an archive and a folder both say "5 files".
+- **No match** is one string, `NO_MATCHES` ("No matching items in this folder or its subfolders."), for the list,
+  the search popup and the phone. The stopped-search and empty-folder strings are `NO_MATCHES_STOPPED` and
+  `EMPTY_FOLDER`. The archive panel's empty line says "This folder is empty." or "This archive is empty."
+  instead of the lower-case "empty folder" and "empty archive".
+- Held by `lib/emptyText.test.ts`, `lib/binView.test.ts`, `dialogs/deleteCopy.test.ts` and
+  `components/iconGrid/pickerText.test.ts`.
+
 ## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
 
 The owner, with a screenshot: Delete permanently on 4 binned folders said "4 of 4 could not be deleted" (diag

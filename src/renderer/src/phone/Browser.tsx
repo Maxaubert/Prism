@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import { extOf } from '@shared/path'
 import { THIS_PC, crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
+import { NO_MATCHES } from '../lib/emptyText'
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
@@ -576,7 +577,7 @@ function Results({
   // Nothing to preview and nothing answered: the first query of a session,
   // which is the only time the phone has no rows of its own to narrow.
   if (!hits) return <p className="p-4 opacity-70">Searching...</p>
-  if (!hits.length) return <p className="p-4 opacity-70">Nothing matches.</p>
+  if (!hits.length) return <p className="p-4 opacity-70">{NO_MATCHES}</p>
   return (
     <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list" aria-busy={pending}>
       {hits.map((h) => (

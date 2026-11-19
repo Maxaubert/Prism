@@ -1,5 +1,6 @@
 import type { BrowseSort } from '@shared/browse'
 import type { BinnedFrom } from '@shared/types'
+import { plural } from './emptyText'
 import { formatBytes } from './format'
 
 /**
@@ -37,7 +38,7 @@ export function binnedPath(from: string, name: string): string {
 /** What the strip's first two buttons say for `marked` rows (the menu's wording). */
 export function binStripLabels(marked: number): { restore: string; remove: string } {
   return marked > 1
-    ? { restore: `Restore ${marked} items`, remove: `Delete ${marked} items permanently` }
+    ? { restore: `Restore ${plural(marked, 'item')}`, remove: `Delete ${plural(marked, 'item')} permanently` }
     : { restore: 'Restore', remove: 'Delete permanently' }
 }
 
@@ -60,7 +61,7 @@ export function binBytes(
 
 /** The strip's quiet line: "38 items · 1.4 GB", or only the count when no size is known. */
 export function binFacts(count: number, bytes: number): string {
-  const items = `${count} ${count === 1 ? 'item' : 'items'}`
+  const items = plural(count, 'item')
   return count > 0 && bytes > 0 ? `${items} · ${formatBytes(bytes)}` : items
 }
 

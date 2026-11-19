@@ -9,6 +9,7 @@ import {
   type MouseEvent
 } from 'react'
 import { memberOf, placeOf, type ArchiveSummary } from '@shared/archivePlace'
+import { contents } from '../../lib/emptyText'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
@@ -126,8 +127,7 @@ export function ArchiveCard({
   const meta = got?.ok ? got.meta : null
   const facts = meta
     ? [
-        `${meta.files} ${meta.files === 1 ? 'file' : 'files'}`,
-        meta.folders ? `${meta.folders} ${meta.folders === 1 ? 'folder' : 'folders'}` : '',
+        contents(meta.files, meta.folders),
         `${formatBytes(meta.packed)} compressed`
       ]
         .filter(Boolean)

@@ -62,6 +62,8 @@ describe('what the bin holds (#502, owner 2026-11-10: how many GB are stored in 
   it('says only the count for an empty bin, or when no size is known', () => {
     expect(binFacts(0, 0)).toBe('0 items')
     expect(binFacts(3, 0)).toBe('3 items')
+    expect(binFacts(12000, 0)).toBe('12,000 items')
+    expect(binFacts(1, 0)).toBe('1 item')
   })
 })
 

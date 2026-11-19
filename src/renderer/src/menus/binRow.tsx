@@ -2,6 +2,7 @@ import type { ViewerFile } from '@shared/types'
 import type { BrowseEntry } from '../components/browse/types'
 import type { MenuItem } from '../components/ContextMenu'
 import { FileMenuIcon } from '../components/icons/FileMenuIcon'
+import { plural } from '../lib/emptyText'
 
 /**
  * THE RECYCLE BIN'S MENUS (Recycle Bin feature, D19; owner, 2026-11-10). One
@@ -38,13 +39,13 @@ export function binRowMenu(ctx: BinRowMenuContext): MenuItem[] {
     const paths = ctx.paths
     return [
       {
-        label: `Restore ${paths.length} items`,
+        label: `Restore ${plural(paths.length, 'item')}`,
         icon: <FileMenuIcon name="restore" />,
         onPick: () => ctx.restore(paths)
       },
       { label: 'Copy original paths', icon: <FileMenuIcon name="path" />, onPick: () => ctx.copyOriginalPaths(paths) },
       {
-        label: `Delete ${paths.length} items permanently`,
+        label: `Delete ${plural(paths.length, 'item')} permanently`,
         icon: <FileMenuIcon name="delete" />,
         danger: true,
         onPick: () => ctx.askDelete(paths)

@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { plural } from '../../lib/emptyText'
 import type { BrowseSearchState } from './types'
 
 export function BrowseSearchStatus({
@@ -23,8 +24,8 @@ export function BrowseSearchStatus({
     'This folder and subfolders',
     state?.source === 'everything' ? 'Everything index' : 'Searching folders directly',
     state?.notice,
-    state?.unreadable ? `${state.unreadable.toLocaleString()} locations could not be read` : null,
-    state?.skippedLinks ? `${state.skippedLinks.toLocaleString()} linked locations skipped` : null,
+    state?.unreadable ? `${plural(state.unreadable, 'location')} could not be read` : null,
+    state?.skippedLinks ? `${plural(state.skippedLinks, 'linked location')} skipped` : null,
     state?.truncated ? 'Results are incomplete. Refine your search.' : null
   ]
     .filter(Boolean)
