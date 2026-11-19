@@ -51,7 +51,6 @@ export function Places({
           {error}
         </p>
       )}
-      {places === null && !error && <p className="px-4 py-3 opacity-70">Loading...</p>}
       {places && (
         <>
           <Heading>Quick access</Heading>

@@ -780,9 +780,7 @@ function ArchiveInner({
               }}
               className="min-h-0 flex-1 overflow-y-auto pb-1.5"
             >
-              {entries === null ? (
-                <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
-              ) : rows.length === 0 ? (
+              {entries === null ? null : rows.length === 0 ? (
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">
                   {cwd ? EMPTY_FOLDER : EMPTY_ARCHIVE}
                 </div>
@@ -947,7 +945,7 @@ function ArchiveInner({
         <div className="absolute inset-0 z-20 grid place-items-center bg-[var(--p-bg)]/70">
           <div className="flex items-center gap-3 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-4 py-3 text-[13px] text-[var(--p-text)]">
             <Spinner small />
-            <span className="min-w-0 truncate">Opening {opening}...</span>
+            <span className="min-w-0 truncate">Opening {opening}…</span>
           </div>
         </div>
       )}

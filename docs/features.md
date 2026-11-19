@@ -3,6 +3,14 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the spinner and loading hints (owner, 2026-11-19, #524)
+
+There is one spinner, `Spinner` in `components/LoadingState.tsx`: an accent arc on a divider ring, a small 16px
+variant beside text. It fades in after a moment (`delayed-loader`) and turns slowly under reduced motion, wherever
+it shows. The search popup uses it too; its own CSS spinner is gone. A loading hint is written with the single
+character "…", never three dots ("Searching…", "Preparing…", "Reading…", "Connecting…", "Opening name…"). A
+folder shows NO loading text, the #271 rule: the phone's folder and its place list, a zip's contents and the icon
+picker's status line stay empty until the answer comes. Held by `components/loadingHints.test.ts`.
 ## Shared look: the selection (owner, 2026-11-19, #524)
 
 A marked row or tile has one look, one CSS file: `assets/selection.css`, on `[data-selected]`. The Explorer's list

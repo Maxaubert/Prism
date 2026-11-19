@@ -86,7 +86,7 @@ export function PhoneApp(): JSX.Element {
   if (!me)
     return (
       <div className="p-6 opacity-70" data-phone-connecting>
-        {error ?? 'Connecting...'}
+        {error ?? 'Connecting…'}
       </div>
     )
   // Keyed by the phone's PAIRING moment rather than its folder: a re-scan
