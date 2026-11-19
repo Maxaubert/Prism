@@ -10,6 +10,7 @@ import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { KindIcon, iconColour } from './icons/FileIcons'
+import { EntryIcon, GROUND_SIDE } from './icons/EntryIcon'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
@@ -866,29 +867,15 @@ function ArchiveInner({
                             }
                           }}
                         >
-                          {r.dir ? (
-                            <svg
-                              viewBox="0 0 24 24"
-                              width={14}
-                              height={14}
-                              fill="var(--p-tree-folder)"
-                              className="shrink-0"
-                              aria-hidden
-                            >
-                              <path d="M2.8 6.2A1.8 1.8 0 0 1 4.6 4.4h4.3l2 2h8.5a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8z" />
-                            </svg>
-                          ) : (
-                            <KindIcon
-                              kind={fileKind(extOf(r.name), r.name)}
-                              // A marked row is a tint, so the icon keeps its
-                              // colours, as in the tree and the Explorer; its
-                              // knockouts are the tint as seen over the viewer.
-                              color={iconColour(fileKind(extOf(r.name), r.name))}
-                              bg={sel.items.has(r.path) ? 'var(--p-sel-tint-seen)' : undefined}
-                              ext={extOf(r.name)}
-                              name={r.name}
-                            />
-                          )}
+                          {/* A marked row is a tint, so the icon keeps its colours,
+                              as in the tree and the Explorer. */}
+                          <EntryIcon
+                            kind={r.dir ? 'folder' : fileKind(extOf(r.name), r.name)}
+                            ext={extOf(r.name)}
+                            name={r.name}
+                            selected={sel.items.has(r.path)}
+                            ground={GROUND_SIDE}
+                          />
                           <span className="min-w-0 flex-1 truncate">{r.name}</span>
                           {r.encrypted && <LockBadge />}
                           <span className={`${COL_TYPE} text-[11px] ${colTone(r.path)}`}>

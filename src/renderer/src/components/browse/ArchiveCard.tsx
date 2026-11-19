@@ -11,7 +11,8 @@ import {
 import { memberOf, placeOf, type ArchiveSummary } from '@shared/archivePlace'
 import { contents } from '../../lib/emptyText'
 import { formatBytes, formatWhen } from '../../lib/format'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { KindIcon } from '../icons/FileIcons'
+import { EntryIcon } from '../icons/EntryIcon'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import { fileKind } from '@shared/fileKind'
@@ -498,20 +499,14 @@ export function ArchiveCard({
                   }}
                   onDragEnd={() => setDrag(null)}
                 >
-                  {row.dir ? (
-                    <FolderIcon color="var(--p-tree-folder)" />
-                  ) : (
-                    <KindIcon
-                      kind={kind}
-                      ext={extOf(row.name)}
-                      name={row.name}
-                      color={iconColour(kind)}
-                      size={14}
-                      bg={
-                        selected ? (inUse ? 'var(--p-sel-tint-seen)' : 'var(--p-sel-tint-dim-seen)') : 'var(--p-bg)'
-                      }
-                    />
-                  )}
+                  <EntryIcon
+                    kind={row.dir ? 'folder' : kind}
+                    ext={extOf(row.name)}
+                    name={row.name}
+                    size={14}
+                    selected={selected}
+                    dimmed={!inUse}
+                  />
                   <span>{row.name}</span>
                   <span>{row.dir ? '' : formatBytes(row.size)}</span>
                 </button>

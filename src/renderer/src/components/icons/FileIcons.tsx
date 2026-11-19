@@ -18,7 +18,6 @@ import {
   type IconIdentity
 } from '../../lib/iconPaths'
 import { useIconScheme } from '../../lib/theme'
-import { FolderFill } from './Icon'
 
 // The file and folder icons every list draws: the tree, the Explorer, search,
 // the archive panel. Moved out of TreeRows (structure cleanup, 2026-10-12).
@@ -324,6 +323,3 @@ export function KindIcon({
   )
 }
 
-export function FolderIcon({ color, size = ROW_ICON }: { color: string; size?: number }): JSX.Element {
-  return <FolderFill size={size} color={color} />
-}

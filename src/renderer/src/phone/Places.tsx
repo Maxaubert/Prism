@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from 'react'
 import { ROUTE, routePath, type PhoneDrive, type PlacesAnswer } from '@shared/phoneWire'
 import { freeLine, nearlyFull, usedFraction, usedWidth } from '../lib/driveUsage'
 import { PlaceIcon, type PlaceIconName } from '../components/icons/PlaceIcon'
-import { FolderFill } from '../components/icons/Icon'
+import { EntryIcon } from '../components/icons/EntryIcon'
 import { getJson } from './api'
 import { ROW_CLASS } from './rows'
 
@@ -63,7 +63,7 @@ export function Places({
                       <PlaceIcon name={q.known as PlaceIconName} size={22} />
                     </span>
                   ) : (
-                    <FolderFill size={26} />
+                    <EntryIcon kind="folder" size={26} />
                   )}
                   <span className="min-w-0 flex-1 truncate font-medium">{q.name}</span>
                 </button>

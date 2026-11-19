@@ -3,6 +3,17 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: one EntryIcon for folders and files (owner, 2026-11-19, #521)
+
+- **`components/icons/EntryIcon.tsx` draws the icon of every folder and file row** (kind, size, selected,
+  dimmed, and the colour behind an unmarked row). A folder is the filled folder (`FolderFill`) in the folder
+  colour, a file is `KindIcon` in the file colour. `FolderIcon` and the inline folder svg of the archive panel are
+  gone: a folder in a zip is now the Explorer's folder shape. Callers: the Explorer list and tiles, search popup,
+  Places, the archive card and panel, and the phone's folder and file rows, tiles and search hits.
+- **The knockout of a marked row is one rule** (`entryGround`): the tint as seen, dimmed when the list has lost
+  focus. A pinned file in Places now wears the file colour like every other file (it was a softer grey).
+- **The phone shows real file glyphs** in its list, grid and search rows instead of a bare extension text.
+- Held by `components/icons/EntryIcon.test.ts`.
 ## Shared menu: the archive menus use one row table (owner, 2026-11-19, #518)
 
 - **One table, `menus/archiveMenus.ts`,** gives the rows, words and order of every right-click menu of an
