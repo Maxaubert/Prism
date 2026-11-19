@@ -3,6 +3,22 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared dialog: one name clash question (owner, 2026-11-19, #515)
+
+- **One ClashDialog** asks every "that name is taken": a move, a paste, a Restore from the bin, a rename and
+  files added to a zip. Its buttons are always **Cancel, Keep both (primary, accent), Replace (red)**, in that
+  order. Replace is left out only where the place cannot replace (inside a zip, where nothing is written until
+  Keep both). The rename used to put Replace before Keep both, which moved the accent.
+- The name is shown one way: the title says "<name> is already there" (or "N names are already taken", or
+  "... already in the archive"); a rename's body adds what Keep both saves it as.
+- **Unsaved and FileChanged keep their own shape, on purpose.** A question gets Cancel when "do nothing" is a
+  separate answer from the others: Unsaved changes has Cancel, Discard (plain, not red: it drops typing, not a
+  file) and Save all changes (accent). FileChanged has no Cancel: the file already changed, so there is nothing
+  to back out of, only a pick between two versions. "Keep mine" is its safe answer and what Escape does, and
+  "Reload from disk" is red because it throws your edits away. A new either-or question follows FileChanged;
+  a new question with a way out follows Unsaved.
+- Held by dialogs/ClashDialog.test.ts (all clash wording and order, one place) and AskDialogs.test.ts
+  (which ask draws it); UnsavedDialog.test.ts and FileChangedDialog.test.ts pin the two shapes.
 ## Shared look: one Close, one footer (owner, 2026-11-19, #520)
 
 - **A dialog with nothing to answer says "Close"**, never "OK": the notice (App's "That didn't work", the

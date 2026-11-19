@@ -6,8 +6,7 @@ import { BinDeleteAsk, BinEmptyAsk, DeleteAsk, DeleteManyAsk, PurgeAsk } from '.
 import { FileChangedDialog } from './FileChangedDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { folderIconOf, readFolderIcons, type FolderIconChoice } from '../lib/folderIcons'
-import { MoveClashDialog } from './MoveClashDialog'
-import { NameTakenDialog } from './NameTakenDialog'
+import { ClashDialog } from './ClashDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
 
@@ -87,8 +86,10 @@ export function AskDialogs({
       return <PurgeAsk paths={ask.paths} onCancel={a.dismiss} onDelete={() => a.runPurge(ask.paths)} />
     case 'move-clash':
       return (
-        <MoveClashDialog
+        <ClashDialog
           names={ask.names}
+          where="folder"
+          canReplace
           onCancel={a.dismiss}
           onKeepBoth={() => a.runMove(ask.paths, ask.dest, 'keep-both')}
           onReplace={() => a.runMove(ask.paths, ask.dest, 'replace')}
@@ -96,8 +97,10 @@ export function AskDialogs({
       )
     case 'bin-clash':
       return (
-        <MoveClashDialog
+        <ClashDialog
           names={ask.names}
+          where="folder"
+          canReplace
           onCancel={a.dismiss}
           onKeepBoth={() => a.runBinRestore(ask.paths, 'keep-both')}
           onReplace={() => a.runBinRestore(ask.paths, 'replace')}
@@ -157,8 +160,10 @@ export function AskDialogs({
       )
     case 'clash':
       return (
-        <NameTakenDialog
-          name={ask.name}
+        <ClashDialog
+          names={[ask.name]}
+          where="folder"
+          canReplace
           suggestion={ask.suggestion}
           onCancel={a.dismiss}
           onReplace={() => a.runRename(ask.path, ask.name, 'overwrite')}
