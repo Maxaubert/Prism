@@ -3,6 +3,12 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the phone's drive row (owner, 2026-11-19, #524)
+
+The phone's This PC page does the Explorer's drive sums, from `lib/driveUsage.ts` (`usedFraction`, `usedWidth`,
+`freeLine`, `nearlyFull`) and nothing of its own: the same "X free of Y" text and the same bar share. From 90 percent
+used the bar turns to `--p-warn` and the line to `--p-warn-ink`, as the Explorer's rows do (`data-warn` on the row).
+A drive with no sizes shows its name alone. Held by `phone/Places.test.ts`.
 ## Shared look: the find bar (owner, 2026-11-19, #524)
 
 Ctrl+F in a PDF and in a markdown, office or ebook document draws one bar, `components/FindBar.tsx`, in DocFind's
