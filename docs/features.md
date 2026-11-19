@@ -3,6 +3,12 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared view: the place strip (owner, 2026-11-19, #524)
+
+The zip's strip and the Recycle Bin's strip above the column header are one shell, `components/browse/PlaceStrip.tsx`:
+the name block (icon, name, dim facts) and the verbs, each place keeping its own words, buttons and `data-*` hooks.
+The classes are `browse-place-strip*` and `browse-place-button` (`place-strip.css`); the bin no longer wears
+`browse-archive-*` names. Nothing changes on screen. Held by `components/browse/PlaceStrip.test.ts`.
 ## Shared view: a landing row and a landing tile (owner, 2026-11-19, #524)
 
 A file still being copied in shows the same on a row and on a tile, and nothing differs for the user. Both read the

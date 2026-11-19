@@ -2,72 +2,7 @@
    research/prism/2026-10-06-zip-as-folder). Its own sheet, so the Explorer's
    own browse.css takes only what it must. */
 
-/* The strip: one 40 px line above the header, on the list's own ground (no
-   fill: under glass a second coat is a darker band), a divider below. */
-.browse-archive-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-shrink: 0;
-  height: 40px;
-  padding: 0 var(--browse-row-pad, 8px) 0 calc(var(--browse-row-pad, 8px) + 4px);
-  border-bottom: 1px solid var(--p-divider);
-  font-size: var(--browse-row-font, 12.5px);
-  min-width: 0;
-}
-.browse-archive-strip-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.browse-archive-strip-name strong {
-  font-weight: 600;
-  color: var(--p-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.browse-archive-strip-facts {
-  color: var(--p-dim);
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.browse-archive-strip-verbs {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-/* Neutral row buttons, the dropdown's look (#202): never the accent. Focus is
-   the hover's fill, no ring (#272). */
-.browse-archive-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--p-divider);
-  border-radius: var(--p-radius-sm, 4px);
-  background-color: var(--p-control);
-  color: var(--p-text);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.browse-archive-button:hover,
-.browse-archive-button:focus-visible {
-  background-color: var(--p-hover);
-  border-color: var(--p-line);
-  outline: none;
-}
-@container (max-width: 560px) {
-  .browse-archive-strip-facts {
-    display: none;
-  }
-}
+/* The strip above the header and its buttons are place-strip.css (#524). */
 
 /* The Packed column, only inside an archive: right after Size, its values
    right-aligned like Size's. The narrow layouts hide it before Type, the old

@@ -30428,7 +30428,7 @@ async function binBytesScenario(fixtures) {
       .evaluate((e) => ({
         count: e.getAttribute('data-bin-count'),
         bytes: e.getAttribute('data-bin-bytes'),
-        text: e.querySelector('.browse-archive-strip-facts')?.textContent ?? ''
+        text: e.querySelector('.browse-place-strip-facts')?.textContent ?? ''
       }))
       .catch(() => ({ count: null, bytes: null, text: '' }))
   const stripIs = (win, count, bytes) =>
