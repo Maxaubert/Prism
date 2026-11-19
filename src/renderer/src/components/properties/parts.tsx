@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { clipboardText } from '../../lib/clipboardText'
-import { dialogButton } from '../dialogLook'
+import { dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { CheckGlyph, CopyGlyph } from '../icons/propertyGlyphs'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 

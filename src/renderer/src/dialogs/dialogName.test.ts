@@ -4,7 +4,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { DialogName } from '../components/DialogName'
-import { DIALOG_EMPHASIS } from '../components/dialogLook'
+import { DIALOG_EMPHASIS } from 'prism-term-core/renderer/components/dialogLook'
 import { nameOrCount } from './dialogName'
 
 describe('DialogName (#512)', () => {

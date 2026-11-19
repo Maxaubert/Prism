@@ -11,7 +11,7 @@ const src = (f: string): string => readFileSync(join(__dirname, f), 'utf8')
 describe('the one modal shell', () => {
   it('Prism has no Modal of its own and no second scrim string', () => {
     expect(existsSync(join(__dirname, 'Modal.tsx'))).toBe(false)
-    expect(src('dialogLook.ts')).not.toContain('DIALOG_SCRIM')
+    expect(readFileSync(join(__dirname, '..', '..', '..', '..', 'packages', 'term-core', 'renderer', 'components', 'dialogLook.ts'), 'utf8')).not.toContain('DIALOG_SCRIM')
     expect(src('ExtractWindow.tsx')).not.toContain('z-[90]')
   })
   it('every dialog is the core Modal', () => {

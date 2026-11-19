@@ -1,5 +1,5 @@
 import type { JSX, Ref } from 'react'
-import { dialogButton } from './dialogLook'
+import { dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { ProgressBar } from './ProgressBar'
 import './jobCard.css'
 
@@ -94,14 +94,7 @@ export function JobCard({
             type="button"
             disabled={action.disabled}
             onClick={action.onPress}
-            className={
-              action.primary
-                ? dialogButton({ primary: true }).replace(
-                    'bg-[var(--p-accent)]',
-                    'bg-[var(--p-sel-bg)]'
-                  )
-                : dialogButton({})
-            }
+            className={dialogButton({ selected: action.primary })}
             {...action.attrs}
           >
             {action.label}

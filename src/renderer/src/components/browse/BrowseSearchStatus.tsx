@@ -42,7 +42,7 @@ export function BrowseSearchStatus({
         {phase}
         {state?.notice ? ` · ${state.notice}` : incomplete ? ' · Some locations skipped' : ''}
       </span>
-      {state?.running && onCancel && <button onClick={onCancel}>Cancel search</button>}
+      {state?.running && onCancel && <button onClick={onCancel}>Cancel</button>}
       {!state?.running && onClear && (
         <button onClick={onClear} data-testid="browse-search-clear">
           Clear search

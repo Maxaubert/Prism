@@ -1,6 +1,6 @@
 import type { JSX, ReactNode } from 'react'
 import { Modal } from 'prism-term-core/renderer/components/Modal'
-import { DIALOG_BOX, DIALOG_TITLE, dialogButton } from '../components/dialogLook'
+import { DIALOG_BOX, DIALOG_TITLE, dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { pressAnswers, type DriveBar } from './deleteCopy'
 
 /**

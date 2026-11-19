@@ -13,6 +13,7 @@
     "./shared/*": "./shared/*.ts",
     "./renderer/lib/*": "./renderer/lib/*.ts",
     "./renderer/components/layers": "./renderer/components/layers.ts",
+    "./renderer/components/dialogLook": "./renderer/components/dialogLook.ts",
     "./renderer/components/*": "./renderer/components/*.tsx",
     "./renderer/settings/*": "./renderer/settings/*.tsx"
   },

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, type JSX } from 'react'
+import { dialogButton } from './dialogLook'
 import { Modal } from './Modal'
 import { groupReleaseNotes } from '../../shared/releaseGroups'
 import { moreLine, parseReleaseNotes } from '../../shared/releaseNotes'
@@ -221,7 +222,7 @@ export default function UpdateDialog({
                 : 'This download cannot be cancelled'
               : undefined
           }
-          className="disabled:cursor-default disabled:opacity-45 disabled:hover:text-[var(--p-text-soft)] rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-3.5 py-1.5 text-[12.5px] font-semibold text-[var(--p-text-soft)] transition-colors hover:text-[var(--p-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)]"
+          className={dialogButton({})}
         >
           {!running && notice ? 'Close' : 'Cancel'}
         </button>
@@ -230,7 +231,7 @@ export default function UpdateDialog({
           data-primary="true"
           onClick={onInstall}
           disabled={running}
-          className="disabled:cursor-default disabled:opacity-45 disabled:hover:brightness-100 rounded-lg bg-[var(--p-accent)] px-3.5 py-1.5 text-[12.5px] font-semibold text-[var(--p-on-accent)] transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)]"
+          className={dialogButton({ primary: true })}
         >
           Install
         </button>
