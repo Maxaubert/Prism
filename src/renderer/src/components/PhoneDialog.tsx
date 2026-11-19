@@ -53,7 +53,7 @@ export function PhoneDialog({
   }
 
   const body = !state ? (
-    <p>Reading...</p>
+    <p>Reading…</p>
   ) : (
     <div className="flex flex-col gap-3" data-phone-dialog>
       <label className="flex items-center justify-between gap-3 text-[var(--p-text)]">

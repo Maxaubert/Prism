@@ -7,6 +7,7 @@ import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { hitFolder, stepActive } from '@shared/searchSuggest'
 import { useSearchSuggestions, type Suggestion } from '../../hooks/useSearchSuggestions'
 import { BrowseIcon } from '../icons/BrowseIcon'
+import { Spinner } from '../LoadingState'
 import './search-popup.css'
 
 /**
@@ -148,7 +149,7 @@ export function BrowseSearchPopup(props: {
               }
             }}
           />
-          {answer.running && !!query.trim() && <span className="browse-search-popup-spin" aria-hidden />}
+          {answer.running && !!query.trim() && <Spinner small className="browse-search-popup-spin" />}
         </div>
         {showMore && !answer.running && !hits.length && (
           <p className="browse-search-popup-empty">No names match here. Show more searches everything.</p>

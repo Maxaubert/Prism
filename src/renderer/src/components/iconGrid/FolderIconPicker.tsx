@@ -93,7 +93,7 @@ export function FolderIconPicker({
         />
       </div>
       <p className="folder-icon-status" role="status" data-icon-status>
-        {set ? iconStatus(set.icons.length, icons.length, searching) : 'Loading icons…'}
+        {set ? iconStatus(set.icons.length, icons.length, searching) : ''}
       </p>
     </div>
   )

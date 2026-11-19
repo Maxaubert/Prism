@@ -77,7 +77,7 @@ export function Browser({
   const [start] = useState(() => readPlace(window.location.search, here))
   const [dir, setDir] = useState(start.dir)
   // Tagged with the folder it answers for, so walking into another folder
-  // shows "Loading..." rather than the old rows, and an answer that arrives
+  // shows nothing (no loading text, #271) rather than the old rows, and an answer that arrives
   // late for a folder already left is ignored rather than shown.
   const [loaded, setLoaded] = useState<{ dir: string; listing: DirListing | null } | null>(null)
   const [open, setOpen] = useState<ViewerFile | null>(null)
@@ -473,7 +473,6 @@ export function Browser({
               </div>
             </div>
           )}
-          {listing === undefined && <p className="p-4 opacity-70">Loading...</p>}
           {listing && view === 'grid' && (
             <ul
               className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2 p-2 pb-[max(env(safe-area-inset-bottom),8px)]"
@@ -576,7 +575,7 @@ function Results({
 }): JSX.Element {
   // Nothing to preview and nothing answered: the first query of a session,
   // which is the only time the phone has no rows of its own to narrow.
-  if (!hits) return <p className="p-4 opacity-70">Searching...</p>
+  if (!hits) return <p className="p-4 opacity-70">Searching…</p>
   if (!hits.length) return <p className="p-4 opacity-70">{NO_MATCHES}</p>
   return (
     <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list" aria-busy={pending}>
