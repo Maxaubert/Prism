@@ -79,8 +79,8 @@ sits at `node_modules/<package>/LICENSE`.
 - **MIT**: React and React DOM, CodeMirror 6 and its language packages, Lezer, react-markdown, remark-gfm and the unified / rehype / remark family, adm-zip, exifr,
   qrcode, jszip (dual MIT or GPL-3.0, used under MIT), the stylesheet Tailwind CSS generates,
   and their MIT dependencies.
-- **Apache-2.0**: pdf.js (`pdfjs-dist`, Mozilla), SheetJS Community Edition (`xlsx`, with its
-  `cfb`, `ssf`, `codepage`, `adler-32`, `crc-32`, `frac`, `wmf` and `word` helpers), hls.js.
+- **Apache-2.0**: pdf.js (`pdfjs-dist`, Mozilla), SheetJS Community Edition (`xlsx` 0.20.3, from SheetJS's own
+  CDN since #535; its helpers are built in), hls.js.
 - **BSD 2-clause**: mammoth, lop, option, dingbat-to-unicode, entities. **BSD 3-clause**:
   jpeg-js, sprintf-js. **BSD**: duck.
 - **pdf.js support data**, copied from `pdfjs-dist` 6.2.108 into
