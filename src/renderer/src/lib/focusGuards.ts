@@ -36,9 +36,6 @@ export function isTextBox(el: HTMLElement | null | undefined): boolean {
   return !!el && /^(INPUT|TEXTAREA)$/.test(el.tagName)
 }
 
-export function inField(el: Element | null | undefined): boolean {
-  return !!el?.closest(FIELD)
-}
 
 export function inOverlay(el: Element | null | undefined): boolean {
   return !!el?.closest(OVERLAY)

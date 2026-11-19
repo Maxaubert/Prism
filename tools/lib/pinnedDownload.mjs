@@ -2,7 +2,7 @@
 // Each fetch script used to hand-roll the fetch, the hash and the refusal; the
 // pins themselves stay in the scripts, where the CI cache key reads them.
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const sha256Of = (data) => createHash('sha256').update(data).digest('hex')
@@ -68,17 +68,3 @@ export async function unzipFlat(label, buf, wanted, dir) {
   return wanted.length
 }
 
-/** The e2e's downloads: fetched once into `dir`, verified, and kept there;
- *  a cached copy is used only while its hash still matches. */
-export async function cachedDownload(dir, name, url, sha256) {
-  mkdirSync(dir, { recursive: true })
-  const file = join(dir, name)
-  if (existsSync(file) && sha256Of(readFileSync(file)) === sha256) return file
-  console.log(`  (fetching ${name} into .e2e/cache, once)`)
-  try {
-    writeFileSync(file, await fetchVerified(url, sha256))
-  } catch (err) {
-    throw new Error(`${name}: ${err.message}`, { cause: err })
-  }
-  return file
-}

@@ -120,7 +120,5 @@ const pref = createPref<{ field: SortField; dir: SortDir }>({
   fallback: DEFAULT_SORT
 })
 
-export const setSortField = (field: SortField): void => pref.set({ ...pref.get(), field })
-export const setSortDir = (dir: SortDir): void => pref.set({ ...pref.get(), dir })
 
 export const useSort = pref.use

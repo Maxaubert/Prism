@@ -29,9 +29,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -71,6 +72,18 @@ jobs:
       - run: npm run build
       - run: npx electron-builder --win --publish never
 
+      # THE UPDATE IS SIGNED (#534 #10): the app runs an update only with a
+      # valid <installer>.sig from the same release. The key lives only in this
+      # secret; the tool refuses a key whose public half the app does not carry.
+      - name: Sign the installer for the in-app update
+        shell: pwsh
+        env:
+          PRISM_UPDATE_KEY: ${{ secrets.PRISM_UPDATE_KEY }}
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          node tools/sign-update.mjs "dist/Prism-Setup-x64-$v.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Signing the installer failed" }
+
       - name: Publish
         shell: pwsh
         env:
@@ -79,5 +92,6 @@ jobs:
           $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $exe = "dist/Prism-Setup-x64-$v.exe"
           if (-not (Test-Path $exe)) { throw "installer not found: $exe" }
-          gh release create "v$v" $exe --title "Prism $v" --generate-notes --latest
+          if (-not (Test-Path "$exe.sig")) { throw "signature not found: $exe.sig" }
+          gh release create "v$v" $exe "$exe.sig" --title "Prism $v" --generate-notes --latest
           if ($LASTEXITCODE -ne 0) { throw "Release publication failed" }

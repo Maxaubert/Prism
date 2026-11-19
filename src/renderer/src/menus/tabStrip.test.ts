@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement, type JSX } from 'react'
 import { plusButtonMenu, tabContextMenu } from './tabStrip'
-import { aliasWindow, clearHost, setHost } from '../testing/host'
+import { aliasWindow, capabilityHost, clearHost, fakeClipboard } from '../testing/host'
 
 aliasWindow()
 
@@ -11,10 +11,10 @@ const labels = (items: Array<{ label: string }>): string[] => items.map((i) => i
 
 describe('tabContextMenu', () => {
   it('a folder tab: the folder rows, then close, last', () => {
-    const showInExplorer = vi.fn()
-    setHost({ showInExplorer })
+    fakeClipboard()
+    const { showInExplorer } = capabilityHost(true)
     const items = tabContextMenu({ root: 'C:\\a', onClose: vi.fn() })
-    expect(labels(items)).toEqual(['Copy folder path', 'Show folder in File Explorer', 'Close tab'])
+    expect(labels(items)).toEqual(['Copy path', 'Show in File Explorer', 'Close tab'])
     items[1].onPick?.()
     expect(showInExplorer).toHaveBeenCalledWith('C:\\a')
   })

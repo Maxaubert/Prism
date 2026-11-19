@@ -150,7 +150,6 @@ const P_ICE = ['#eafcff', '#8fd6ff', '#3f6dff']
 // the per-kind speed below, and the draw switch turns age into the visual. The
 // numbers here are what the gear panel's 1-10 row selects.
 
-export const DROP_VARIANTS = 11
 export const DEFAULT_DROP_STYLE = 1
 // The combo variant: the shockwave (1) on beats/drops PLUS a continuous
 // bass-reactive centre bloom - handled specially in the ripples style.
