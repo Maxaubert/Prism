@@ -3,6 +3,13 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared view: a landing row and a landing tile (owner, 2026-11-19, #524)
+
+A file still being copied in shows the same on a row and on a tile, and nothing differs for the user. Both read the
+percent and the caption through `lib/landingGrid.ts` `landingTile` (clamped to 0-100, whole percents, "Copying…"
+written once), and both draw the fill with `components/browse/LandingBar.tsx`, the thin ProgressBar (#501) named
+"Copying". The list no longer redoes the math or writes the caption inline. Held by
+`components/browse/LandingBar.test.ts`.
 ## Shared look: the slider (owner, 2026-11-19, #524)
 
 There is one slider, `Slider` in the settings core (`settings/fields.tsx`): a native range worn in the switch's colours,
