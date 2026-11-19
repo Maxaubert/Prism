@@ -10,8 +10,8 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Open',
       'Open in new tab',
       'Extract here',
-      'Extract to...',
-      'Add files...',
+      'Extract to…',
+      'Add files…',
       'Copy',
       'Copy path',
       'Rename',
@@ -19,7 +19,7 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Properties',
       'Delete'
     ])
-    expect(labels({ kind: 'outside', writable: false })).not.toContain('Add files...')
+    expect(labels({ kind: 'outside', writable: false })).not.toContain('Add files…')
   })
 
   it('a folder inside (mockup 07): no Rename, ever', () => {
@@ -27,12 +27,12 @@ describe('the menus of a place inside an archive (#300)', () => {
       'Open',
       'Open in new tab',
       'Extract this folder',
-      'Extract this folder to...',
-      'Add files here...',
+      'Extract this folder to…',
+      'Add files here…',
       'Copy folder',
       'Show w.zip in File Explorer',
       'Properties',
-      'Delete from zip'
+      'Delete from archive'
     ])
     const ro = labels({ kind: 'folder', writable: false, zip: 'w.7z' })
     expect(ro.some((l) => /Rename|Delete|Add/.test(l))).toBe(false)
@@ -42,17 +42,17 @@ describe('the menus of a place inside an archive (#300)', () => {
     expect(labels({ kind: 'file', writable: true, zip: 'w.zip' })).toEqual([
       'Open',
       'Extract this file',
-      'Extract this file to...',
+      'Extract this file to…',
       'Copy file',
       'Rename',
       'Show w.zip in File Explorer',
       'Properties',
-      'Delete from zip'
+      'Delete from archive'
     ])
     expect(labels({ kind: 'file', writable: false, zip: 'w.7z' })).toEqual([
       'Open',
       'Extract this file',
-      'Extract this file to...',
+      'Extract this file to…',
       'Copy file',
       'Show w.7z in File Explorer',
       'Properties'
@@ -63,16 +63,16 @@ describe('the menus of a place inside an archive (#300)', () => {
     expect(labels({ kind: 'many', writable: true, count: 3, zip: 'w.zip' })).toEqual([
       'Copy 3 items',
       'Extract 3 items here',
-      'Extract 3 items to...',
-      'Delete 3 items from zip'
+      'Extract 3 items to…',
+      'Delete 3 items from archive'
     ])
     expect(labels({ kind: 'many', writable: false, count: 2, zip: 'w.zip' })).not.toContain(
-      'Delete 2 items from zip'
+      'Delete 2 items from archive'
     )
     expect(labels({ kind: 'empty', writable: true, zip: 'w.zip' })).toEqual([
       'Extract here',
-      'Extract to...',
-      'Add files here...',
+      'Extract to…',
+      'Add files here…',
       'Copy address',
       'Show w.zip in File Explorer'
     ])
@@ -82,4 +82,12 @@ describe('the menus of a place inside an archive (#300)', () => {
     const del = archiveMenuRows({ kind: 'file', writable: true, zip: 'w.zip' }).find((r) => r.id === 'delete')
     expect(del?.danger).toBe(true)
   })
-})
+
+  it('one ellipsis character and "archive" (not "zip") where any kind applies (#518)', () => {
+    const all = (['outside', 'folder', 'file', 'many', 'empty'] as const).flatMap((kind) =>
+      labels({ kind, writable: true, zip: 'w.7z', count: 1 } as Parameters<typeof archiveMenuRows>[0])
+    )
+    expect(all.some((l) => l.includes('...'))).toBe(false)
+    expect(all.some((l) => /from zip/.test(l))).toBe(false)
+    expect(all).toContain('Delete 1 item from archive')
+  })})

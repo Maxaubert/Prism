@@ -9,7 +9,7 @@ import { PlaceStrip } from './PlaceStrip'
 /**
  * THE STRIP INSIDE AN ARCHIVE (#300, mockup 03): one 40 px line above the
  * column header that names the zip you are in, what it holds and what it
- * weighs packed, with Extract here and Extract to... at its end.
+ * weighs packed, with Extract here and Extract to… at its end.
  *
  * No fill of its own (the spec's Decision 4): the mockup tinted it toward the
  * zip colour, and under a see-through style a second translucent coat over the
@@ -46,7 +46,7 @@ export function ArchiveStrip({
       </button>
       <button className="browse-place-button" onClick={onExtractTo} data-archive-verb="extract-to">
         <FileMenuIcon name="extract" />
-        Extract to...
+        Extract to…
       </button>
     </PlaceStrip>
   )

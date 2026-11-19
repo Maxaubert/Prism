@@ -2808,7 +2808,7 @@ async function extractWindowScenario(fixtures) {
       rmSync(join(picked, 'Collection'), { recursive: true, force: true })
       await throughTheWindow(win, 'zip, Extract folder to…', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'Collection')
-        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
       })
       ok(
         existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
@@ -2828,7 +2828,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, 'zip, Extract to… on a member', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'one.txt')
-        await win.locator('[role="menu"] >> text="Extract this file to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this file to…"').click()
       })
       ok(existsSync(join(picked, 'one.txt')), 'and in the picked folder')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -2883,7 +2883,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, '7z, Extract folder to…', 'read-only.7z', async () => {
         await openMemberMenu(win, 'sub')
-        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
       })
       ok(existsSync(join(picked, 'sub', 'deep.txt')), 'and a folder in the picked one')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -3231,7 +3231,7 @@ async function extractCancelScenario() {
 
     // ---- Cancel: staging inside the picked folder (Extract folder to…) ----
     await openMemberMenu(win, 'Big')
-    await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+    await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     ok(
       (await until(
@@ -23962,14 +23962,14 @@ async function zipPreviewClicksScenario(fixtures) {
 
     // RIGHT-CLICK: the zip's member verbs, on the selection.
     const fileMenu = await menuRowsOf('.node-version')
-    ok(fileMenu.join('|') === ['Open', 'Extract this file', 'Extract this file to...', 'Copy file'].join('|'), `a file row's menu (${fileMenu.join(', ')})`)
+    ok(fileMenu.join('|') === ['Open', 'Extract this file', 'Extract this file to…', 'Copy file'].join('|'), `a file row's menu (${fileMenu.join(', ')})`)
     ok((await picked()).join('|') === '.node-version', 'a right-click selects the row it is on')
     await win.locator('[role="menu"] [role="menuitem"]', { hasText: 'Extract this file' }).first().click()
     ok(await until(async () => existsSync(join(dir, '.node-version')), 20000, 150), 'Extract this file lands beside the zip')
     await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
     await pickZip('after the menu')
     const folderMenu = await menuRowsOf('docs')
-    ok(folderMenu.join('|') === ['Open', 'Extract this folder', 'Extract this folder to...', 'Copy folder'].join('|'), `a folder row's menu (${folderMenu.join(', ')})`)
+    ok(folderMenu.join('|') === ['Open', 'Extract this folder', 'Extract this folder to…', 'Copy folder'].join('|'), `a folder row's menu (${folderMenu.join(', ')})`)
     await closeMenu()
     await cardRow('docs').click()
     await cardRow('app').click({ modifiers: ['Control'] })
@@ -25452,15 +25452,15 @@ async function zipMenusScenario(fixtures) {
   try {
     await explorerAt(win, dir)
     const outside = await rowMenu(win, 'Wind-0.2.2.zip')
-    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to...', 'Add files...', 'Copy', 'Copy path', 'Rename', 'Show in File Explorer', 'Properties', 'Delete']
+    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to…', 'Add files…', 'Copy', 'Copy path', 'Rename', 'Show in File Explorer', 'Properties', 'Delete']
     ok(outside.join('|') === wantOutside.join('|'), `a zip outside has the archive's rows (${outside.join(', ')})`)
     await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
     const folder = await rowMenu(win, 'Wind\\src')
-    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to...', 'Add files here...', 'Copy folder', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
+    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to…', 'Add files here…', 'Copy folder', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from archive']
     ok(folder.join('|') === wantFolder.join('|'), `a folder inside has its rows (${folder.join(', ')})`)
     ok(!folder.includes('Rename'), 'and no Rename: a folder inside a zip is not renamed')
     const file = await rowMenu(win, 'package.json')
-    const wantFile = ['Open', 'Extract this file', 'Extract this file to...', 'Copy file', 'Rename', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
+    const wantFile = ['Open', 'Extract this file', 'Extract this file to…', 'Copy file', 'Rename', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from archive']
     ok(file.join('|') === wantFile.join('|'), `a file inside has its rows (${file.join(', ')})`)
     ok(!file.some((l) => /^Open (with|in)/.test(l)), 'and no Open with: a temp copy would lose its saves')
     // The empty space's own menu.
@@ -25469,7 +25469,7 @@ async function zipMenusScenario(fixtures) {
     await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
     const empty = await menuLabels(win)
     await win.keyboard.press('Escape')
-    ok(empty.join('|') === ['Extract here', 'Extract to...', 'Add files here...', 'Copy address', 'Show Wind-0.2.2.zip in File Explorer'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
+    ok(empty.join('|') === ['Extract here', 'Extract to…', 'Add files here…', 'Copy address', 'Show Wind-0.2.2.zip in File Explorer'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
     await win.screenshot({ path: join(SHOTS, 'zip-menu.png') })
     // A 7z is read-only: no Add, Rename or Delete anywhere.
     await zipGo(win, join(dir, 'locked.7z'), async () => /locked\.7z/.test((await win.locator('[data-archive-strip]').textContent().catch(() => '')) ?? ''))
@@ -25535,7 +25535,7 @@ async function zipWritesScenario(fixtures) {
     ok(await until(() => !names().some((n) => n.startsWith('Wind/docs/'))), 'deleting a folder takes its subtree')
     // Add files here lands in that folder.
     await zipRow(win, 'Wind\\src').click({ button: 'right' })
-    await win.locator('[role="menuitem"]', { hasText: 'Add files here...' }).click()
+    await win.locator('[role="menuitem"]', { hasText: 'Add files here…' }).click()
     ok(await until(() => names().includes('Wind/src/add-me.txt')), 'Add files here put the file in that folder')
     ok(existsSync(addMe), 'and left the original where it was')
     // A Prism row dragged into the zip: added, its original binned, undoable.

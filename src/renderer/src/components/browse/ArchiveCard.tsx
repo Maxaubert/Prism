@@ -50,7 +50,7 @@ const lastPlace = new Map<string, string>()
 /**
  * THE ARCHIVE CARD (#300, mockup 01): what the preview pane shows for an
  * archive's row outside it, in place of the old panel. Its name and totals,
- * the neutral Open / Extract here / Extract to..., what is inside ("Inside,
+ * the neutral Open / Extract here / Extract to…, what is inside ("Inside,
  * in <the one top folder>" when that is all there is), with Unpacked and
  * Modified at the foot. Drawn from one `archive:summary`, which main answers
  * from the parse it keeps, so selecting a zip is instant.
@@ -411,7 +411,7 @@ export function ArchiveCard({
         </button>
         <button className="browse-place-button" onClick={onExtractTo} data-archive-verb="extract-to">
           <FileMenuIcon name="extract" />
-          Extract to...
+          Extract to…
         </button>
       </div>
       {got?.ok && (
