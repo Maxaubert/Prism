@@ -7,11 +7,12 @@ import {
   type ArchivePanelMenuContext,
   type ArchiveRowMenuContext
 } from './archivePanel'
-import { aliasWindow, clearHost, setHost } from '../../testing/host'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../../testing/host'
 
 aliasWindow()
 
 beforeEach(() => {
+  fakeClipboard()
   setHost({
     capabilities: { write: true, clipboard: true, explorer: true, drag: true },
     showInExplorer: vi.fn()
@@ -173,17 +174,21 @@ const panelCtx = (over: Partial<ArchivePanelMenuContext> = {}): ArchivePanelMenu
   busy: false,
   extractAll: vi.fn(),
   addFiles: vi.fn(),
+  hasRows: true,
+  selectAll: vi.fn(),
   ...over
 })
 
 describe("the archive panel's empty space", () => {
-  it('a writable zip on the desktop: the table order', () => {
+  it('a writable zip on the desktop: the table order, then Copy archive and Select all', () => {
     expect(labels(archivePanelMenu(panelCtx()))).toEqual([
       'Extract here',
       'Extract to…',
       'Add files here…',
       'Copy address',
-      'Show w.zip in File Explorer'
+      'Show w.zip in File Explorer',
+      'Copy archive',
+      'Select all'
     ])
   })
 
@@ -201,12 +206,13 @@ describe("the archive panel's empty space", () => {
 
   it('greys the extract and add verbs while busy', () => {
     const items = archivePanelMenu(panelCtx({ busy: true }))
-    expect(items.map((i) => !!i.disabled)).toEqual([true, true, true, false, false])
+    expect(items.map((i) => !!i.disabled)).toEqual([true, true, true, false, false, false, false])
   })
 
-  it('the phone page', () => {
+  it('the phone page keeps Select all: it has no Ctrl+A', () => {
     expect(labels(archivePanelMenu(panelCtx({ caps: NONE, writable: false })))).toEqual([
-      'Copy address'
+      'Copy address',
+      'Select all'
     ])
   })
 })
