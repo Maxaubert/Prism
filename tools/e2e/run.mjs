@@ -27103,7 +27103,7 @@ async function imageSaveCopyScenario(fixtures) {
       process.env.PRISM_E2E_SAVE_TO = to
     }, p)
   const asked = () => app.evaluate(() => globalThis.__e2eSaveDialog?.defaultPath ?? null)
-  const note = () => win.locator('[data-copy-note]').first().textContent({ timeout: 200 }).catch(() => null)
+  const note = () => win.locator('[data-toast]').first().textContent({ timeout: 200 }).catch(() => null)
   const save = async (format) => {
     await app.evaluate(() => {
       globalThis.__e2eSaveDialog = undefined

@@ -123,6 +123,9 @@ import { zoomBlankMenu } from './menus/zoomMenu'
 import { compactRailPref, onboardedPref, placesPref } from './lib/prefs/layoutPrefs'
 import { JobChip } from './components/JobChip'
 import { landJob, updateJob, updateLanding } from './lib/jobs'
+import { say } from './lib/say'
+import { Toast } from './components/Toast'
+import { SayNotice } from './dialogs/SayNotice'
 import { holdProgress } from './lib/holds'
 import { setFolderIcons, type FolderIconChoice } from './lib/folderIcons'
 import { keptFolderIconFile } from './lib/folderIconFiles'
@@ -1205,13 +1208,7 @@ export default function App(): JSX.Element {
   const [undoState, setUndoState] = useState<UndoState>(emptyUndo)
   // Undo is otherwise invisible when the change is off screen, so it says what
   // it did for a moment. Deliberately not a dialog: nothing to answer.
-  const [undoNote, setUndoNote] = useState<string | null>(null)
-  const noteTimer = useRef<number | null>(null)
-  const flashUndo = useCallback((text: string): void => {
-    setUndoNote(text)
-    if (noteTimer.current) window.clearTimeout(noteTimer.current)
-    noteTimer.current = window.setTimeout(() => setUndoNote(null), 2600)
-  }, [])
+  const flashUndo = useCallback((text: string): void => say(text, { op: 'undo' }), [])
   const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
   /** What a place inside an archive does (#300): its menus, keys and drops. */
   /** The Explorer's list is on screen, so a rename happens in its row (#523). */
@@ -2047,14 +2044,8 @@ export default function App(): JSX.Element {
 
       {/* What undo just did, said quietly and briefly: the change is often
           off screen, and a dialog would be asking a question nobody has. */}
-      {undoNote && (
-        <div
-          role="status"
-          className="pointer-events-none fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
-        >
-          {undoNote}
-        </div>
-      )}
+      <Toast />
+      <SayNotice />
 
       {/* The update window (#168). Mounted once, here: the chip lives in the
           title bar, the window it opens belongs to the whole app. Not during
