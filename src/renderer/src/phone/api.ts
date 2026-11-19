@@ -88,18 +88,6 @@ export function postFireAndForget(
   }).catch(() => undefined)
 }
 
-/** The one route the phone POSTs to besides pairing: moving itself to
- *  another of the PC's open tabs. It writes nothing to disk - what it changes
- *  is which folder THIS phone is looking at. */
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  return answer<T>(
-    await fetch(apiUrl(path), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-  )
-}
 
 /** A refusal carries the PC's own one-line reason where it has one, so the
  *  page can show that rather than a status code. */

@@ -28,6 +28,19 @@ list** over a paid code certificate or a bare checksum.
 Same PR (#534 #20, #21): `SECURITY.md` and private vulnerability reporting, `.github/dependabot.yml`
 (npm weekly, actions monthly, PRs only), a read-only token in ci.yml and ui-gate.yml,
 `persist-credentials: false` on every checkout, and every action pinned to a commit SHA.
+## Dependencies: what ships, and SheetJS from its own CDN (#535, owner, 2026-11-19)
+
+- **Only what main loads is a dependency.** electron-builder packs every `dependencies` package into
+  app.asar, while Vite already bundles the renderer's. CodeMirror, `@lezer/highlight`, hls.js, pdf.js
+  (its side data is copied into `out/renderer/pdf` at build), React, react-markdown, rehype-raw and
+  remark-gfm moved to `devDependencies`, so no second copy ships. What main imports stays:
+  adm-zip, exifr, heic-convert, mammoth, qrcode, rehype-parse/sanitize/stringify, xlsx.
+  `tools/check-packed.mjs` still proves every one is in the asar on every package.
+- **SheetJS 0.20.3 from cdn.sheetjs.com**, pinned by URL with its integrity in the lockfile. The npm
+  `xlsx` (0.18.5) is abandoned and SheetJS ships its fixes only from its own CDN; it parses
+  untrusted spreadsheets on the doc worker.
+- `package.json` says `"license": "SEE LICENSE IN LICENSE"` and `"private": true`: it said MIT,
+  which the proprietary licence (v0.80.0 on) contradicts.
 
 ## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
 

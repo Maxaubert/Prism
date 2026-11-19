@@ -22324,7 +22324,8 @@ async function docArrowsScenario(fixtures) {
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'One')
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows.slice(0, 50)), 'Two')
-  XLSX.writeFile(book, join(dir, 'w.xlsx'))
+  // A buffer, then our own write: SheetJS 0.20's ES build has no fs of its own (#535).
+  writeFileSync(join(dir, 'w.xlsx'), XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }))
   utimesSync(join(dir, 'w.xlsx'), now - 50, now - 50)
   const { app, win } = await launchWith(NO_INDEX, join(dir, 'w.xlsx'))
   const scroller = () => win.evaluate(() => {

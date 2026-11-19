@@ -12,9 +12,8 @@ export const WALL_COLS = 6
 export const WALL_COLS_NARROW = 3
 /** The narrowest a card may be before the wall drops to three across. */
 export const CARD_MIN = 124
-/** Gaps: 20px between rows, 16px between columns; 10px padding round it. */
+/** The gap between columns, and the padding round the wall. */
 export const GAP_X = 16
-export const GAP_Y = 20
 export const WALL_PAD = 10
 
 /** The motion, from the approved mockup (owner, 2026-10-06). */
