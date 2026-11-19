@@ -13,7 +13,8 @@ import { thumbUrl } from './api'
 import { thumbClass } from './thumbClass'
 import { readView, writeView, type PhoneView } from './view'
 import { Places } from './Places'
-import { FolderFill, Icon } from '../components/icons/Icon'
+import { Icon } from '../components/icons/Icon'
+import { EntryIcon } from '../components/icons/EntryIcon'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
  *  same speed costs the PC the same number of walks. KEPT at 180ms rather
@@ -483,7 +484,7 @@ export function Browser({
                 <li key={f.path}>
                   <button className={TILE_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
                     <span className="grid aspect-square w-full place-items-center rounded-md bg-[var(--p-hover)]">
-                      <FolderFill size={40} />
+                      <EntryIcon kind="folder" size={40} />
                     </span>
                     <TileName name={f.name} />
                   </button>
@@ -504,7 +505,7 @@ export function Browser({
               {listing.folders.map((f) => (
                 <li key={f.path}>
                   <button className={ROW_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
-                    <FolderFill size={22} />
+                    <EntryIcon kind="folder" size={22} />
                     <span className="truncate">{f.name}</span>
                   </button>
                 </li>
@@ -517,7 +518,7 @@ export function Browser({
                     data-phone-file
                     data-kind={f.kind}
                   >
-                    <ExtChip ext={f.ext} />
+                    <EntryIcon kind={f.kind} ext={f.ext} name={f.name} size={22} />
                     <span className="min-w-0 flex-1 truncate">{f.name}</span>
                     {/* HOW BIG IT IS (2026-09-08, owner: a 126MB sample clip
                         opened in the belief it was the 8.9GB film, and the row
@@ -587,7 +588,11 @@ function Results({
             data-phone-hit
             data-kind={h.isFolder ? 'folder' : h.kind}
           >
-            {h.isFolder ? <FolderFill size={22} /> : <ExtChip ext={extOf(h.name)} />}
+            {h.isFolder ? (
+              <EntryIcon kind="folder" size={22} />
+            ) : (
+              <EntryIcon kind={h.kind} ext={extOf(h.name)} name={h.name} size={22} />
+            )}
             <span className="min-w-0">
               <span className="block truncate">{h.name}</span>
               {h.dir && <span className="block truncate text-[13px] opacity-60">{h.dir}</span>}
@@ -708,7 +713,7 @@ function Tile({ file }: { file: ViewerFile }): JSX.Element {
           onError={() => setFailed(true)}
         />
       ) : (
-        <span className="text-[13px] font-semibold uppercase tracking-wide opacity-60">{file.ext.slice(1, 5)}</span>
+        <EntryIcon kind={file.kind} ext={file.ext} name={file.name} size={40} ground="var(--p-hover)" />
       )}
       {file.kind === 'video' && (
         <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white" aria-hidden>
@@ -735,17 +740,6 @@ function GridIcon(): JSX.Element {
   )
 }
 
-
-function ExtChip({ ext }: { ext: string }): JSX.Element {
-  return (
-    <span
-      className="w-11 shrink-0 text-center text-[11px] uppercase tracking-wide opacity-60"
-      aria-hidden
-    >
-      {ext.slice(1, 5)}
-    </span>
-  )
-}
 
 /** Three lines. Every phone means the same thing by them, which is the point:
  *  it needs no label to be understood, and the drawer behind it is titled. */

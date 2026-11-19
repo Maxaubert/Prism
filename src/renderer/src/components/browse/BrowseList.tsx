@@ -24,7 +24,7 @@ import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { BusyBar } from './BusyBar'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { EntryIcon } from '../icons/EntryIcon'
 import { FolderGlyph } from '../icons/FolderGlyph'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
@@ -67,7 +67,6 @@ import { GridTile } from './GridTile'
 import { landingTile } from '../../lib/landingGrid'
 import { LandingBar } from './LandingBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
-import { FolderFill } from '../icons/Icon'
 
 const OVERSCAN = 12
 /** How long after the hand's last input (a wheel notch, a sweep's step) a
@@ -1467,14 +1466,7 @@ export function BrowseList(props: Props): JSX.Element {
     const src =
       thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
     const kind = (size: number): JSX.Element => (
-      <KindIcon
-        kind={entry.file!.kind}
-        ext={entry.file!.ext}
-        name={entry.name}
-        color={iconColour(entry.file!.kind)}
-        size={size}
-        bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
-      />
+      <EntryIcon kind={entry.file!.kind} ext={entry.file!.ext} name={entry.name} size={size} selected={selected} />
     )
     if (entry.file && src)
       return (
@@ -1490,7 +1482,7 @@ export function BrowseList(props: Props): JSX.Element {
     let icon: JSX.Element
     if (entry.isFolder) {
       const own = folderIconOf(folderIcons, entry.path)
-      const folder = <FolderFill size={iconSize} color="var(--p-tree-folder)" />
+      const folder = <EntryIcon kind="folder" size={iconSize} />
       icon = own ? (
         <FolderGlyph icon={own} size={iconSize} color="var(--p-tree-folder)" fallback={folder} />
       ) : (
@@ -1780,9 +1772,7 @@ export function BrowseList(props: Props): JSX.Element {
                                 const own = folderIconOf(folderIcons, entry.path)
                                 // At the picture steps (3, 4) a folder is as big as a file's
                                 // icon (owner, 2026-11-10); steps 0 to 2 keep the row icon.
-                                const folder = (
-                                  <FolderIcon color="var(--p-tree-folder)" size={look.thumb ? look.icon : undefined} />
-                                )
+                                const folder = <EntryIcon kind="folder" size={look.thumb ? look.icon : undefined} />
                                 // A picked glyph wears the folder colour (D4).
                                 const glyph = own ? (
                                   <FolderGlyph
@@ -1813,17 +1803,12 @@ export function BrowseList(props: Props): JSX.Element {
                                 // colours; its knockouts are the tint as seen
                                 // (dimmed or not: browse.css sets --sel-seen).
                                 const kind = (size: number): JSX.Element => (
-                                  <KindIcon
+                                  <EntryIcon
                                     kind={entry.file!.kind}
                                     ext={entry.file!.ext}
                                     name={entry.name}
-                                    color={iconColour(entry.file!.kind)}
                                     size={size}
-                                    bg={
-                                      selected
-                                        ? 'var(--sel-seen, var(--p-sel-tint-seen))'
-                                        : 'var(--p-bg)'
-                                    }
+                                    selected={selected}
                                   />
                                 )
                                 if (src)

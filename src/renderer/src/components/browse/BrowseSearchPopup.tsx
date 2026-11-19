@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { EntryIcon, GROUND_SIDE } from '../icons/EntryIcon'
 import { FolderGlyph } from '../icons/FolderGlyph'
 import { NO_MATCHES, plural } from '../../lib/emptyText'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
@@ -173,7 +173,7 @@ export function BrowseSearchPopup(props: {
                 {hit.isFolder ? (
                   (() => {
                     const own = folderIconOf(folderIcons, hit.path)
-                    const folder = <FolderIcon color="var(--p-tree-folder)" />
+                    const folder = <EntryIcon kind="folder" />
                     return own ? (
                       <FolderGlyph icon={own} size={16} color="var(--p-tree-folder)" fallback={folder} />
                     ) : (
@@ -182,13 +182,12 @@ export function BrowseSearchPopup(props: {
                   })()
                 ) : (
                   hit.file && (
-                    <KindIcon
+                    <EntryIcon
                       kind={hit.file.kind}
                       ext={hit.file.ext}
                       name={hit.name}
-                      color={iconColour(hit.file.kind)}
                       size={16}
-                      bg="var(--p-side-flat)"
+                      ground={GROUND_SIDE}
                     />
                   )
                 )}
