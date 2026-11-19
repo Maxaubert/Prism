@@ -5,7 +5,7 @@ import { EXTRACT_WINDOW_ATTR } from '../lib/extractionGuard'
 import { logNote } from '../lib/noteLog'
 import { Modal } from 'prism-term-core/renderer/components/Modal'
 import { LAYER } from 'prism-term-core/renderer/components/layers'
-import { DIALOG_BOX } from './dialogLook'
+import { dialogBox } from 'prism-term-core/renderer/components/dialogLook'
 import { JobCard } from './JobCard'
 
 /**
@@ -60,10 +60,7 @@ import { JobCard } from './JobCard'
 // The sheet's own width and padding (B: 456px, 20px top and bottom, 22px at
 // the sides), on the shared dialog look so the border, ground and shadow
 // cannot drift from every other question box.
-const SHEET_BOX = DIALOG_BOX.replace('max-w-[420px]', 'max-w-[456px]').replace(
-  ' p-5',
-  ' px-[22px] py-5'
-)
+const SHEET_BOX = dialogBox({ width: 456, pad: 'sheet' })
 
 /** One canvas for measuring the file line, made on first use. */
 let measureCtx: CanvasRenderingContext2D | null | undefined

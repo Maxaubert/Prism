@@ -214,7 +214,7 @@ Filesmith's conventions.
   - a line over the whole stage (an error, a score being synthesised): `components/StageNotice.tsx`.
   - a popover's way out (press outside, blur, Escape): `src/renderer/src/hooks/useDismiss.ts`.
   - the modal shell (scrim, box, Escape, Tab, focus): the core's `Modal`; `Dialog`, `PropertiesDialog`,
-    the delete question and `ExtractWindow` (locked) use it (#513). The box look stays in `dialogLook.ts` (with
+    the delete question and `ExtractWindow` (locked) use it (#513). The box and button look is the core's `dialogLook.ts` (#514; with
     `DIALOG_EMPHASIS`, the name inside a question).
   - `clamp`: `src/renderer/src/lib/clamp.ts`.
   - the archive verbs (password retry, add with Keep both and the move's binning, extract,

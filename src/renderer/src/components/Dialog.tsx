@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react'
-import { DIALOG_BODY, DIALOG_BOX, DIALOG_TITLE, dialogButton } from './dialogLook'
+import { DIALOG_BODY, DIALOG_TITLE, dialogBox, dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { Modal } from 'prism-term-core/renderer/components/Modal'
 
 // A small modal for the handful of questions Prism has to ask before touching a
@@ -34,7 +34,7 @@ export function Dialog({
       label={title}
       focusKey={title}
       onCancel={onCancel}
-      boxClassName={wide ? DIALOG_BOX.replace('max-w-[420px]', 'max-w-[520px]') : DIALOG_BOX}
+      boxClassName={dialogBox({ width: wide ? 520 : 420 })}
     >
       <h2 className={DIALOG_TITLE}>{title}</h2>
       {body && <div className={DIALOG_BODY}>{body}</div>}

@@ -3,6 +3,17 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: one dialog button, one box width (owner, 2026-11-19, #514)
+
+Every dialog button, the update window's two, the progress card's and the Properties row's wear dialogButton, now in the
+settings core (packages/term-core/renderer/components/dialogLook.ts, deep import enderer/components/dialogLook). It has a
+disabled state (45 percent, no pointer, no hover; the update window wrote 45 and others 50 or 55), a selected variant
+(--p-sel-bg, the progress card's Open) next to primary (--p-accent), and a compact size for a control inside a row. No
+button has a focus ring (#272): the update window's had one, and loses it. The box takes its size as dialogBox({ width, pad })
+(420, 456, 520 or 580 px; normal, sheet or roomy padding); DIALOG_BOX is the default. Nothing patches a class string with
+.replace() any more. A stop control says "Cancel": the checksum row's "Stop" and the search bar's "Cancel search" now read
+"Cancel" (the progress cards already did). A close-only dialog says "Close". Held by the core's dialogLook.test.ts and
+components/dialogButtons.test.ts.
 ## Shared shell: one Modal, one scrim (owner, 2026-11-19, #513)
 
 Every dialog is the settings core's `Modal` (`packages/term-core/renderer/components/Modal.tsx`); Prism's own Modal is deleted.

@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react'
-import { DIALOG_EMPHASIS } from './dialogLook'
+import { DIALOG_EMPHASIS } from 'prism-term-core/renderer/components/dialogLook'
 
 /**
  * A file or folder name inside a question (#500, the review's DialogName
