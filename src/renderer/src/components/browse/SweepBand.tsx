@@ -1,4 +1,5 @@
 import type { CSSProperties, JSX } from 'react'
+import { SWEEP_BAND_LOOK } from './sweepLook'
 
 /**
  * The sweep rectangle (#257): the Selection colour (the accent while none is
@@ -22,16 +23,7 @@ export function SweepBand({
   bandRef: (el: HTMLElement | null) => void
   as?: 'li' | 'div'
 }): JSX.Element {
-  const style: CSSProperties = {
-    display: 'none',
-    background: 'color-mix(in srgb, var(--p-sel-hue) 16%, transparent)',
-    // The edge is the hue pulled toward the text colour: a pure accent edge
-    // vanished into the rows it crossed when a mark was a solid accent fill
-    // (MEASURED in the first screenshot, #257), and it still has to stand
-    // apart from the marked rows' own edges, which are the same hue.
-    border: '1px solid color-mix(in srgb, var(--p-sel-hue-hi) 45%, var(--p-text))',
-    borderRadius: 2
-  }
+  const style: CSSProperties = { display: 'none', ...SWEEP_BAND_LOOK }
   const Tag = as
   return (
     <Tag

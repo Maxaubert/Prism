@@ -3,6 +3,29 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the zip panel wears the Explorer's header and band (owner, 2026-11-19, #519)
+
+- **The issue's premise is half stale.** On the desktop a zip already runs on `BrowseList` in archive mode (#300,
+  `props.archive`): it sorts, zooms and selects like any folder, and there is no "zip tab" panel. The old panel
+  (`ArchiveView`) is the PHONE's alone (and a nested archive opened from it), and the phone page has no browse IPC,
+  no native sweep box and no thumbnails, so `BrowseList` cannot be mounted there. The panel stays, and takes the
+  parts of the Explorer that can be shared.
+- **Its header sorts.** `archive/ArchiveHeader.tsx`: Name, Type, Size, Packed and Modified are buttons with the
+  Explorer's keys, first click ascending, second click turns it round (`nextSort`), and the Explorer's fading arrow on
+  every column. Order is `lib/archiveSort.ts`: folders first in either direction, then the column, then the natural
+  name. The default is Name ascending, what it showed before.
+- **Its drag-select band is the Explorer's:** one `SWEEP_BAND_LOOK` (`browse/sweepLook.ts`) feeds `SweepBand` and the
+  panel's band (fill 16 %, light edge, 2 px corners; it was 22 % with a 3 px corner). The panel keeps its own pointer
+  code: the native Windows 11 box needs main, which the phone page does not have.
+- **Kept on purpose:** the verb row, the crumbs, the item count a folder row shows in Size ("3 items", "empty"; the
+  Explorer shows no size for a zip folder), the lock badge, the Packed percentage, every key and both menus.
+  The panel's inactive dim already follows the one selection look (#524). Zoom, thumbnails and the cut dim do not
+  apply: the phone has no zoom steps, a member has no thumbnail and nothing is cut inside a zip.
+- **The phone's own folder list (`phone/Browser.tsx`) has no sort and no date column, on purpose** (review item 25,
+  recorded as a choice, not built): a phone list is touch-sized, the PC already sorts what it serves (name order,
+  folders first), and the listing the phone gets fills no modified time (phone/browse.ts sets mtimeMs: 0). A sort or a date column there
+  is a new feature; ask first.
+- Held by `lib/archiveSort.test.ts` and `components/archiveTabParity.test.ts`.
 ## Shared behaviour: one say() for every notice (owner, 2026-11-19, #517)
 
 - **`say(text, { op, level, kind })` (`lib/say.ts`) is the one way to tell the user** a thing finished or failed. It
