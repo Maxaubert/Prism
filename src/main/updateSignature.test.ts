@@ -131,6 +131,26 @@ describe('installUpdate checks the signature before it runs anything', () => {
     expect(r.asked).toEqual([URL_, `${URL_}.sig`])
   })
 
+  it('never goes backwards: an older genuine installer, signed, runs nothing and is not even fetched', async () => {
+    const old = 'https://github.com/Maxaubert/Prism/releases/download/v0.5.0/Prism-Setup-x64-0.5.0.exe'
+    const moved = 'https://github.com/Maxaubert/Prism/releases/download/v1.0.0/Prism-Setup-x64-9.9.9.exe'
+    for (const url of [old, moved]) {
+      vi.resetModules()
+      const spawn = vi.fn(() => ({ unref: vi.fn() }))
+      vi.doMock('node:child_process', () => ({ spawn }))
+      vi.doMock('electron', () => ({ app: { getVersion: () => '0.7.0', isPackaged: false, quit: vi.fn() } }))
+      const fetch = vi.fn()
+      vi.stubGlobal('fetch', fetch)
+      const { installUpdate } = await import('./update')
+      expect(await installUpdate(url, () => {})).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+      expect(spawn).not.toHaveBeenCalled()
+      vi.doUnmock('node:child_process')
+      vi.doUnmock('electron')
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('no signature, or one for another version, runs nothing', async () => {
     for (const sigFor of [
       () => null,
