@@ -8,7 +8,7 @@ describe('the zip card menu (#483)', () => {
     expect(labels(archiveCardMenuRows({ kind: 'file', zip: 'W-13.zip' }))).toEqual([
       'Open',
       'Extract this file',
-      'Extract this file to...',
+      'Extract this file to…',
       'Copy file'
     ])
   })
@@ -16,7 +16,7 @@ describe('the zip card menu (#483)', () => {
     expect(labels(archiveCardMenuRows({ kind: 'folder', zip: 'W-13.zip' }))).toEqual([
       'Open',
       'Extract this folder',
-      'Extract this folder to...',
+      'Extract this folder to…',
       'Copy folder'
     ])
   })
@@ -24,7 +24,7 @@ describe('the zip card menu (#483)', () => {
     expect(labels(archiveCardMenuRows({ kind: 'many', count: 2, zip: 'W-13.zip' }))).toEqual([
       'Copy 2 items',
       'Extract 2 items here',
-      'Extract 2 items to...'
+      'Extract 2 items to…'
     ])
   })
   it('never leaves the card or changes the zip', () => {

@@ -3,6 +3,22 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared menu: the archive menus use one row table (owner, 2026-11-19, #518)
+
+- **One table, `menus/archiveMenus.ts`,** gives the rows, words and order of every right-click menu of an
+  archive: the Explorer's, the zip card's and the panel of an opened archive (`viewers/archivePanel.tsx`, the
+  phone's and a nested zip's). The panel only maps a row id to what it does; a row it has no handler for, or the
+  host cannot do, is left out. The owner's 2026-10-12 order (clipboard rows together, Show in File Explorer and
+  Properties near the end, Delete last) is now the panel's too.
+- **The ellipsis is the single character "…"** in every archive menu row and in the Extract to… buttons of the
+  archive strip and the zip card (it was "..." in some, "…" in others).
+- **"Delete from archive"**, not "from zip": the verb applies to a 7z or any other kind. Several marked rows say
+  "Delete N items from archive", and a count of one says "1 item".
+- **What the panel lost, on purpose:** "Select all" (Ctrl+A still does it), "Copy archive" and the "Copy N files
+  inside" and "Delete N files" counts (a folder's Delete now says "Delete from archive" and removes the files
+  inside). **What it gained:** Extract here and Extract to… on several marked rows.
+- Held by menus/archiveMenus.test.ts (the words) and menus/viewers/archivePanel.test.ts (the panel is the
+  table's rows, in its order); e2e `tools/e2e/run.mjs` compares the Explorer's menus against the same words.
 ## Shared dialog: one name clash question (owner, 2026-11-19, #515)
 
 - **One ClashDialog** asks every "that name is taken": a move, a paste, a Restore from the bin, a rename and

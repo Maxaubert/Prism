@@ -1012,14 +1012,12 @@ function ArchiveInner({
           onClose={() => setPanelMenu(null)}
           items={archivePanelMenu({
             archivePath: file.path,
+            zip: file.name,
             caps,
             writable,
             busy: busy !== null,
-            hasRows: rows.length > 0,
             extractAll,
-            addFiles,
-            selectAll: () =>
-              setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
+            addFiles
           })}
         />
       )}
@@ -1033,6 +1031,7 @@ function ArchiveInner({
             multi: menu.multi,
             caps,
             writable,
+            zip: file.name,
             membersUnder: under,
             filesOf,
             setCwd,

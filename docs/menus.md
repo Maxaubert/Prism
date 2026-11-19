@@ -76,7 +76,7 @@ File Explorer may move under a "More" flyout or go.
 | Markdown | `viewers/markdown.tsx` `markdownMenu` | `MarkdownView.tsx` |
 | Office documents and ebooks | `viewers/doc.tsx` `docMenu` | `DocView.tsx` |
 | Code and text (editable and read-only) | `viewers/code.tsx` `codeMenu` | `CodeView.tsx` |
-| The old zip panel (phone only since #300): a member, several, empty space | `viewers/archivePanel.tsx` `archiveRowMenu`, `archivePanelMenu` | `ArchiveView.tsx` |
+| The old zip panel (phone only since #300): a member, several, empty space | `viewers/archivePanel.tsx` `archiveRowMenu`, `archivePanelMenu` (the same `archiveMenuRows` table, row ids mapped to handlers, #518) | `ArchiveView.tsx` |
 
 ## Menus that are not `ContextMenu`
 
