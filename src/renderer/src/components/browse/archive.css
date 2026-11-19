@@ -269,35 +269,10 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 26px;
 }
-.archive-card-row:hover,
-.archive-card-row:focus-visible {
+.archive-card-row:not([data-selected]):hover,
+.archive-card-row:not([data-selected]):focus-visible {
   background-color: var(--p-hover);
   outline: none;
-}
-.archive-card-row[data-selected],
-.archive-card-row[data-selected]:hover {
-  --sel-top: inset 0 1px 0 var(--p-sel-line);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
-  background-color: var(--p-sel-tint);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line),
-    inset -1px 0 0 var(--p-sel-line),
-    var(--sel-top),
-    var(--sel-bottom);
-}
-/* NOT IN USE (#483; owner, 2026-11-06: "it should dim, still highlighted but
-   dimmed"): once the user acts anywhere else, the picked rows wear the list's
-   inactive selection (browse.css, #296), the dimmed tint and its edge. */
-.archive-card-rows[data-inactive] .archive-card-row[data-selected],
-.archive-card-rows[data-inactive] .archive-card-row[data-selected]:hover {
-  --sel-top: inset 0 1px 0 var(--p-sel-line-dim);
-  --sel-bottom: inset 0 -1px 0 var(--p-sel-line-dim);
-  background-color: var(--p-sel-tint-dim);
-  box-shadow:
-    inset 1px 0 0 var(--p-sel-line-dim),
-    inset -1px 0 0 var(--p-sel-line-dim),
-    var(--sel-top),
-    var(--sel-bottom);
 }
 /* A drop onto the card (#483): the place it lands wears the list's drop
    hover (browse.css), a folder row or the rows' box. */
@@ -305,16 +280,6 @@
 .archive-card-row[data-drag-over] {
   background: var(--p-hover-hi);
   box-shadow: none;
-}
-.archive-card-row[data-selected][data-join-up] {
-  --sel-top: 0 0 0 transparent;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-.archive-card-row[data-selected][data-join-down] {
-  --sel-bottom: 0 0 0 transparent;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
 }
 .archive-card-more {
   padding: 6px 8px;

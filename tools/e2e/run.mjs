@@ -50,6 +50,8 @@ const SHOTS = join(ROOT, '.e2e', 'shots')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let failures = 0
+// The edges a marked row draws: a joined side is a transparent shadow now (selection.css, #524).
+const drawnEdges = (shadow) => (shadow.match(/rgba?\([^)]*\)[^,]*inset/g) ?? []).filter((s) => !/^rgba\(0, 0, 0, 0\)/.test(s)).length
 
 /** An Explorer tab as tabs.json stores it, on `path` under `root`, with
  *  `history` walked to its end. */
@@ -10501,7 +10503,7 @@ async function markTintScenario(fixtures) {
       return { first: r(1)?.hasAttribute('data-join-down'), second: r(2)?.hasAttribute('data-join-up'), shadow: r(2) ? getComputedStyle(r(2)).boxShadow : '' }
     })
     ok(join2.first && join2.second, 'two marked neighbours join into one block')
-    ok((join2.shadow.match(/inset/g) ?? []).length === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
+    ok(drawnEdges(join2.shadow) === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
 
     /* ---------- the Explorer, light ---------- */
@@ -10602,7 +10604,7 @@ async function markTintScenario(fixtures) {
     const a = alphaOf(arc.bg)
     ok(a >= 0.18 && a <= 0.25, `a marked row in a zip is the same light tint (${arc.bg})`)
     ok(arc.names[0] === arc.names[1], `and keeps the plain row's name colour (${arc.names.join(' / ')})`)
-    ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
+    ok(drawnEdges(arc.joined) === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
     await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
   } finally {
     await kept.restore(z.win)

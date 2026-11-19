@@ -3,6 +3,14 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the selection (owner, 2026-11-19, #524)
+
+A marked row or tile has one look, one CSS file: `assets/selection.css`, on `[data-selected]`. The Explorer's list
+and grid, the archive card and the zip tab all use it; `lib/markedLook.ts` and the three copies in `browse.css`,
+`archive.css` and `grid.css` are gone. The tint and its faint edge are the same as before. A run of marked rows is one
+block (`data-join-up` / `data-join-down`). The marks DIM under a parent `[data-inactive]` and on a cut row: the
+Explorer sets it while the user acts in the sidebar, the archive card while the keys are elsewhere, and now the zip
+tab too (its marks stayed bright when focus left the list). Held by `components/selectionLook.test.ts`.
 ## Shared text: file names in dialogs (owner, 2026-11-19, #512)
 
 A file name in a question is drawn one way. In a body it is a `DialogName` (`components/DialogName.tsx`): the
@@ -2583,7 +2591,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
   where a name would fall under 4.5:1 or a quiet column under 3.2:1) with a faint
-  `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
+  `--p-sel-line` edge round the BLOCK (`assets/selection.css`, `data-join-up/down`), and keep
   their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
   chosen card uses `--p-accent-solid`, which does not move with the accent's alpha; the
   Settings rail's chosen page is a GREY fill since #292 (`--p-sel-solid` went with it). Quick access's current place wears the tint too. `theme.selection.test.ts`,

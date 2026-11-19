@@ -541,6 +541,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       // Where the user last acted (useActiveArea): the side not acted in
       // draws its mark dimmed, File Explorer's inactive selection.
       data-active-area={area}
+      data-inactive={area === 'places' || undefined}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
         const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
