@@ -3,6 +3,16 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: the player menu wears the context menu's panel and rows (owner, 2026-11-19, #522)
+
+- **One popup look, components/menuLook.ts** (MENU_PANEL, MENU_ROW, MENU_ROW_INK): the right-click menu's
+  radius 2, 28 px rows, 12 px type and a divider above every row. The player's cog menu used radius 6, 30 px rows,
+  12.5 px type and no dividers; it now takes the same classes. Its group rule is gone: the rows carry the dividers.
+  The drill-down stays (the phone needs it), and phone.css still turns the panel into a bottom sheet.
+- **Keyboard in the cog menu:** it had no arrow keys, and a pick or a back row dropped the focus on the page when its
+  row unmounted. Up and Down now walk the rows (wrapping, like the right-click menu) and the new level's first row
+  takes the focus.
+- Held by components/menuLook.test.ts.
 ## Shared look: one EntryIcon for folders and files (owner, 2026-11-19, #521)
 
 - **`components/icons/EntryIcon.tsx` draws the icon of every folder and file row** (kind, size, selected,

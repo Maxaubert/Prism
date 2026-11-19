@@ -82,6 +82,7 @@ File Explorer may move under a "More" flyout or go.
 
 - **The player cog** (video and audio settings): `components/PlayerMenu.tsx`, its own popover.
   Its speed, audio track and subtitle pickers duplicate the video right-click menu's.
+  It wears the same panel and row classes (components/menuLook.ts, #522) and keeps its drill-down.
 - **Windows File Explorer's own menu** ("Open file", "Open in Prism" on folders): registry verbs in
   `src/main/shellVerb.ts`, held by `shellVerb.test.ts`.
 - Electron's default menus are off (`Menu.setApplicationMenu(null)`); text inputs have no
