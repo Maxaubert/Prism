@@ -24877,8 +24877,8 @@ async function folderIconFileScenario(fixtures) {
     ok(await until(async () => (await notice().count()) === 1, 8000), 'a text file brings up a notice')
     const said = await notice().textContent()
     ok(said?.includes("That file isn't a picture Prism can use."), `it says why (${said})`)
-    await notice().getByRole('button', { name: 'OK', exact: true }).click()
-    ok(await until(async () => (await notice().count()) === 0, 3000), 'OK closes it')
+    await notice().getByRole('button', { name: 'Close', exact: true }).click()
+    ok(await until(async () => (await notice().count()) === 0, 3000), 'Close closes it')
     ok((await pictureOf('other').getAttribute('src')) === svgSrc, 'and the folder keeps its picture')
     ok(Object.keys(await stored()).length === 2, 'nothing else changed')
 
@@ -24891,7 +24891,7 @@ async function folderIconFileScenario(fixtures) {
       if (!done) return 'nothing happened'
       if ((await notice().count()) === 0) return null
       const text = await notice().textContent()
-      await notice().getByRole('button', { name: 'OK', exact: true }).click()
+      await notice().getByRole('button', { name: 'Close', exact: true }).click()
       await until(async () => (await notice().count()) === 0, 3000)
       return text ?? ''
     }

@@ -1,5 +1,5 @@
 import { useEffect, type JSX } from 'react'
-import { Dialog } from '../components/Dialog'
+import { closeOnly, Dialog } from '../components/Dialog'
 import { logNote } from '../lib/noteLog'
 
 /** The notice's text, which says itself to the diagnostics log as it is
@@ -12,19 +12,17 @@ function LoggedNote({ text, op, title }: { text: string; op?: string; title: str
   return <>{text}</>
 }
 
-/** Something that did not work, said once, with one button that closes it:
+/** Something that did not work, said once, with one Close button (#520):
  *  App's "That didn't work", the tree's paste and add-to-archive failures and
  *  the archive panel's notes. `op` names the operation for the log. */
 export function NoticeDialog({
   title,
   message,
-  button = 'OK',
   op,
   onClose
 }: {
   title: string
   message: string
-  button?: 'OK' | 'Close'
   op?: string
   onClose: () => void
 }): JSX.Element {
@@ -33,7 +31,7 @@ export function NoticeDialog({
       title={title}
       body={<LoggedNote text={message} op={op} title={title} />}
       onCancel={onClose}
-      choices={[{ label: button, primary: true, onPick: onClose }]}
+      choices={closeOnly(onClose)}
     />
   )
 }

@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import { Dialog } from '../components/Dialog'
+import { closeOnly, Dialog } from '../components/Dialog'
+import { Facts } from '../components/properties/parts'
 
 /** A zip member's facts (Properties on a row inside an archive). */
 export function ArchiveFactsDialog({
@@ -14,18 +15,10 @@ export function ArchiveFactsDialog({
   return (
     <Dialog
       title={name}
-      body={
-        <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1">
-          {lines.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-[var(--p-dim)]">{k}</dt>
-              <dd>{v}</dd>
-            </div>
-          ))}
-        </dl>
-      }
+      // The same list as the file's Properties window (#520).
+      body={<Facts className="" rows={lines.map(([label, value]) => ({ label, value }))} />}
       onCancel={onClose}
-      choices={[{ label: 'OK', primary: true, onPick: onClose }]}
+      choices={closeOnly(onClose)}
     />
   )
 }

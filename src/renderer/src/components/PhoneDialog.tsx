@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneState } from '@shared/types'
 import { Switch } from 'prism-term-core/renderer/settings/fields'
 import { formatWhen } from '../lib/format'
-import { Dialog } from './Dialog'
+import { closeOnly, Dialog } from './Dialog'
 
 /**
  * More > Phone (2026-09-06, #104, Tools > Phone until #272): the one home of "Prism on your phone".
@@ -143,7 +143,7 @@ export function PhoneDialog({
     <Dialog
       title="Prism on your phone"
       body={body}
-      choices={[{ label: 'Close', onPick: onClose, primary: true }]}
+      choices={closeOnly(onClose)}
       onCancel={onClose}
     />
   )

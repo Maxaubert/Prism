@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { clipboardText } from '../../lib/clipboardText'
+import { closeOnly, DialogFooter } from '../Dialog'
 import { dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { CheckGlyph, CopyGlyph } from '../icons/propertyGlyphs'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
@@ -171,19 +172,10 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
 }
 
 /** Close on the right, as the only button but on a drive (spec: "Close is
- *  the only button, except on a drive"). */
-export function Footer({ onClose, left, extra }: { onClose: () => void; left?: ReactNode; extra?: ReactNode }): JSX.Element {
-  return (
-    <div className="mt-[18px] flex items-center justify-end gap-2">
-      {left && <div className="mr-auto flex gap-2">{left}</div>}
-      {extra}
-      <button type="button" data-primary="true" onClick={onClose} className={dialogButton({ primary: true })}>
-        Close
-      </button>
-    </div>
-  )
+ *  the only button, except on a drive"). The one footer of every dialog (#520). */
+export function Footer({ onClose, left }: { onClose: () => void; left?: ReactNode }): JSX.Element {
+  return <DialogFooter choices={closeOnly(onClose)} left={left} />
 }
-
 /** A quiet button for the footer (Open, Disk Cleanup). */
 export function FooterButton({ label, onClick, quiet }: { label: string; onClick: () => void; quiet?: boolean }): JSX.Element {
   return (

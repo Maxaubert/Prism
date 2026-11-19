@@ -1,8 +1,7 @@
 import type { JSX } from 'react'
 import type { FileKind } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
-import { dialogBox } from 'prism-term-core/renderer/components/dialogLook'
-import { Modal } from 'prism-term-core/renderer/components/Modal'
+import { Dialog } from '../Dialog'
 import { AudioBody } from './AudioBody'
 import type { BodyProps } from './bodyProps'
 import { DriveBody } from './DriveBody'
@@ -17,9 +16,9 @@ import { VideoBody } from './VideoBody'
  * pop up window a bit nicer looking", picked through three rounds of
  * mockups; spec `docs/superpowers/specs/2026-10-12-properties-window-design.md`).
  *
- * One frame for all: Prism's dialog box, which a click outside or Escape
+ * One frame for all: Prism's Dialog (#520), which a click outside or Escape
  * closes, holding the body for the kind. Each body draws its own header and
- * footer, and Close is the only button but on a drive.
+ * the shared footer, and Close is the only button but on a drive.
  */
 export function PropertiesDialog({
   root,
@@ -48,25 +47,27 @@ export function PropertiesDialog({
 
   return (
     // Close is focused, so Enter and Escape both close without the mouse.
-    <Modal
+    <Dialog
       label={drive ? `Properties of ${path}` : `Properties of ${name}`}
       focusKey={path}
       onCancel={onClose}
       boxAttrs={{ 'data-props-window': '' }}
-      // A tall body (a film with many tracks) scrolls inside the box rather
-      // than past the window's edge.
       // A drive's box is wider (owner, 2026-11-18: "a bit wider and bigger to
       // give things more room"): the ring and its legend side by side.
-      boxClassName={`${dialogBox(drive ? { width: 580, pad: 'roomy' } : {})} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
-    >
-      {drive ? (
-        <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />
-      ) : isFolder ? (
-        <FolderBody key={path} {...body} />
-      ) : (
-        <FileBody key={path} {...body} />
-      )}
-    </Modal>
+      box={drive ? { width: 580, pad: 'roomy' } : {}}
+      // A tall body (a film with many tracks) scrolls inside the box rather
+      // than past the window's edge.
+      boxClassName="max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]"
+      body={
+        drive ? (
+          <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />
+        ) : isFolder ? (
+          <FolderBody key={path} {...body} />
+        ) : (
+          <FileBody key={path} {...body} />
+        )
+      }
+    />
   )
 }
 
