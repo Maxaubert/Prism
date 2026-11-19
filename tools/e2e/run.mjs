@@ -600,11 +600,11 @@ async function pdfScenario(fixtures) {
       { timeout: 10000 }
     )
     const counter = await win.textContent('[data-owns-escape] span')
-    ok(counter?.trim() === '1 / 5', `find counts five matches (got "${counter?.trim()}")`)
+    ok(counter?.trim() === '1 of 5', `find counts five matches (got "${counter?.trim()}")`)
     await win.keyboard.press('Enter')
-    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '2 / 5', 'Enter steps to 2 / 5')
+    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '2 of 5', 'Enter steps to 2 of 5')
     await win.keyboard.press('Shift+Enter')
-    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '1 / 5', 'Shift+Enter steps back')
+    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '1 of 5', 'Shift+Enter steps back')
     await win.screenshot({ path: join(SHOTS, 'pdf-find.png') })
 
     await win.keyboard.press('Escape')
