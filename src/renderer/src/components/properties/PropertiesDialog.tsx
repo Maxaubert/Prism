@@ -2,7 +2,7 @@ import type { JSX } from 'react'
 import type { FileKind } from '@shared/types'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { DIALOG_BOX } from '../dialogLook'
-import { Modal } from '../Modal'
+import { Modal } from 'prism-term-core/renderer/components/Modal'
 import { AudioBody } from './AudioBody'
 import type { BodyProps } from './bodyProps'
 import { DriveBody } from './DriveBody'
@@ -52,12 +52,12 @@ export function PropertiesDialog({
       label={drive ? `Properties of ${path}` : `Properties of ${name}`}
       focusKey={path}
       onCancel={onClose}
-      attrs={{ 'data-props-window': '' }}
+      boxAttrs={{ 'data-props-window': '' }}
       // A tall body (a film with many tracks) scrolls inside the box rather
       // than past the window's edge.
       // A drive's box is wider (owner, 2026-11-18: "a bit wider and bigger to
       // give things more room"): the ring and its legend side by side.
-      className={`${drive ? DIALOG_BOX.replace('max-w-[420px]', 'max-w-[580px]').replace(' p-5 ', ' p-7 ') : DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
+      boxClassName={`${drive ? DIALOG_BOX.replace('max-w-[420px]', 'max-w-[580px]').replace(' p-5 ', ' p-7 ') : DIALOG_BOX} max-h-full overflow-y-auto text-[12.5px] text-[var(--p-text)]`}
     >
       {drive ? (
         <DriveBody key={path} drive={drive} onOpenFolder={onOpenFolder} onClose={onClose} />

@@ -12,7 +12,7 @@
   justify-content: center;
   align-items: flex-start;
   padding: max(48px, calc(50vh - 230px)) 24px 24px;
-  background: rgb(0 0 0 / 0.35);
+  background: var(--p-scrim);
   backdrop-filter: blur(6px);
   -webkit-app-region: no-drag;
   font-family: 'Segoe UI', sans-serif;

@@ -3,6 +3,17 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared shell: one Modal, one scrim (owner, 2026-11-19, #513)
+
+Every dialog is the settings core's `Modal` (`packages/term-core/renderer/components/Modal.tsx`); Prism's own Modal is deleted.
+So Tab now stays inside every question (it could leave Prism's and land in the list behind), and the focus goes back to where
+it was when the dialog closes. `Dialog`, `PropertiesDialog` and the delete question pass `DIALOG_BOX` as `boxClassName`.
+The extraction window is the same Modal, `locked` (Escape, a press outside, a menu and a dropped file do nothing), on
+`LAYER.busy` (`z-[90]`, in `layers.ts`, no string replace). There is ONE scrim: `SCRIM` in `layers.ts`, tinted by
+`--p-scrim` (50 percent black, `index.css`) and blurred 2px. Dialogs were 55 percent and no blur; the search popup
+takes the same `--p-scrim` tint and keeps its own 6px blur. Held by `components/modalShell.test.ts` and the core's
+`Modal.test.ts`.
+
 ## Shared view: the place strip (owner, 2026-11-19, #524)
 
 The zip's strip and the Recycle Bin's strip above the column header are one shell, `components/browse/PlaceStrip.tsx`:

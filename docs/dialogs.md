@@ -13,8 +13,8 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
   reads a dialog's props for that (`specOf`, `labels`, `pick`).
 - **A new question gets a new file here**, never an inline `<Dialog>` in a component, and a line
   in the table below.
-- The shell is `components/Dialog.tsx` over `components/Modal.tsx` (scrim, Escape and a press
-  outside cancel, focus on the primary button); the look is `components/dialogLook.ts`. The
+- The shell is `components/Dialog.tsx` over the core's `Modal` (`packages/term-core/renderer/components/Modal.tsx`:
+  scrim, Escape and a press outside cancel, Tab stays inside, focus on the primary button and back on close, #513); the look is `components/dialogLook.ts`. The
   buttons read safe first: Cancel, then the act.
 - **App holds one question at a time**: the `Ask` union in `dialogs/asks.ts`, drawn by
   `dialogs/AskDialogs.tsx` from App's answers (`AskAnswers`). It draws in two layers, `under` and
