@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { Dialog } from '../components/Dialog'
-import { DIALOG_EMPHASIS } from '../components/dialogLook'
+import { DialogName } from '../components/DialogName'
 
 /**
  * "Unsaved changes": the one question asked before something strands typed
@@ -29,7 +29,7 @@ export function UnsavedDialog({
       title={names.length > 1 ? `${names.length} files have unsaved changes` : 'Unsaved changes'}
       body={
         <>
-          <span className={DIALOG_EMPHASIS}>{names.join(', ') || 'This file'}</span>
+          <DialogName>{names.join(', ') || 'This file'}</DialogName>
           {names.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
           {consequence}
         </>

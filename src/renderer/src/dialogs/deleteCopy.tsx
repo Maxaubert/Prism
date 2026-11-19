@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { BinDriveUsage } from '@shared/ipcTypes'
 import { DialogName } from '../components/DialogName'
+import { nameOrCount } from './dialogName'
 import { plural } from '../lib/emptyText'
 import { formatBytes } from '../lib/format'
 import { folderSizePartial, type FolderSizes } from '../lib/folderSize'
@@ -30,7 +31,7 @@ export function sizeText(size: DeleteSize | undefined): string {
 
 /** "Delete a.txt?", "Delete 12 items?", and the same with "permanently". */
 export function deleteTitle(names: readonly string[], count: number, permanent: boolean): string {
-  const what = count === 1 && names.length ? names[0] : plural(count, 'item')
+  const what = nameOrCount(names, count, 'item')
   return `Delete ${what}${permanent ? ' permanently' : ''}?`
 }
 

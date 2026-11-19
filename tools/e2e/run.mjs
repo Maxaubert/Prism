@@ -29451,7 +29451,7 @@ async function binClashScenario(fixtures) {
     // ONE CLASH: the question names the item; Cancel changes nothing.
     await binRowOf(win, 'c.txt').click()
     await binVerb(win, 'restore').click()
-    ok(await binDialogUp(win, /"c\.txt" is already there/), `the move question names the item (${await binDialogText(win)})`)
+    ok(await binDialogUp(win, /c\.txt is already there/), `the move question names the item (${await binDialogText(win)})`)
     const buttons = await binDialog(win).locator('button').allTextContents()
     ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Keep both', 'Replace']), `with Cancel, Keep both, Replace (${JSON.stringify(buttons)})`)
     await win.screenshot({ path: join(SHOTS, 'bin-clash.png') })
@@ -29464,7 +29464,7 @@ async function binClashScenario(fixtures) {
 
     // KEEP BOTH: name (2).
     await binVerb(win, 'restore').click()
-    ok(await binDialogUp(win, /"c\.txt" is already there/), 'asked again')
+    ok(await binDialogUp(win, /c\.txt is already there/), 'asked again')
     await binAnswer(win, 'Keep both')
     ok(await until(() => existsSync(join(orig, 'c (2).txt')), 8000, 100), 'Keep both lands it as c (2).txt')
     ok(readFileSync(join(orig, 'c (2).txt'), 'utf8') === 'binned c' && readFileSync(join(orig, 'c.txt'), 'utf8') === 'existing c', 'both files keep their contents')

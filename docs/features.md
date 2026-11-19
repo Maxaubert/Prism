@@ -3,6 +3,15 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared text: file names in dialogs (owner, 2026-11-19, #512)
+
+A file name in a question is drawn one way. In a body it is a `DialogName` (`components/DialogName.tsx`): the
+theme's own text colour (`--p-text`, so it reads on a light theme), a step brighter than the line around it.
+In a title, in a notice message and in any plain string it is plain text. No dialog puts a name in quotes: the
+quotes in the move, archive clash, password, archive error and notice wording are gone, and the password,
+name-taken, unsaved and file-changed bodies use `DialogName`. `dialogs/dialogName.ts` holds the title helper
+`nameOrCount` (the name for one item, "N items" for more; the delete title uses it). Held by
+`dialogs/dialogName.test.ts`, which also fails if a dialog source writes a name between quotes.
 ## Shared text: counts, plurals and empty lists (owner, 2026-11-19, #509)
 
 One module, `lib/emptyText.ts`, words every count and every empty list. Before it, the Recycle Bin strip said

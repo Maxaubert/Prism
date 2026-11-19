@@ -6,7 +6,7 @@ describe('ArchiveClashDialog', () => {
   it('says nothing is written yet and offers Keep both', () => {
     const onKeepBoth = vi.fn()
     const s = specOf(ArchiveClashDialog({ names: ['a.txt'], onCancel: () => {}, onKeepBoth }))
-    expect(s.title).toBe('"a.txt" is already in the archive')
+    expect(s.title).toBe('a.txt is already in the archive')
     expect(s.text).toBe('Keep both adds them beside what is there. Nothing has been written yet.')
     expect(labels(s)).toEqual(['Cancel', 'Keep both'])
     expect(pick(s, 'Keep both').primary).toBe(true)
