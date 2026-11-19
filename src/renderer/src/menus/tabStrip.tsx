@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { recentLabels } from '@renderer/lib/recentRoots'
 import type { MenuItem } from '../components/ContextMenu'
 import { FolderFill } from '../components/icons/Icon'
+import { fileVerbs } from './fileVerbs'
 
 /**
  * THE TAB STRIP'S TWO MENUS (`components/TabStrip.tsx`): a tab's own menu,
@@ -29,18 +30,10 @@ export function tabContextMenu(ctx: TabMenuContext): MenuItem[] {
     // Settings is a tab with no folder. Offering these there did
     // nothing for one of them and wrote an EMPTY STRING over the
     // clipboard for the other, which is worse than doing nothing.
-    ...(root
-      ? [
-          {
-            label: 'Copy folder path',
-            onPick: () => void navigator.clipboard.writeText(root)
-          },
-          {
-            label: 'Show folder in File Explorer',
-            onPick: () => window.prism.showInExplorer(root)
-          }
-        ]
-      : []),
+    // The shared rows and their one label (#511): fileVerbs copies where
+    // navigator.clipboard is missing, the phone page's plain http.
+    ...(root ? fileVerbs(root) : []),
+
     // Close LAST, where Delete sits on a file (owner, 2026-10-12). Every
     // tab has it (owner, 2026-10-28: no pinned tab).
     { label: 'Close tab', hint: 'Ctrl+W', onPick: ctx.onClose }

@@ -7,11 +7,12 @@ import {
   type ArchivePanelMenuContext,
   type ArchiveRowMenuContext
 } from './archivePanel'
-import { aliasWindow, clearHost, setHost } from '../../testing/host'
+import { aliasWindow, clearHost, fakeClipboard, setHost } from '../../testing/host'
 
 aliasWindow()
 
 beforeEach(() => {
+  fakeClipboard()
   setHost({
     capabilities: { write: true, clipboard: true, explorer: true, drag: true },
     showInExplorer: vi.fn()

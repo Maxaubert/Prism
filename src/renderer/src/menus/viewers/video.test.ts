@@ -1,13 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AudioTrackOffer } from '@shared/types'
 import type { MenuItem } from '../../components/ContextMenu'
 import { videoMenu, type VideoMenuContext } from './video'
-import { aliasWindow, capabilityHost, clearHost } from '../../testing/host'
+import { aliasWindow, capabilityHost, clearHost, fakeClipboard } from '../../testing/host'
 
 aliasWindow()
 
 /** The desktop (every capability) or the phone page (#106: none of them). */
 const host = (desktop: boolean): void => void capabilityHost(desktop, { copyImageToClipboard: vi.fn() })
+beforeEach(() => void fakeClipboard())
 afterEach(clearHost)
 
 const ctx = (over: Partial<VideoMenuContext> = {}): VideoMenuContext => ({
