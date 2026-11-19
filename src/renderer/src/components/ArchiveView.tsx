@@ -1003,8 +1003,11 @@ function ArchiveInner({
             caps,
             writable,
             busy: busy !== null,
+            hasRows: rows.length > 0,
             extractAll,
-            addFiles
+            addFiles,
+            selectAll: () =>
+              setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
           })}
         />
       )}

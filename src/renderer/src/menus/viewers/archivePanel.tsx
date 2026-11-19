@@ -10,6 +10,8 @@
  * or one the host cannot do (no clipboard, no write) is left out.
  */
 import type { MenuItem } from '../../components/ContextMenu'
+import { canCopyText, clipboardText } from '../../lib/clipboardText'
+import { copyFilePaths } from '../../lib/fileClipboard'
 import { archiveMenuRows, type ArchiveMenuContext, type ArchiveRowId } from '../archiveMenus'
 
 /** What a member row needs to be for its menu: where it is and whether it is a folder. */
@@ -167,27 +169,37 @@ export interface ArchivePanelMenuContext {
   busy: boolean
   extractAll: (here?: boolean) => void
   addFiles: () => void
+  /** The folder on show has rows to select. */
+  hasRows: boolean
+  selectAll: () => void
 }
 
 /**
  * The panel's DEAD SPACE (2026-08-30): the whole archive's verbs, where the
- * pointer is. Select all is Ctrl+A only, and Copy archive is not a row of the
- * table (#518).
+ * pointer is, as the table words them (#518), then the panel's own two:
+ * Copy archive and Select all. Select all stays a ROW: the phone page has no
+ * Ctrl+A, so the row is its only way to mark everything.
  */
 export function archivePanelMenu(ctx: ArchivePanelMenuContext): MenuItem[] {
   const { archivePath, caps, writable, busy } = ctx
   const handlers: Handlers = {
-    'copy-path': () => void navigator.clipboard.writeText(archivePath)
   }
+  // clipboardText, never navigator.clipboard: the phone page is plain http (#511).
+  if (canCopyText()) handlers['copy-path'] = () => void clipboardText(archivePath)
   if (caps.write) {
     handlers['extract-here'] = () => ctx.extractAll(true)
     handlers['extract-to'] = () => ctx.extractAll(false)
   }
   if (writable) handlers['add-files'] = () => ctx.addFiles()
   if (caps.explorer) handlers.show = () => void window.prism.showInExplorer(archivePath)
-  return fromTable(
+  const table = fromTable(
     { kind: 'empty', writable, zip: ctx.zip },
     handlers,
     (id) => busy && (id === 'extract-here' || id === 'extract-to' || id === 'add-files')
   )
+  return [
+    ...table,
+    ...(caps.clipboard ? [{ label: 'Copy archive', onPick: () => void copyFilePaths([archivePath]) }] : []),
+    { label: 'Select all', hint: 'Ctrl+A', disabled: !ctx.hasRows, onPick: () => ctx.selectAll() }
+  ]
 }
