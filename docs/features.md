@@ -3,6 +3,17 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Shared look: one Close, one footer (owner, 2026-11-19, #520)
+
+- **A dialog with nothing to answer says "Close"**, never "OK": the notice (App's "That didn't work", the
+  archive notes), a zip member's facts, the phone window and both Properties windows. `NoticeDialog` lost its
+  OK/Close option. The update window already said Close for a notice and Cancel for a stop.
+- **One footer.** `components/Dialog.tsx` exports `DialogFooter` (buttons on the right, 20px under the body; the
+  Properties footer was 18px) and `closeOnly`. `Dialog` also takes a `label` instead of a title, a `box`, extra
+  box classes and attributes, so Properties of a file or drive is a `Dialog` whose body draws its own header and
+  the shared footer. A zip member's Properties uses the file window's `Facts` list. Focus rings stay off (#272).
+- Held by `dialogs/closeOnly.test.ts`, `NoticeDialog.test.ts`, `ArchiveFactsDialog.test.ts`,
+  `PropertiesDialog.test.ts` and the `folderIcon` e2e (its notice closes with Close).
 ## Shared look: one dialog text field (owner, 2026-11-19, #516, first step)
 
 Every text field inside a dialog is `components/DialogInput.tsx`, the password field's box (`DIALOG_INPUT` in the core's

@@ -34,16 +34,18 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 | `NameTakenDialog` | A rename onto a taken name: Replace or Keep both | App (`clash`) |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
-| `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
+| `NoticeDialog` | One line that did not work, one Close button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `components/archive/ArchiveQuestion.tsx` only, beside App: every route asks through `lib/archiveQuestion.ts`, so an archive never has two up |
 | `ArchiveDeleteDialog` | Delete members from a zip: the permanent question, no middle button | `archive/useArchiveOps.tsx` |
 | `ArchiveClashDialog` | Added files, or members moved inside a zip (#70 D7), land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
-| `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
+| `ArchiveFactsDialog` | A zip member's facts (Close, the file window's list) | `browse/useArchiveActions.tsx` |
 | `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default, From a file... (the picture's refusal is App's `failed` NoticeDialog, its text `ICON_REFUSED` in `lib/iconFromFile.ts`). A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
+
+**Close-only dialogs and both Properties windows** (#520) say "Close" and use `DialogFooter` (`closeOnly` builds the choice). Properties of a file or drive is a `Dialog` with a `label` and a body that draws its own header; the phone window is a `Dialog`.
 
 Not here, on purpose: forms and panels that are more than a question. `browse/BrowseRename.tsx`
 (the rename field in a dialog; its words, Rename or New folder, are `dialogs/renameWording.ts`,
-pinned by its test), `properties/PropertiesDialog.tsx`, `PhoneDialog.tsx`, the core's
+pinned by its test), `properties/PropertiesDialog.tsx` and `PhoneDialog.tsx` (`Dialog` frames, above), the core's
 `UpdateDialog`, `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look), and
 `browse/BusyBar.tsx`, the loading bar over a held list (not a dialog: it covers one tab's list only,
 and the rest of the window stays yours).

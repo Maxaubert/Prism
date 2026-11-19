@@ -19,7 +19,6 @@ describe('the one modal shell', () => {
     for (const f of [
       'Dialog.tsx',
       'ExtractWindow.tsx',
-      join('properties', 'PropertiesDialog.tsx'),
       join('..', 'dialogs', 'DeleteQuestion.tsx')
     ]) {
       expect(src(f), f).toContain(core)
