@@ -7,7 +7,11 @@ import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
+import { baseName, extOf, parentDir } from '@shared/path'
+import type { BrowseSort } from '@shared/browse'
+import { ARCHIVE_DEFAULT_SORT, sortMembers } from '../lib/archiveSort'
+import { SWEEP_BAND_LOOK } from './browse/sweepLook'
+import { ArchiveHeader } from './archive/ArchiveHeader'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { KindIcon, iconColour } from './icons/FileIcons'
@@ -221,13 +225,16 @@ function ArchiveInner({
     say: setOops
   } = ops
 
-  // The rows of the CURRENT folder only: folders first, names ordered.
+  /** The column the rows are ordered by (#519); a header click changes it. */
+  const [sort, setSort] = useState<BrowseSort>(ARCHIVE_DEFAULT_SORT)
+  // The rows of the CURRENT folder only: folders first, then by the sort.
   const rows = useMemo((): Entry[] => {
     if (!entries || entries === 'error' || entries === 'locked') return []
-    return entries
-      .filter((e) => parentDir(e.path) === cwd)
-      .sort((a, b) => (a.dir === b.dir ? naturalCompare(a.name, b.name) : a.dir ? -1 : 1))
-  }, [entries, cwd])
+    return sortMembers(
+      entries.filter((e) => parentDir(e.path) === cwd),
+      sort
+    )
+  }, [entries, cwd, sort])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
     if (!entries || entries === 'error' || entries === 'locked') return ''
@@ -773,13 +780,7 @@ function ArchiveInner({
           >
             {/* The column header sits ABOVE the list rather than sticky inside
                 it, so a name never slides under it. */}
-            <div className="flex h-7 shrink-0 items-center gap-2 border-b border-[color:var(--p-divider)] px-4 text-[10.5px] font-medium uppercase tracking-[0.06em] text-[var(--p-dim2)]">
-              <span className="min-w-0 flex-1">Name</span>
-              <span className={COL_TYPE}>Type</span>
-              <span className={COL_SIZE}>Size</span>
-              <span className={COL_PACKED}>Packed</span>
-              <span className={COL_WHEN}>Modified</span>
-            </div>
+            <ArchiveHeader sort={sort} onSort={setSort} />
             {/* No horizontal padding: the rows run EDGE TO EDGE, so the zebra
                 stripes and the selection fill reach both borders instead of
                 floating as rounded tiles inside a gutter (owner pick,
@@ -930,13 +931,13 @@ function ArchiveInner({
             {band && (
               <div
                 data-arc-band
-                className="pointer-events-none absolute rounded-[3px] border border-[color:var(--p-sel-hue-hi)]"
+                className="pointer-events-none absolute"
                 style={{
+                  ...SWEEP_BAND_LOOK,
                   left: band.x,
                   top: band.y,
                   width: band.w,
-                  height: band.h,
-                  background: 'color-mix(in srgb, var(--p-sel-hue) 22%, transparent)'
+                  height: band.h
                 }}
               />
             )}
