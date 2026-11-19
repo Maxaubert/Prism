@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'r
 import { createPortal } from 'react-dom'
 import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
 import { FolderGlyph } from '../icons/FolderGlyph'
+import { NO_MATCHES, plural } from '../../lib/emptyText'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { hitFolder, stepActive } from '@shared/searchSuggest'
 import { useSearchSuggestions, type Suggestion } from '../../hooks/useSearchSuggestions'
@@ -73,8 +74,8 @@ export function BrowseSearchPopup(props: {
     : answer.running && !hits.length
       ? 'Searching'
       : hits.length
-        ? `${hits.length} ${hits.length === 1 ? 'match' : 'matches'}${answer.more ? ', more with Show more' : ''}`
-        : 'No matches in this folder or its subfolders'
+        ? `${plural(hits.length, 'match', 'matches')}${answer.more ? ', more with Show more' : ''}`
+        : NO_MATCHES
 
   return createPortal(
     // data-owns-escape: App's capture-phase Escape stands down while it is up.

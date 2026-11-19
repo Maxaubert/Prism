@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { ArchiveMeta } from '@shared/types'
+import { plural } from '../../lib/emptyText'
 import { formatBytes } from '../../lib/format'
 import { KindIcon } from '../icons/FileIcons'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
@@ -29,7 +30,7 @@ export function ArchiveStrip({
   onExtractHere: () => void
   onExtractTo: () => void
 }): JSX.Element {
-  const files = `${meta.files} ${meta.files === 1 ? 'file' : 'files'}`
+  const files = plural(meta.files, 'file')
   return (
     <div className="browse-archive-strip" data-archive-strip data-testid="archive-strip">
       <span className="browse-archive-strip-name">

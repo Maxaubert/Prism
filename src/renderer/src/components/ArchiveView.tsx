@@ -1,6 +1,7 @@
 import { copyFilePaths } from '../lib/fileClipboard'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
+import { contents, EMPTY_ARCHIVE, EMPTY_FOLDER, plural } from '../lib/emptyText'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { useSysIcon } from '../lib/sysIcon'
@@ -230,8 +231,7 @@ function ArchiveInner({
     if (!entries || entries === 'error' || entries === 'locked') return ''
     const folders = entries.filter((e) => e.dir).length
     const files = entries.length - folders
-    const parts = [`${files} file${files === 1 ? '' : 's'}`]
-    if (folders) parts.push(`${folders} folder${folders === 1 ? '' : 's'}`)
+    const parts = [contents(files, folders)]
     if (file.size) parts.push(`${formatBytes(file.size)} compressed`)
     return parts.join(' · ')
   }, [entries, file.size])
@@ -396,7 +396,7 @@ function ArchiveInner({
     (path: string): string => {
       if (!entries || entries === 'error' || entries === 'locked') return ''
       const n = entries.filter((e) => e.path.startsWith(path + '/')).length
-      return n ? `${n} item${n === 1 ? '' : 's'}` : 'empty'
+      return n ? plural(n, 'item') : 'empty'
     },
     [entries]
   )
@@ -774,7 +774,7 @@ function ArchiveInner({
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
               ) : rows.length === 0 ? (
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">
-                  {cwd ? 'empty folder' : 'empty archive'}
+                  {cwd ? EMPTY_FOLDER : EMPTY_ARCHIVE}
                 </div>
               ) : (
                 <ul
