@@ -7,6 +7,7 @@
  * browses as an ordinary folder: those are menus/archiveMenus.
  */
 import type { MenuItem } from '../../components/ContextMenu'
+import { canCopyText, clipboardText } from '../../lib/clipboardText'
 import { copyFilePaths } from '../../lib/fileClipboard'
 
 /** What a member row needs to be for its menu: where it is and whether it is a folder. */
@@ -243,7 +244,8 @@ export function archivePanelMenu(ctx: ArchivePanelMenuContext): MenuItem[] {
         ]
       : []),
     // Beside Copy archive, and Show in File Explorer last (owner, 2026-10-12).
-    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(archivePath) },
+    // clipboardText, not navigator.clipboard (#511): the phone page is plain http.
+    ...(canCopyText() ? [{ label: 'Copy path', onPick: () => void clipboardText(archivePath) }] : []),
     ...(caps.explorer
       ? [
           {

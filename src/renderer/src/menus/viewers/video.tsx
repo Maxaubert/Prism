@@ -4,13 +4,14 @@
  * menu is PlayerMenu, not this.
  *
  * Its rows predate the shared helpers and keep their own shape: a tick column
- * on every row (this file's own tickIf, not fileVerbs'), and their own Next /
- * Previous and Explorer / Copy path rows rather than stepVerbs and fileVerbs.
+ * on every row (this file's own tickIf) and their own Next / Previous rows.
+ * Copy path and Show in File Explorer are fileVerbs', wearing the tick column.
  */
 import type { JSX } from 'react'
 import type { AudioTrackOffer } from '@shared/types'
 import type { MenuItem } from '../../components/ContextMenu'
 import { pngFromVideo } from '../../lib/copyImage'
+import { fileVerbs } from '../fileVerbs'
 import type { Subtitles } from '../../hooks/useSubtitles'
 import { VIDEO_FITS, type VideoFit } from '../../lib/videoFit'
 
@@ -172,20 +173,9 @@ export function videoMenu(ctx: VideoMenuContext): MenuItem[] {
         ]
       : []),
     // Beside Copy frame (owner, 2026-10-12: the clipboard rows together).
-    {
-      label: 'Copy path',
-      icon: tickIf(false),
-      onPick: () => void navigator.clipboard.writeText(path)
-    },
-    ...(window.prism.capabilities.explorer
-      ? [
-          {
-            label: 'Show in File Explorer',
-            icon: tickIf(false),
-            onPick: () => window.prism.showInExplorer(path)
-          }
-        ]
-      : [])
+    // The shared rows (#511): navigator.clipboard is missing on the phone
+    // page's plain http, and fileVerbs knows the fallback.
+    ...fileVerbs(path).map((item) => ({ ...item, icon: tickIf(false) }))
   ]
   return items
 }

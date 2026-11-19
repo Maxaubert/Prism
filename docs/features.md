@@ -3,6 +3,32 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## The in-app update runs only a signed installer (#534, owner, 2026-11-19)
+
+The audit (#534 #10) found that Install downloaded the installer from this repo's releases and ran
+it with no check: a swapped release asset would have run silently. The owner picked a **signed
+list** over a paid code certificate or a bare checksum.
+
+- release.yml signs each installer with an Ed25519 key (`tools/sign-update.mjs`) and publishes
+  `Prism-Setup-x64-<version>.exe.sig` beside it. The key lives only in the `PRISM_UPDATE_KEY`
+  Actions secret, plus one offline backup on the owner's PC (`%USERPROFILE%\.keys\prism-update-ed25519.pem`).
+- The app carries the public half (`src/main/updateSignature.ts`). After the download it fetches
+  the `.sig` and checks it against the installer's SHA-256 **and its file name**, so an old
+  genuine installer cannot pose as a newer version. No signature, a wrong one or junk: nothing runs.
+- **Never backwards**: the version in the installer's name must be newer than the running build, and the
+  url must be that version's own release (/releases/download/v<version>/<name>), checked before any download.
+- The tool refuses a key whose public half the app does not carry, so a wrong secret fails the
+  release instead of shipping installers no app accepts.
+- **A new key strands every installed copy**: they stop updating themselves until a build with the
+  new public half is installed by hand. Keep the backup.
+- Builds up to 0.138.8 do not check, so they still update to a signed release as before.
+- Held by `src/main/updateSignature.test.ts` (signs with the real tool and a throwaway key; the
+  install path spawns only for a valid signature).
+
+Same PR (#534 #20, #21): `SECURITY.md` and private vulnerability reporting, `.github/dependabot.yml`
+(npm weekly, actions monthly, PRs only), a read-only token in ci.yml and ui-gate.yml,
+`persist-credentials: false` on every checkout, and every action pinned to a commit SHA.
+
 ## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
 
 The owner, with a screenshot: Delete permanently on 4 binned folders said "4 of 4 could not be deleted" (diag
