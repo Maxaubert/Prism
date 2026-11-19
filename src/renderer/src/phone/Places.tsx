@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { ROUTE, routePath, type PhoneDrive, type PlacesAnswer } from '@shared/phoneWire'
-import { formatBytes } from '../lib/format'
+import { freeLine, nearlyFull, usedFraction, usedWidth } from '../lib/driveUsage'
 import { PlaceIcon, type PlaceIconName } from '../components/icons/PlaceIcon'
 import { FolderFill } from '../components/icons/Icon'
 import { getJson } from './api'
@@ -94,28 +94,33 @@ function Heading({ children }: { children: string }): JSX.Element {
 
 /** A drive as the Explorer's drive rows draw it: the label and letter, and a
  *  bar of how full it is with the free space under it when Windows said. */
-function DriveRow({ drive, onPick }: { drive: PhoneDrive; onPick: () => void }): JSX.Element {
+export function DriveRow({ drive, onPick }: { drive: PhoneDrive; onPick: () => void }): JSX.Element {
   const kind = drive.kind === 'removable' ? 'usb' : 'drive'
   const named = drive.label ? `${drive.label} (${drive.name})` : drive.name
-  const sized = !!drive.total && drive.free !== undefined
-  const used = sized ? Math.min(1, Math.max(0, (drive.total! - drive.free!) / drive.total!)) : 0
+  // The same sums as the Explorer's drive rows (lib/driveUsage, #524): the bar's
+  // share, the free line and the warning from 90 percent used.
+  const used = usedFraction(drive.total, drive.free)
+  const warn = nearlyFull(drive.total, drive.free)
   return (
-    <button className={`${ROW_CLASS} rounded-xl`} onClick={onPick} data-phone-drive={drive.path}>
+    <button className={`${ROW_CLASS} rounded-xl`} onClick={onPick} data-phone-drive={drive.path} data-warn={warn || undefined}>
       <span className="grid w-[26px] shrink-0 place-items-center opacity-80">
         <PlaceIcon name={kind} size={22} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{named}</span>
-        {sized && (
+        {used !== null && (
           <>
             <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-[var(--p-hover)]" aria-hidden>
               <span
-                className="block h-full rounded-full bg-[var(--color-accent-hi)]"
-                style={{ width: `${Math.round(used * 100)}%` }}
+                className="block h-full rounded-full"
+                style={{ width: usedWidth(drive.total, drive.free) ?? 0, background: warn ? 'var(--p-warn)' : 'var(--color-accent-hi)' }}
               />
             </span>
-            <span className="mt-0.5 block truncate text-[13px] text-[var(--p-text-soft)]">
-              {formatBytes(drive.free!)} free of {formatBytes(drive.total!)}
+            <span
+              className="mt-0.5 block truncate text-[13px]"
+              style={{ color: warn ? 'var(--p-warn-ink)' : 'var(--p-text-soft)' }}
+            >
+              {freeLine(drive.total, drive.free)}
             </span>
           </>
         )}
