@@ -1,4 +1,5 @@
 import { cpus } from 'os'
+import type { WebContents } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import type { ThumbsWantReply } from '@shared/thumbTypes'
 import { windows } from '../appState'
@@ -36,6 +37,18 @@ export function thumbsEndpoint(): ThumbsEndpoint | null {
 export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
   const { readable } = ctx
   const watched = new Set<number>()
+  /** Forget a page's film and tabs when it is destroyed. Every ask that names
+   *  a page registers it, the film flag too: a window that played a film and
+   *  never asked for a tile would otherwise leave the flag set for good
+   *  (audit #50). */
+  const watch = (sender: WebContents): void => {
+    if (watched.has(sender.id)) return
+    watched.add(sender.id)
+    sender.once('destroyed', () => {
+      watched.delete(sender.id)
+      endpoint?.forgetSender(sender.id)
+    })
+  }
   endpoint = thumbs
     ? createThumbsEndpoint({
         thumbs,
@@ -50,13 +63,7 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
     if (!endpoint || !windows.isPrismPage(e.sender)) return { ready: {} }
     wants += 1
     const sender = e.sender
-    if (!watched.has(sender.id)) {
-      watched.add(sender.id)
-      sender.once('destroyed', () => {
-        watched.delete(sender.id)
-        endpoint?.forgetSender(sender.id)
-      })
-    }
+    watch(sender)
     const sink: Sink = {
       id: sender.id,
       alive: () => !sender.isDestroyed(),
@@ -66,6 +73,8 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
   })
   on(CALL.thumbsCancel, (e, tab: unknown) => endpoint?.cancel(tab, e.sender.id))
   on(CALL.thumbsFilm, (e, playing: unknown) => {
-    if (windows.isPrismPage(e.sender)) endpoint?.film(e.sender.id, playing === true)
+    if (!windows.isPrismPage(e.sender)) return
+    watch(e.sender)
+    endpoint?.film(e.sender.id, playing === true)
   })
 }
