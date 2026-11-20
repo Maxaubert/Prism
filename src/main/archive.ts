@@ -10,6 +10,7 @@ import {
   failOf,
   listZip,
   norm,
+  sevenBytes,
   sevenExtract,
   sevenZipExe,
   validMemberName,
@@ -327,9 +328,9 @@ export async function extractTo(
       let data: Buffer
       if (like.header.method === AES_METHOD) {
         if (!password) return { ok: false, reason: 'password' }
-        const r = await sevenExtract(zipPath, p, password)
+        const r = await sevenBytes(zipPath, p, password)
         if (!r.ok) return { ok: false, reason: r.reason }
-        data = await readFile(r.path)
+        data = r.data
       } else {
         try {
           data = await memberData(like, password)
