@@ -8,7 +8,6 @@ import {
   screen,
   BrowserWindow,
   ipcMain,
-  dialog,
   contentTracing,
   crashReporter,
   utilityProcess,
@@ -70,13 +69,12 @@ import { Positions } from './positions'
 import { holders } from './holders'
 import { Thumbs } from './thumbs'
 import { parseTabs, readSessionRaw, type SavedTabs } from './tabs'
-import { savedEntry, type SessionEntry } from './session'
+import { savedEntry } from './session'
 import type { WindowSeed } from './windowRegistry'
 import { userPaths } from './paths'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
-import { diagWindowEvent } from './diagWindow'
 import { mainCrumb } from './diagCrumb'
 import { binListing } from './binList'
 import { binDirs } from './binRoots'
@@ -105,8 +103,12 @@ import {
   wantsPreview
 } from 'prism-term-core/main/updatePreview'
 import { crashBudget } from './crashBudget'
-import { appendCrashLog, crashLine, crashLogSettled } from './crashLog'
-import { guardWindow, pageGone } from './windowGuard'
+import { createWindowRecovery } from './windowRecovery'
+import { createOpenQueue } from './openQueue'
+import type { MainCtx, ReadyCtx } from './ipc/context'
+import type { WindowOptions } from './windowOptions'
+import { crashLogSettled } from './crashLog'
+import { guardWindow } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import type {
@@ -541,12 +543,8 @@ function openWinEWindow(id: string, browse: string | null): void {
   hotkeyOpening = { id, browse, ackedAt: null, closed: false, win: null }
   hotkeyOpening.win = createWindow({ seed: { kind: 'none' }, winE: id })
 }
-/** Files from outside that wait for the window they go to (the one focused
- *  last, `windows.target()`) to restore. Only that window drains it: at the
- *  end of its restore, when it gains the focus having restored (the window
- *  they waited for may have lost it meanwhile, review 2026-10-29), and before
- *  a later handoff's files, so arrival order holds. */
-let pendingOpen: Array<{ path: string; dir: boolean }> = []
+const openQueue = createOpenQueue({ windows, exists })
+const { sendOpen, drainPending } = openQueue
 /** Second-instance handoffs, read one after another so they keep arrival order. */
 let handoffs: Promise<void> = Promise.resolve()
 /** A tab id main makes (a restored tab without one, the home Explorer) is
@@ -560,36 +558,6 @@ let sessionRaw: string | null = null
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
 const pickedSubs = new Set<string>()
-
-async function sendOpen(target: { path: string; dir: boolean }, to: BrowserWindow | null): Promise<void> {
-  // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
-  // opened in prism's explorer rather than as a project"). Nothing is built for
-  // it: the Explorer grants its own folders per tab as it walks there. Same
-  // channel as everything else, so it keeps its place behind the restore.
-  if (!target.dir) {
-    const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
-    windows.sendTo(to, PUSH.openFile, explorerFile)
-    return
-  }
-  // A FOLDER opens an Explorer tab at it (owner, 2026-10-26: no more projects).
-  // Nothing is built for it either; the page makes the tab and grants the folder.
-  if (!(await exists(target.path))) return
-  const explorerFolder: OpenPayload = { explorerFolder: target.path, files: [], index: -1, root: target.path }
-  windows.sendTo(to, PUSH.openFile, explorerFolder)
-}
-
-/** One drain at a time: a focus, a restore's end and a handoff can each ask
- *  at once, and two loops shifting the queue could reorder the opens. */
-let draining: Promise<void> = Promise.resolve()
-/** The waiting files, to `win`, while it is still the window they go to. */
-function drainPending(win: BrowserWindow, live: () => boolean = () => true): Promise<void> {
-  const run = draining.then(async () => {
-    while (pendingOpen.length && live() && !win.isDestroyed() && windows.target()?.win === win)
-      await sendOpen(pendingOpen.shift()!, win)
-  })
-  draining = run.catch(() => {})
-  return run
-}
 
 /** The phone switch, its port and the paired phones (#104). */
 
@@ -757,19 +725,6 @@ const startup = createStartupLog({
 const SLOW_SETUP_MS = 50
 /** A folder size scan this long is said at the quiet level (#322). */
 const SLOW_SCAN_MS = 500
-const crashLogFile = userPaths.windowCrashes
-function logWindow(
-  event: string,
-  fields: Record<string, string | number | boolean | undefined>
-): void {
-  void appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
-  // AND IN THE DIAGNOSTICS LOG (#322): a hang or the watchdog belongs on the
-  // same timeline as the stalls and crumbs before it, where `npm run diag`
-  // reads it; what the core already writes is not written twice
-  // (`diagWindow.ts`). window-crashes.log stays: the error box and the
-  // `neverWindowless` e2e name that file.
-  diagWindowEvent(event, fields)
-}
 app.on('before-quit', () => (appState.appQuitting = true))
 /** E2E only: a dead page stays dead, as the bug left it, so the watchdog and
  *  the second launch can be proved as the nets they are. */
@@ -788,92 +743,15 @@ let crashedAtStart = false
  * touches nothing shared.
  */
 
-/** A fresh window in place of one whose page keeps dying. The new one is
- *  built FIRST: destroying the only window first would read as the last
- *  window closing, and the app would quit. It comes back with THAT window's
- *  tabs, as its page last reported them (2026-10-29), never the saved strip
- *  of another: a second window that crashes must not come back as a copy of
- *  the first. */
-function recreateWindow(old: BrowserWindow): void {
-  const r = windows.recordOf(old)
-  const seed: WindowSeed = r?.reported ? { kind: 'tabs', tabs: r.reported } : (r?.seed ?? { kind: 'none' })
-  const bounds = old.isDestroyed() ? undefined : old.getNormalBounds()
-  const fresh = createWindow({ first: r?.first, seed, launchFlags: r?.launchFlags, bounds, winE: r?.winE })
-  if (r) {
-    windows.handOver(old, fresh)
-    sessionFile.rekey(r.id, fresh.webContents.id)
-  }
-  if (!old.isDestroyed()) old.destroy()
-}
-
-/** Nothing left to try: say so (never under --e2e) and end the process, which
- *  frees the single-instance lock for the next launch. An ordinary quit, not
- *  `app.exit`, so `will-quit` still stops the shells and the indexer; the
- *  windows go first, since a dead page has no close question to answer. */
-function giveUpWindow(): void {
-  if (!E2E)
-    dialog.showErrorBox(
-      'Prism',
-      `Prism's window stopped working several times in a row, so Prism has closed. Open it again to carry on. Details are in ${crashLogFile()}.`
-    )
-  appState.appQuitting = true
-  quitReason ??= 'gave-up'
-  // The crash log is written off main now (2026-10-12): the last lines land
-  // before the windows go, since the last window going quits the app.
-  void crashLogSettled().finally(() => {
-    for (const w of BrowserWindow.getAllWindows()) w.destroy()
-    app.quit()
-  })
-}
-
-/**
- * Make sure there is a window with a live page before a second launch's files
- * are handed over (#265). Answers true when it STARTED a page (a new window or
- * a reload), since the files then wait in `pendingOpen` for the page to listen.
- * Raising a window whose page is gone, which is all this used to do, shows a
- * blank frame at best. The window is the one files from outside go to (the
- * one focused last, 2026-10-29); with none left, a new one opens the strip of
- * the window closed last.
- */
-function ensureLivePage(launch?: Launch): boolean {
-  if (!app.isReady() || !firstWindowMade) return false // whenReady makes the window and drains the queue
-  if (appState.appQuitting || appState.installingUpdate) return false // a window now would only be taken away
-  const target = windows.target()
-  if (!target) {
-    logWindow('handoff', { window: 'none', action: 'create' })
-    openAsFirst({ launch })
-    return true
-  }
-  if (pageGone(target.win)) {
-    logWindow('handoff', { window: 'dead', action: 'reload' })
-    target.restored = false
-    target.win.webContents.reload()
-    return true
-  }
-  return false
-}
-
-/**
- * A WINDOW AS A COLD START'S FIRST WOULD OPEN (owner, 2026-11-06): with no
- * window left (standby, or a handoff to a windowless Prism), the next one
- * opens where the window closed last was, with its strip ("Reopen tabs at
- * start" off: the Explorer alone), and is the one a Win+E request lands in.
- */
-function openAsFirst(opts: { winE?: string; launch?: Launch }): BrowserWindow {
-  const last = sessionFile.primary()
-  const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
-  // WITHOUT the saved ids (review, 2026-10-29): the last window's close
-  // released them for good (releaseDesktop), so the same ids could never
-  // be granted their folders again. The restore mints new ones.
-  const tabs = last && remember ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
-  return createWindow({
-    first: true,
-    seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' },
-    bounds: last?.bounds ? readWindowState(last.bounds) : undefined,
-    showNow: !!opts.winE,
-    launch: opts.launch
-  })
-}
+const { logWindow, recreateWindow, giveUpWindow, ensureLivePage, openAsFirst } = createWindowRecovery({
+  createWindow: (options) => createWindow(options),
+  firstWindowMade: () => firstWindowMade,
+  quitBecause: (reason) => {
+    quitReason ??= reason
+  },
+  sessionFile,
+  windowPreferences
+})
 
 /**
  * THE NATIVE SWEEP BOX (#338; src/main/sweepOverlay.ts): started lazily, once,
@@ -912,31 +790,6 @@ function sweepOverlayFor(win: BrowserWindow): void {
 }
 /** After the first frame is on screen, not in the race for it. */
 const SWEEP_OVERLAY_DELAY_MS = 400
-
-/** How a window is made (2026-10-29: Prism has several in one process). */
-interface WindowOptions {
-  /** The session's first window, or its crash rebuild: the one a cold-start
-   *  Win+E lands in, and the e2e's main window. */
-  first?: boolean
-  /** Where its tabs come from (windowRegistry.ts `WindowSeed`). Only the cold
-   *  start's first window is made with `saved`. */
-  seed?: WindowSeed
-  /** `--prism-setup` / `--prism-demo`: the cold start's first window's only. */
-  launchFlags?: readonly string[]
-  /** Where it opens; the first window's come from the session file. */
-  bounds?: { x?: number; y?: number; width: number; height: number }
-  /** The saved entry of the session file, for the cold start's first window. */
-  saved?: SessionEntry | null
-  /** The Win+E or folder-verb request this window is opened for while Prism
-   *  runs (step 2): its page answers it. */
-  winE?: string | null
-  /** The tear-off's spare (step 3): hidden until a tab is torn off into it. */
-  spare?: boolean
-  /** Shown at once, before its page (a Win+E's window after a wake from standby). */
-  showNow?: boolean
-  /** The launch or wake this window is timed for (`startupLog.ts`). */
-  launch?: Launch
-}
 
 /** The first window of the session has been made (whenReady). */
 let firstWindowMade = false
@@ -1141,7 +994,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     sessionFile.focus(page)
     // Files queued for a window still restoring when the focus moved here:
     // this one has restored, so they open here now (review, 2026-10-29).
-    if (pendingOpen.length && rec.restored) void drainPending(win)
+    if (openQueue.waiting() && rec.restored) void drainPending(win)
   })
   /**
    * A WINDOW'S CLOSE LETS GO OF WHAT ITS TABS HELD (2026-10-29). Closing a
@@ -1205,7 +1058,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
     }
     // Files that were waiting for this window go to the one now in front,
     // once it has restored.
-    else if (pendingOpen.length && windows.target()?.restored) void drainPending(windows.target()!.win)
+    else if (openQueue.waiting() && windows.target()?.restored) void drainPending(windows.target()!.win)
   })
   /**
    * Minimised, and focused, told to the page (2026-08-26).
@@ -1449,7 +1302,7 @@ function createWindow(options: WindowOptions = {}): BrowserWindow {
         }
         // A handoff's paths are stat'ed awaited (2026-10-12), so one can land
         // in the queue just after the drain above ended: it opens now.
-        if (pendingOpen.length) void drainPending(win, () => !stale())
+        if (openQueue.waiting()) void drainPending(win, () => !stale())
         // A genuinely empty or failed restore may show the ordinary empty state.
         // Until this signal, no tabs means the initial folders are still loading.
         if (!event.sender.isDestroyed()) event.sender.send(PUSH.openRestored)
@@ -1967,13 +1820,8 @@ function registerTearIpc(): void {
   })
 }
 
-/**
- * What the IPC handlers in ipc/ reach that main holds (stage 9d of the
- * structure cleanup, 2026-10-12): index.ts's own state and helpers, handed to
- * every register function. A `let` that changes is never copied in here (the
- * handler would hold a stale value); it is read through a function instead.
- */
-const ctx = {
+/** What the IPC handlers in ipc/ reach (`MainCtx`, ipc/context.ts): index.ts's own state and helpers. */
+const ctx: MainCtx = {
   // The root wall (pathWall.ts) and its guards.
   wall,
   readable,
@@ -2010,22 +1858,6 @@ const ctx = {
   shellVerbSetting,
   reportTabs,
   keepAwake
-}
-export type MainCtx = typeof ctx
-
-/** What only exists once the app is ready: made in whenReady and handed to
- *  the register functions that need it, beside `ctx`. */
-export interface ReadyCtx {
-  /** Where you had got to in each film (#118). */
-  positions: Positions
-  /** `file:text`'s body, shared with the phone's `/api/text`. */
-  readTextWalled: (p: string) => Promise<TextRead>
-  /** One ffprobe per file while it is unchanged, shared with the phone. */
-  probeCached: (p: string) => Promise<MediaInfo | null>
-  /** `doc:html`'s body, shared with the phone. */
-  docHtmlOf: (p: string) => Promise<string | null>
-  /** The desktop's live transcode (liveVideo.ts); null without ffmpeg. */
-  live: LiveVideo | null
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -2275,7 +2107,7 @@ if (!app.requestSingleInstanceLock()) {
           return
         }
         const to = windows.target()
-        if (!to?.restored) pendingOpen.push(...paths)
+        if (!to?.restored) openQueue.push(...paths)
         else {
           // Anything still queued goes first, so arrival order holds.
           await drainPending(to.win).catch(() => {})
@@ -2305,7 +2137,7 @@ if (!app.requestSingleInstanceLock()) {
     })
   )
 
-  pendingOpen = launchPaths
+  openQueue.set(launchPaths)
   const shortcutRequest = argvRequest
   const browse = browseRequest(process.argv)
   if (shortcutRequest) {

@@ -80,12 +80,12 @@ describe('every long file job draws the one component', () => {
     expect(read('./browse/BusyBar.tsx')).toContain('JobCard')
     expect(read('./ExtractWindow.tsx')).toContain('JobCard')
     // Both draw LandingBar (#524), which is the ProgressBar.
-    expect(read('./browse/BrowseList.tsx')).toContain('LandingBar')
+    expect(read('./browse/BrowseRow.tsx')).toContain('LandingBar')
     expect(read('./browse/GridTile.tsx')).toContain('LandingBar')
     expect(read('./browse/LandingBar.tsx')).toContain('ProgressBar')
   })
   it('and none keeps a bar of its own', () => {
-    for (const f of ['./browse/BusyBar.tsx', './ExtractWindow.tsx', './browse/BrowseList.tsx', './browse/GridTile.tsx']) {
+    for (const f of ['./browse/BusyBar.tsx', './ExtractWindow.tsx', './browse/BrowseRow.tsx', './browse/GridTile.tsx']) {
       const src = read(f)
       expect(src, f).not.toMatch(/browse-busy-fill|browse-landing-fill|data-extract-fill/)
     }

@@ -33,15 +33,13 @@ import { BIN_EMPTY, binBytes, binnedOf, binnedPath } from '../../lib/binView'
 import { withinFolder, type PlaceRow } from '../../lib/placeMark'
 import { useActiveArea } from './useActiveArea'
 import { useListKeyboard } from './useListKeyboard'
+import { folderKeyAction } from './folderKeys'
 import { anyGoing, isGoing, rowAfter, settleGoing, wasBinned } from '../../lib/binnedRows'
 import { useFindRoute } from './useFindRoute'
 import { EDITOR, FIELD, OVERLAY, inOverlay } from '../../lib/focusGuards'
 import './browse.css'
 import './archive.css'
 import './bin.css'
-
-/** The common keys FolderBrowser answers for the list (#330). */
-const FOLDER_KEYS = new Set(['new-folder', 'bin', 'search', 'properties', 'copy-paths', 'open-new-tab'])
 
 export type {
   BrowseEntry,
@@ -262,6 +260,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const markedPaths = (): string[] => markedEntries.map((entry) => entry.path)
   // Already on its way to the bin (`binnedRows`): the Delete keys stand down.
   const binning = (): boolean => (many ? markedPaths().some(isGoing) : !!selected && isGoing(selected.path))
+  /** Delete, Ctrl+D and Shift+Delete (owner, 2026-10-07: Shift+Delete is NOT
+   * permanent here): in the bin the permanent delete, elsewhere the question,
+   * then the bin. One body for the Delete key and the common 'bin' key (#537 item 16). */
+  const deleteSelection = (): void => {
+    if (bin) {
+      const paths = many ? markedPaths() : selected ? [selected.path] : []
+      if (paths.length) props.onBinDelete?.(paths)
+      return
+    }
+    if (binning()) return
+    if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
+    else if (selected) props.onDelete?.(selected)
+  }
   const pickOne = (path: string | null, quiet = false): void => {
     setMarks(null)
     anchor.current = path
@@ -560,7 +571,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         // list's: from the sidebar the user is looking at a place, not a row.
         const pressed = typing ? null : listKey(e)
         const common = pressed && (inList || pressed === 'new-folder') ? pressed : null
-        if (common && FOLDER_KEYS.has(common)) {
+        const action = folderKeyAction(e, {
+          typing: !!typing,
+          inList,
+          common,
+          hasSelected: !!selected,
+          many,
+          bin,
+          hasRefresh: !!props.onRefresh,
+          hasDelete: !!props.onDelete,
+          hasRename: !!props.onRename,
+          inOwnFind: !!target.closest('.cm-editor,[data-doc-scroller],[data-pdf-scroller]')
+        })
+        if (action === 'common') {
           e.preventDefault()
           e.stopPropagation()
           // The row with the keyboard (a cursor the Ctrl keys moved), else
@@ -578,18 +601,13 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           } else if (bin) {
             // Delete permanently is the bin's own Delete (D16); the rest of the
             // common keys (New folder, Properties, Open in new tab) stand down.
-            if (common === 'bin') {
-              const paths = many ? markedPaths() : selected ? [selected.path] : []
-              if (paths.length) props.onBinDelete?.(paths)
-            }
+            if (common === 'bin') deleteSelection()
           } else if (archive) return
           else if (common === 'new-folder') props.onNewFolder?.(props.directory)
           else if (common === 'bin') {
             // Ctrl+D and Shift+Delete are Delete (owner, 2026-10-07: Shift+
             // Delete is NOT permanent here): the question, then the bin.
-            if (binning()) return
-            if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
-            else if (selected) props.onDelete?.(selected)
+            deleteSelection()
           } else if (common === 'properties') {
             if (focused) props.onProperties?.(focused)
           } else if (common === 'open-new-tab') {
@@ -597,91 +615,56 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           }
           return
         }
-        if (e.key === 'F5' && props.onRefresh) {
-          e.preventDefault()
-          e.stopPropagation()
-          retainListFocus()
-          props.onRefresh()
-        } else if (
-          !typing &&
-          inList &&
-          selected &&
-          e.key === 'Delete' &&
-          !e.ctrlKey &&
-          !e.shiftKey &&
-          (props.onDelete || bin)
-        ) {
-          e.preventDefault()
-          e.stopPropagation()
-          if (bin) {
-            props.onBinDelete?.(many ? markedPaths() : [selected.path])
-            return
+        if (!action) return
+        e.preventDefault()
+        e.stopPropagation()
+        switch (action) {
+          case 'refresh':
+            retainListFocus()
+            props.onRefresh?.()
+            break
+          case 'delete':
+            deleteSelection()
+            break
+          case 'edit-path':
+            shell.current?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')?.click()
+            break
+          case 'find':
+            // No search in the bin (D11).
+            if (bin) return
+            // Typing in the Explorer's own fields is its search, as it was.
+            if (typing) openSearch()
+            else routeFind(e)
+            break
+          case 'back-or-up':
+            retainListFocus()
+            if (props.canBack) props.onBack()
+            else props.onUp()
+            break
+          case 'history':
+            retainListFocus()
+            if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
+            if (e.key === 'ArrowRight' && props.canForward) props.onForward()
+            if (e.key === 'ArrowUp') props.onUp()
+            break
+          case 'rename':
+            if (selected) props.onRename?.(selected)
+            break
+          case 'clipboard': {
+            const key = e.key.toLowerCase()
+            // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
+            // container by a cut, and a paste into one is not a route yet.
+            if (archive && key !== 'c') return
+            // The bin is not a place you write to or copy from (D16): Cut, Copy
+            // and Paste do nothing here, and the clipboard keeps what it had.
+            if (bin) return
+            if (key === 'v') props.onPaste?.(props.directory)
+            else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
+            else if (selected && key === 'x') props.onCut?.(selected)
+            else if (selected) props.onCopy?.(selected)
+            break
           }
-          if (binning()) return
-          if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
-          else props.onDelete?.(selected)
-        } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
-          e.preventDefault()
-          e.stopPropagation()
-          shell.current
-            ?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')
-            ?.click()
-        } else if (
-          e.ctrlKey &&
-          !e.shiftKey &&
-          !e.altKey &&
-          e.key.toLowerCase() === 'f' &&
-          // An editor or a shell inside keeps its own find.
-          !target.closest('.cm-editor,[data-doc-scroller],[data-pdf-scroller]')
-        ) {
-          e.preventDefault()
-          e.stopPropagation()
-          // No search in the bin (D11).
-          if (bin) return
-          // Typing in the Explorer's own fields is its search, as it was.
-          if (typing) openSearch()
-          else routeFind(e)
-        } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Backspace') {
-          e.preventDefault()
-          e.stopPropagation()
-          retainListFocus()
-          if (props.canBack) props.onBack()
-          else props.onUp()
-        } else if (!typing && e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) {
-          e.preventDefault()
-          e.stopPropagation()
-          retainListFocus()
-          if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
-          if (e.key === 'ArrowRight' && props.canForward) props.onForward()
-          if (e.key === 'ArrowUp') props.onUp()
-        } else if (!typing && inList && selected && !many && !bin && e.key === 'F2' && props.onRename) {
-          e.preventDefault()
-          e.stopPropagation()
-          props.onRename(selected)
-        } else if (
-          !typing &&
-          inList &&
-          e.ctrlKey &&
-          !e.shiftKey &&
-          !e.altKey &&
-          !e.metaKey &&
-          ['c', 'x', 'v'].includes(e.key.toLowerCase())
-        ) {
-          e.preventDefault()
-          e.stopPropagation()
-          const key = e.key.toLowerCase()
-          // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
-          // container by a cut, and a paste into one is not a route yet.
-          if (archive && key !== 'c') return
-          // The bin is not a place you write to or copy from (D16): Cut, Copy
-          // and Paste do nothing here, and the clipboard keeps what it had.
-          if (bin) return
-          if (key === 'v') props.onPaste?.(props.directory)
-          else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
-          else if (selected && key === 'x') props.onCut?.(selected)
-          else if (selected) props.onCopy?.(selected)
-        }
-      }}
+        }      }}
     >
       <BrowseToolbar
         {...props}

@@ -16,9 +16,10 @@ describe('the phone wire', () => {
     expect(PHONE_API).toBe('/api/')
   })
 
-  it('has a server case for every route, and no literal case beside them', () => {
+  it('has a server route for every name, and no literal route beside them', () => {
     const server = readFileSync(join(__dirname, '../main/phone/server.ts'), 'utf8')
-    for (const k of Object.keys(ROUTE)) expect(server, k).toContain(`case ROUTE.${k}:`)
+    for (const k of Object.keys(ROUTE)) expect(server, k).toContain(`[ROUTE.${k}, `)
     expect(server.match(/case '[^']+':/g) ?? []).toEqual([])
+    expect(server.match(/\[\s*'[^']+',\s*(?:walled|open)\(/g) ?? []).toEqual([])
   })
 })

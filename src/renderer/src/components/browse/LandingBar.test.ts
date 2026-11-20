@@ -22,9 +22,9 @@ describe('the landing bar', () => {
   })
 
   it('the row and the tile draw it, and the row does not write "Copying…" itself', () => {
-    expect(src('BrowseList.tsx')).toMatch(/<LandingBar/)
+    expect(src('BrowseRow.tsx')).toMatch(/<LandingBar/)
     expect(src('GridTile.tsx')).toMatch(/<LandingBar/)
-    expect(src('BrowseList.tsx')).not.toMatch(/'Copying…'/)
-    expect(src('BrowseList.tsx')).toMatch(/landingTile\(/)
+    expect(src('BrowseRow.tsx')).not.toMatch(/'Copying…'/)
+    expect(src('BrowseRow.tsx')).toMatch(/landingTile\(/)
   })
 })
