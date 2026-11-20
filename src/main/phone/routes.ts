@@ -81,14 +81,27 @@ export function parseRoute(url: string): Route {
   return { kind: 'static', file }
 }
 
+/** The cookie that carries the phone's token (2026-11-20). */
+export const COOKIE = 'prism_phone'
+
 /**
- * The token: an Authorization header for fetches, `?t=` for `<video src>`,
- * which can carry no header.
+ * The token: the phone's cookie, and nothing else. It never rides in a URL
+ * (`?t=`) or a header the page sets, so it is not in a page address, a
+ * history entry, a playlist or a log line.
  */
-export function tokenOf(query: URLSearchParams, auth: string | undefined): string | null {
-  const m = auth ? /^Bearer\s+(\S+)$/i.exec(auth) : null
-  if (m) return m[1]
-  return query.get('t') || null
+export function tokenOf(cookie: string | undefined): string | null {
+  if (!cookie) return null
+  for (const part of cookie.split(';')) {
+    const i = part.indexOf('=')
+    if (i > 0 && part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim() || null
+  }
+  return null
+}
+
+/** The Set-Cookie value that hands the phone its token: not readable by the
+ *  page's scripts, not sent from another site, kept 30 days. */
+export function tokenCookie(token: string, maxAgeSec: number): string {
+  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}`
 }
 
 /** The address the QR encodes: the page itself, with the code in the query. */

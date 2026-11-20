@@ -39,6 +39,8 @@ let lastPw: string | undefined
 let server: PhoneServer
 let port: number
 let changes = 0
+/** The server's clock, so a test can let days pass. */
+let clock = 1000
 let logged: string[] = []
 let positions = new Map<string, Record<string, unknown>>()
 /** The server holds this object, so a test can swap one dep for a failing one. */
@@ -76,6 +78,7 @@ const listing = (files: string[]) => ({
 })
 
 beforeEach(async () => {
+  clock = 1000
   logged = []
   positions = new Map()
   dir = mkdtempSync(join(tmpdir(), 'prism-phone-'))
@@ -229,7 +232,7 @@ beforeEach(async () => {
       }
     },
     loopbackOnly: true,
-    now: () => 1000
+    now: () => clock
   }
   server = new PhoneServer(deps, emptyState())
   port = await server.start(0)
@@ -272,14 +275,33 @@ async function pair(): Promise<string> {
     body: JSON.stringify({ code, name: 'Test phone' })
   })
   expect(r.status).toBe(200)
-  const j = (await r.json()) as { token: string; here: string | null }
+  // The token is in the cookie and nowhere in the body (2026-11-20).
+  const j = (await r.json()) as { token?: string; here: string | null }
   expect(j.here).toBe(dir)
-  const l = await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`), {
-    headers: { authorization: `Bearer ${j.token}` }
-  })
+  expect(j.token).toBeUndefined()
+  const token = cookieToken(r)
+  const l = await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`), { headers: { cookie: `prism_phone=${token}` } })
   expect(l.status).toBe(200)
-  return j.token
+  return token
 }
+
+/** The token a /pair answer set in its cookie, after checking the cookie's flags. */
+function cookieToken(r: Response): string {
+  const c = r.headers.get('set-cookie') ?? ''
+  expect(c).toMatch(/HttpOnly/)
+  expect(c).toMatch(/SameSite=Strict/)
+  expect(c).toMatch(/Max-Age=2592000/)
+  const m = /^prism_phone=([0-9a-f]+);/.exec(c)
+  expect(m).not.toBeNull()
+  return m![1]
+}
+
+/** What a browser sends once it holds the cookie. */
+const as = (token: string): { headers: { cookie: string } } => ({
+  headers: { cookie: `prism_phone=${token}` }
+})
+/** The phone's key on the PC (grants, jobs, the watching list): not its token. */
+const idOf = (token: string): string => server.state.phones.find((p) => p.token === token)!.id
 
 describe('PhoneServer', () => {
   it('serves the page and its assets, and nothing above the renderer dir', async () => {
@@ -302,12 +324,70 @@ describe('PhoneServer', () => {
   it('pairs once and refuses a spent code', async () => {
     const token = await pair()
     expect(token).toMatch(/^[0-9a-f]{64}$/)
+    expect(idOf(token)).not.toBe(token)
     expect(changes).toBeGreaterThan(0)
     const { code } = server.issue(dir)
     const first = await fetch(url('/pair'), { method: 'POST', body: JSON.stringify({ code, name: 'x' }) })
     expect(first.status).toBe(200)
     const again = await fetch(url('/pair'), { method: 'POST', body: JSON.stringify({ code, name: 'x' }) })
     expect(again.status).toBe(403)
+  })
+
+  it('takes the token from the cookie only: not the url, not a header (2026-11-20)', async () => {
+    const token = await pair()
+    expect((await fetch(url('/api/me'), as(token))).status).toBe(200)
+    expect((await fetch(url(`/api/me?t=${token}`))).status).toBe(401)
+    expect((await fetch(url('/api/me'), { headers: { authorization: `Bearer ${token}` } })).status).toBe(401)
+    const m = encodeURIComponent(join(dir, 'clip.mp4'))
+    expect((await fetch(url(`/m/${m}?t=${token}`))).status).toBe(401)
+    // The cookie among others still counts.
+    const other = { headers: { cookie: `a=1; prism_phone=${token}; b=2` } }
+    expect((await fetch(url('/api/me'), other)).status).toBe(200)
+  })
+
+  it('forgets a phone unused for 30 days: it sees the pairing screen again', async () => {
+    const token = await pair()
+    clock += 29 * 86_400_000
+    const r = await fetch(url('/api/me'), as(token))
+    expect(r.status).toBe(200) // in use, so not idle
+    const fresh = cookieToken(r) // a phone in use rotates on the way
+    clock += 31 * 86_400_000
+    expect((await fetch(url('/api/me'), as(fresh))).status).toBe(401)
+    expect(server.state.phones).toHaveLength(0)
+    expect(released).toHaveLength(1) // its grants went with it
+  })
+
+  it('gives a phone in use a new cookie about once a day, and the old token stops working shortly after', async () => {
+    const token = await pair()
+    const id = idOf(token)
+    const quiet = await fetch(url('/api/me'), as(token))
+    expect(quiet.headers.get('set-cookie')).toBeNull() // not a day yet
+    clock += 86_400_000
+    const before = changes
+    const r = await fetch(url('/api/me'), as(token))
+    expect(r.status).toBe(200)
+    const fresh = cookieToken(r)
+    expect(fresh).not.toBe(token)
+    expect(changes).toBeGreaterThan(before) // saved
+    expect(idOf(fresh)).toBe(id) // the same phone: its grants are kept
+    // A request already in flight on the old token still lands, without a third token.
+    const late = await fetch(url('/api/me'), as(token))
+    expect(late.status).toBe(200)
+    expect(late.headers.get('set-cookie')).toBeNull()
+    expect((await fetch(url('/api/dir?path=' + encodeURIComponent(dir)), as(fresh))).status).toBe(200)
+    clock += 10 * 60_000
+    expect((await fetch(url('/api/me'), as(token))).status).toBe(401)
+    expect((await fetch(url('/api/me'), as(fresh))).status).toBe(200)
+  })
+
+  it('keeps what a phone may read across a rotation', async () => {
+    const token = await pair()
+    const file = `/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`
+    expect((await fetch(url(file), as(token))).status).toBe(200)
+    clock += 86_400_000
+    const r = await fetch(url(file), as(token))
+    expect(r.status).toBe(200)
+    expect((await fetch(url(file), as(cookieToken(r)))).status).toBe(200)
   })
 
   it('refuses a pair that is not a POST, or not JSON', async () => {
@@ -328,10 +408,12 @@ describe('PhoneServer', () => {
     const { code } = server.issue(otherRoot)
     const r = await fetch(url('/pair'), {
       method: 'POST',
-      body: JSON.stringify({ code, name: 'Test phone', token })
+      headers: { cookie: `prism_phone=${token}` },
+      body: JSON.stringify({ code, name: 'Test phone' })
     })
     expect(r.status).toBe(200)
-    expect(await r.json()).toEqual({ token, here: otherRoot })
+    expect(await r.json()).toEqual({ here: otherRoot })
+    expect(cookieToken(r)).toBe(token)
     expect(server.state.phones).toHaveLength(1)
   })
 
@@ -339,26 +421,26 @@ describe('PhoneServer', () => {
     expect((await fetch(url('/api/me'))).status).toBe(401)
     expect((await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`))).status).toBe(401)
     expect((await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`))).status).toBe(401)
-    expect((await fetch(url('/api/me'), { headers: { authorization: 'Bearer nope' } })).status).toBe(401)
+    expect((await fetch(url('/api/me'), { headers: { cookie: 'prism_phone=nope' } })).status).toBe(401)
   })
 
   it('never lists or reads a folder that is really on another computer (2026-10-15)', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const share = join(dir, 'on-a-share')
     mkdirSync(share, { recursive: true })
     writeFileSync(join(share, 'x.mp4'), 'x')
     expect((await fetch(url(`/api/dir?path=${encodeURIComponent(share)}`), { headers: auth })).status).toBe(403)
     // Even granted some other way, a read is refused.
-    listed.get(token)?.add(share.toLowerCase())
+    listed.get(idOf(token))?.add(share.toLowerCase())
     const file = join(share, 'x.mp4')
     expect((await fetch(url(`/api/stat?path=${encodeURIComponent(file)}`), { headers: auth })).status).toBe(403)
-    expect((await fetch(url(`/m/${encodeURIComponent(file)}?t=${token}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(file)}`), as(token))).status).toBe(403)
   })
 
   it('refuses a request a proxy forwarded from outside the network (#406)', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const at = url(`/api/dir?path=${encodeURIComponent(dir)}`)
     expect((await fetch(at, { headers: { ...auth, 'x-forwarded-for': '192.168.1.20' } })).status).toBe(200)
     expect((await fetch(at, { headers: { ...auth, 'x-forwarded-for': '192.168.1.20, 8.8.8.8' } })).status).toBe(403)
@@ -367,7 +449,7 @@ describe('PhoneServer', () => {
 
   it('answers me, dir, subs and media for a paired phone', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     // `name` is the PHONE's; `here` is the folder it is in (2026-10-14).
     expect(await (await fetch(url('/api/me'), { headers: auth })).json()).toEqual({
       name: 'Test phone',
@@ -385,24 +467,24 @@ describe('PhoneServer', () => {
       await fetch(url(`/api/subs/read?path=${encodeURIComponent(join(dir, 'clip.srt'))}`), { headers: auth })
     ).text()
     expect(vtt).toBe('WEBVTT\n')
-    const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`))
+    const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`), as(token))
     expect(m.status).toBe(200)
     // A file is never a page on the phone's origin (review, 2026-10-14).
     expect(m.headers.get('content-security-policy')).toMatch(/^sandbox;/)
     expect(m.headers.get('x-content-type-options')).toBe('nosniff')
     expect(await m.text()).toBe('abcd')
-    const r = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`), {
-      headers: { range: 'bytes=1-2' }
+    const r = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`), {
+      headers: { range: 'bytes=1-2', cookie: `prism_phone=${token}` }
     })
     expect(r.status).toBe(206)
     expect(r.headers.get('content-range')).toBe('bytes 1-2/4')
-    expect(server.watching()).toEqual([token])
+    expect(server.watching()).toEqual([idOf(token)])
     expect((await fetch(url('/api/nope'), { headers: auth })).status).toBe(404)
   })
 
   const api = (token: string, name: string, file: string): Promise<Response> =>
     fetch(url(`/api/${name}?path=${encodeURIComponent(join(dir, file))}`), {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { cookie: `prism_phone=${token}` }
     })
 
   it('reads text and grants a markdown its own pictures to this phone only', async () => {
@@ -412,18 +494,18 @@ describe('PhoneServer', () => {
     expect(t).toEqual({ text: '![x](pic.png)' })
     // Main's own wall learned about the picture too, once.
     expect(servable).toEqual([picOutside])
-    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(200)
-    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${b}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}`), as(a))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}`), as(b))).status).toBe(403)
     // Forgetting the phone takes its grants with it.
-    server.dropGrants(a)
-    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+    server.dropGrants(idOf(a))
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}`), as(a))).status).toBe(403)
   })
 
   it('a plain text file grants nothing, and an unreadable one says so', async () => {
     const a = await pair()
     expect(await (await api(a, 'text', 'notes.txt')).json()).toEqual({ text: 'hello' })
     expect(servable).toEqual([])
-    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}`), as(a))).status).toBe(403)
     expect(await (await api(a, 'text', 'blob.bin')).json()).toEqual({ error: 'unreadable' })
   })
 
@@ -439,12 +521,12 @@ describe('PhoneServer', () => {
     expect((await fetch(url(`/api/text?path=${encodeURIComponent(join(dir, 'readme.md'))}`))).status).toBe(401)
     expect((await fetch(url(`/api/doc?path=${encodeURIComponent(join(dir, 'a.docx'))}`))).status).toBe(401)
     const a = await pair()
-    const auth = { authorization: `Bearer ${a}` }
+    const auth = { cookie: `prism_phone=${a}` }
     expect((await fetch(url('/api/text?path=C%3A%5CWindows%5Creadme.md'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/api/doc?path=C%3A%5CWindows%5Ca.docx'), { headers: auth })).status).toBe(403)
     // A markdown outside the root grants nothing on the way to its 403.
     expect(servable).toEqual([])
-    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}`), as(a))).status).toBe(403)
   })
 
   it('opens a comic and grants its whole page directory to this phone only', async () => {
@@ -458,11 +540,11 @@ describe('PhoneServer', () => {
     // Both pages, the one a folder down included, and nothing beside the
     // directory: `abcd` shares a prefix with `abc` and is not under it.
     for (const page of c.pages) {
-      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${a}`))).status).toBe(200)
-      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${b}`))).status).toBe(403)
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}`), as(a))).status).toBe(200)
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}`), as(b))).status).toBe(403)
     }
     const beside = join(cache, 'comics', 'abcd', 'p1.jpg')
-    expect((await fetch(url(`/m/${encodeURIComponent(beside)}?t=${a}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(beside)}`), as(a))).status).toBe(403)
     // Main's own wall already allows the comics directory: nothing to add.
     expect(servable).toEqual([])
   })
@@ -470,7 +552,7 @@ describe('PhoneServer', () => {
   it('a comic answers its own failures in the IPC shape, with the password passed along', async () => {
     const a = await pair()
     const r = await fetch(url(`/api/comic?path=${encodeURIComponent(join(dir, 'b.cbz'))}&pw=wrong`), {
-      headers: { authorization: `Bearer ${a}` }
+      headers: { cookie: `prism_phone=${a}` }
     })
     expect(r.status).toBe(200)
     expect(await r.json()).toEqual({ error: 'password' })
@@ -490,20 +572,20 @@ describe('PhoneServer', () => {
     const zip = encodeURIComponent(join(dir, 'z.zip'))
     const x = (await (
       await fetch(url(`/api/archive/extract?path=${zip}&entry=${encodeURIComponent('inner/pic.png')}`), {
-        headers: { authorization: `Bearer ${a}` }
+        headers: { cookie: `prism_phone=${a}` }
       })
     ).json()) as { ok: true; path: string; kind: string }
     expect(x.ok).toBe(true)
     expect(x.kind).toBe('image')
-    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(200)
-    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${b}`))).status).toBe(403)
-    server.dropGrants(a)
-    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(403)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}`), as(a))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}`), as(b))).status).toBe(403)
+    server.dropGrants(idOf(a))
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}`), as(a))).status).toBe(403)
   })
 
   it('an archive passes the password along and answers failures in the IPC shape', async () => {
     const a = await pair()
-    const auth = { authorization: `Bearer ${a}` }
+    const auth = { cookie: `prism_phone=${a}` }
     const zip = encodeURIComponent(join(dir, 'z.zip'))
     const l = await fetch(url(`/api/archive?path=${zip}&pw=wrong`), { headers: auth })
     expect(l.status).toBe(200)
@@ -530,7 +612,7 @@ describe('PhoneServer', () => {
     expect((await fetch(url(`/api/archive?path=${zip}`))).status).toBe(401)
     expect((await fetch(url(`/api/archive/extract?path=${zip}&entry=inner/pic.png`))).status).toBe(401)
     const a = await pair()
-    const auth = { authorization: `Bearer ${a}` }
+    const auth = { cookie: `prism_phone=${a}` }
     lastPw = 'untouched'
     expect((await fetch(url('/api/comic?path=C%3A%5CWindows%5Cb.cbz'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/api/archive?path=C%3A%5CWindows%5Cx.zip'), { headers: auth })).status).toBe(403)
@@ -544,7 +626,7 @@ describe('PhoneServer', () => {
   it('stats a file or the root itself, 404s one that is gone, and walls the rest', async () => {
     expect((await fetch(url(`/api/stat?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`))).status).toBe(401)
     const a = await pair()
-    const auth = { authorization: `Bearer ${a}` }
+    const auth = { cookie: `prism_phone=${a}` }
     const stat = (p: string): Promise<Response> =>
       fetch(url(`/api/stat?path=${encodeURIComponent(p)}`), { headers: auth })
     const f = (await (await stat(join(dir, 'clip.mp4'))).json()) as Record<string, unknown>
@@ -558,7 +640,7 @@ describe('PhoneServer', () => {
   it('searches the folder the phone is in, and an empty query answers nothing rather than everything', async () => {
     expect((await fetch(url('/api/search?q=clip'))).status).toBe(401)
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const search = (q: string, where = dir): Promise<Response> =>
       fetch(url(`/api/search?dir=${encodeURIComponent(where)}&q=${encodeURIComponent(q)}`), { headers: auth })
     const hit = (await (await search('clip mp4')).json()) as { hits: Array<{ path: string }> }
@@ -578,19 +660,19 @@ describe('PhoneServer', () => {
     expect((await search('clip', otherRoot)).status).toBe(403)
     expect((await search('clip', '\\\\nas\\films')).status).toBe(403)
     // A hit's folder is granted, as the Explorer's search grants its hits.
-    listed.get(token)!.clear()
-    listed.get(token)!.add(dir.toLowerCase())
+    listed.get(idOf(token))!.clear()
+    listed.get(idOf(token))!.add(dir.toLowerCase())
     await search('clip')
-    expect(listed.get(token)!.has(dirname(join(dir, 'clip.mp4')).toLowerCase())).toBe(true)
+    expect(listed.get(idOf(token))!.has(dirname(join(dir, 'clip.mp4')).toLowerCase())).toBe(true)
   })
 
   it('refuses a file in a folder the phone never listed, and anything not a local path', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     expect((await fetch(url('/api/subs?path=C%3A%5CWindows%5Ca.mp4'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/m/C%3A%5CWindows%5Cnotepad.exe'), { headers: auth })).status).toBe(403)
     expect(
-      (await fetch(url(`/m/${encodeURIComponent(join(otherRoot, 'clip.mp4'))}?t=${token}`))).status
+      (await fetch(url(`/m/${encodeURIComponent(join(otherRoot, 'clip.mp4'))}`), as(token))).status
     ).toBe(403)
     // A share, a device path and a relative path are never listed for a phone.
     for (const bad of ['\\\\nas\\films', '\\\\?\\C:\\', 'films', ''])
@@ -601,26 +683,26 @@ describe('PhoneServer', () => {
 
   it('lists ANY local folder (2026-10-14), which grants it and is where the phone now is', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
-    const film = `/m/${encodeURIComponent(join(otherRoot, 'clip.mp4'))}?t=${token}`
-    expect((await fetch(url(film))).status).toBe(403)
+    const auth = { cookie: `prism_phone=${token}` }
+    const film = `/m/${encodeURIComponent(join(otherRoot, 'clip.mp4'))}`
+    expect((await fetch(url(film), as(token))).status).toBe(403)
     expect(
       (await fetch(url(`/api/dir?path=${encodeURIComponent(otherRoot)}`), { headers: auth })).status
     ).toBe(200)
-    expect((await fetch(url(film))).status).toBe(200)
+    expect((await fetch(url(film), as(token))).status).toBe(200)
     expect(await (await fetch(url('/api/me'), { headers: auth })).json()).toEqual({
       name: 'Test phone',
       here: otherRoot
     })
     // Another phone gains nothing from this one's walk.
     const other = await pair()
-    expect((await fetch(url(film.replace(token, other)))).status).toBe(403)
+    expect((await fetch(url(film), as(other))).status).toBe(403)
   })
 
   it('answers the places, and the This PC page makes This PC where the phone is', async () => {
     expect((await fetch(url('/api/places'))).status).toBe(401)
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const places = await (await fetch(url('/api/places'), { headers: auth })).json()
     expect(places).toEqual({
       quick: [{ name: 'Downloads', path: 'C:\\Users\\max\\Downloads', known: 'downloads' }],
@@ -634,13 +716,13 @@ describe('PhoneServer', () => {
 
   it('a forgotten phone keeps no access', async () => {
     const token = await pair()
-    server.dropGrants(token)
-    expect(released).toEqual([token])
+    server.dropGrants(idOf(token))
+    expect(released).toEqual([idOf(token)])
   })
 
   const play = (token: string, file: string, can = 'h264,aac,mp4'): Promise<Record<string, unknown>> =>
     fetch(url(`/api/play?path=${encodeURIComponent(join(dir, file))}&can=${can}`), {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { cookie: `prism_phone=${token}` }
     }).then((r) => r.json() as Promise<Record<string, unknown>>)
 
   it('/api/play answers direct for an mp4 the phone plays and hls for an mkv', async () => {
@@ -648,37 +730,40 @@ describe('PhoneServer', () => {
     const direct = await play(token, 'clip.mp4')
     expect(direct).toMatchObject({ mode: 'direct', fps: 24, duration: 10 })
     expect(direct.url).toContain('/m/')
-    expect(direct.url).toContain(`t=${token}`)
+    expect(String(direct.url)).not.toMatch(/[?&]t=/) // the cookie authorises it, not the url
+    expect((await fetch(url(String(direct.url)), as(token))).status).toBe(200)
 
     const hls = await play(token, 'clip.mkv')
     expect(hls).toMatchObject({ mode: 'hls', copyVideo: true, audioOnly: false, fps: 24, duration: 10 })
     const playlistUrl = String(hls.url)
-    expect(playlistUrl).toMatch(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/)
+    expect(playlistUrl).toMatch(/^\/hls\/[0-9a-f]{16}\/index\.m3u8$/)
 
-    const pl = await fetch(url(playlistUrl))
+    const pl = await fetch(url(playlistUrl), as(token))
     expect(pl.status).toBe(200)
     expect(pl.headers.get('content-type')).toBe('application/vnd.apple.mpegurl')
     expect(pl.headers.get('cache-control')).toBe('no-store')
     const text = await pl.text()
-    // The player resolves each uri against the playlist's and drops its
-    // query, so the token has to be ON the uris or every segment is a 401.
-    expect(text).toContain(`#EXT-X-MAP:URI="init.mp4?t=${token}"`)
-    expect(text).toContain(`2.m4s?t=${token}`)
+    // The uris are plain names: the player's requests carry the cookie, so
+    // no token is written into the playlist (2026-11-20).
+    expect(text).toContain('#EXT-X-MAP:URI="init.mp4"')
+    expect(text).toContain('\n2.m4s\n')
+    expect(text).not.toContain(token)
+    expect(text).not.toContain('?t=')
     expect(text).not.toContain('3.m4s') // ten seconds is three segments
 
-    const seg = await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))
+    const seg = await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')), as(token))
     expect(seg.status).toBe(200)
     expect(seg.headers.get('content-type')).toBe('video/iso.segment')
     expect(seg.headers.get('cache-control')).toBe('no-store')
     expect(await seg.text()).toBe('seg1')
 
-    const init = await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))
+    const init = await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')), as(token))
     expect(init.status).toBe(200)
     expect(init.headers.get('content-type')).toBe('video/mp4')
     expect(await init.text()).toBe('init')
 
     // Past the end of the film: not a segment the playlist names.
-    const past = await fetch(url(playlistUrl.replace('index.m3u8', '9.m4s')))
+    const past = await fetch(url(playlistUrl.replace('index.m3u8', '9.m4s')), as(token))
     expect(past.status).toBe(404)
     expect(await past.json()).toMatchObject({ error: expect.any(String) })
 
@@ -688,7 +773,7 @@ describe('PhoneServer', () => {
 
   it('/api/play lists the tracks, takes a pick as its own job, and refuses a track the file has not', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const ask = (extra: string) =>
       fetch(url(`/api/play?path=${encodeURIComponent(join(dir, 'clip.mkv'))}&can=h264,aac,mse${extra}`), { headers: auth })
     const plain = (await (await ask('')).json()) as { url: string; tracks: Array<{ index: number; title: string }>; audio: number }
@@ -704,7 +789,7 @@ describe('PhoneServer', () => {
 
   it('/api/play is walled and needs a probe', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     expect((await fetch(url('/api/play?path=C%3A%5CWindows%5Cx.mkv&can=h264'), { headers: auth })).status).toBe(403)
     expect((await fetch(url(`/api/play?path=${encodeURIComponent(join(dir, 'clip.mkv'))}`))).status).toBe(401)
     const none = await play(token, 'nothing.mkv', 'h264')
@@ -724,7 +809,7 @@ describe('PhoneServer', () => {
     const a = await pair()
     expect(((await (await api(a, 'archive', 'z.zip')).json()) as ArchiveListing).ok).toBe(true)
     const zip = encodeURIComponent(join(dir, 'z.zip'))
-    const auth = { authorization: `Bearer ${a}` }
+    const auth = { cookie: `prism_phone=${a}` }
     const x = (await (
       await fetch(url(`/api/archive/extract?path=${zip}&entry=${encodeURIComponent('inner/clip.mkv')}`), { headers: auth })
     ).json()) as { ok: true; path: string }
@@ -735,11 +820,11 @@ describe('PhoneServer', () => {
     expect(hls.mode).toBe('hls')
     // The playlist and a segment answer; the wall used to refuse them and
     // stop every job this phone had.
-    expect((await fetch(url(hls.url))).status).toBe(200)
-    expect((await fetch(url(hls.url.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    expect((await fetch(url(hls.url), as(a))).status).toBe(200)
+    expect((await fetch(url(hls.url.replace('index.m3u8', '0.m4s')), as(a))).status).toBe(200)
     // Its grant gone, the stream goes too.
-    server.dropGrants(a)
-    expect((await fetch(url(hls.url))).status).toBe(404)
+    server.dropGrants(idOf(a))
+    expect((await fetch(url(hls.url), as(a))).status).toBe(404)
   })
 
   it('an hls job belongs to the phone that opened it', async () => {
@@ -747,29 +832,30 @@ describe('PhoneServer', () => {
     const hls = await play(a, 'clip.mkv', 'h264')
     const playlistUrl = String(hls.url)
     const b = await pair()
-    const other = playlistUrl.replace(/t=.*$/, `t=${b}`)
+    const other = playlistUrl
     // 404 and never 403: another phone is not told the job exists.
-    expect((await fetch(url(other))).status).toBe(404)
-    expect((await fetch(url(other.replace('index.m3u8', '1.m4s')))).status).toBe(404)
-    expect((await fetch(url(other.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
+    expect((await fetch(url(other), as(b))).status).toBe(404)
+    expect((await fetch(url(other.replace('index.m3u8', '1.m4s')), as(b))).status).toBe(404)
+    expect((await fetch(url(other.replace('index.m3u8', 'init.mp4')), as(b))).status).toBe(404)
     // No token at all is the wall, as for every other route.
-    expect((await fetch(url(playlistUrl.replace(/\?t=.*$/, '')))).status).toBe(401)
+    expect((await fetch(url(playlistUrl))).status).toBe(401)
+    expect((await fetch(url(playlistUrl), as(a))).status).toBe(200)
     // A job id nobody opened, from a paired phone: the same 404.
-    expect((await fetch(url(`/hls/0123456789abcdef/index.m3u8?t=${a}`))).status).toBe(404)
+    expect((await fetch(url('/hls/0123456789abcdef/index.m3u8'), as(a))).status).toBe(404)
   })
 
   it('a stream stops when its access goes: the wall is re-checked on every ask', async () => {
     const token = await pair()
     const hls = await play(token, 'clip.mkv')
     const playlistUrl = String(hls.url)
-    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')), as(token))).status).toBe(200)
     const jobDir = join(dir, 'hls', playlistUrl.split('/')[2])
     // The phone's access goes. Every other route already refuses; the
     // stream used to carry on, and to restart ffmpeg on a seek.
-    listed.delete(token)
-    expect((await fetch(url(playlistUrl))).status).toBe(404)
-    expect((await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))).status).toBe(404)
-    expect((await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
+    listed.delete(idOf(token))
+    expect((await fetch(url(playlistUrl), as(token))).status).toBe(404)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')), as(token))).status).toBe(404)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')), as(token))).status).toBe(404)
     // The route stops the job without waiting (a kill, then the folder's
     // delete): its going is waited for, not slept for. 60 ms was not enough
     // on a busy CI runner (2026-10-30).
@@ -781,7 +867,7 @@ describe('PhoneServer', () => {
     writeFileSync(pic, 'png')
     expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(pic)}`))).status).toBe(401)
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const r = await fetch(url(`/api/thumb?path=${encodeURIComponent(pic)}`), { headers: auth })
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toBe('image/webp')
@@ -798,7 +884,7 @@ describe('PhoneServer', () => {
 
   it('/api/pos reads and writes the film position by path, inside the wall', async () => {
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     const film = join(dir, 'film.mkv')
     const pos = (p: string) => `/api/pos?path=${encodeURIComponent(p)}`
     expect((await fetch(url(pos(film)))).status).toBe(401)
@@ -821,7 +907,7 @@ describe('PhoneServer', () => {
   it('POST /api/diag writes the phone lines to the log, capped, under its name', async () => {
     expect((await fetch(url('/api/diag'), { method: 'POST', body: '{}' })).status).toBe(401)
     const token = await pair()
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { cookie: `prism_phone=${token}` }
     expect((await fetch(url('/api/diag'), { headers: auth })).status).toBe(405)
     const r = await fetch(url('/api/diag'), {
       method: 'POST',
@@ -842,7 +928,7 @@ describe('PhoneServer', () => {
     const token = await pair()
     const hls = await play(token, 'clip.mkv')
     const playlistUrl = String(hls.url)
-    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')), as(token))).status).toBe(200)
     const jobDir = join(dir, 'hls', playlistUrl.split('/')[2])
     expect(existsSync(jobDir)).toBe(true)
     await server.stop()
@@ -864,7 +950,7 @@ describe('PhoneServer', () => {
     process.on('unhandledRejection', onUnhandled)
     try {
       const token = await pair()
-      const auth = { authorization: `Bearer ${token}` }
+      const auth = { cookie: `prism_phone=${token}` }
       deps.listDir = async () => {
         throw new Error('listing exploded')
       }
@@ -888,7 +974,8 @@ describe('PhoneServer', () => {
       deps.media = async () => {
         throw new Error('media exploded')
       }
-      const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`), {
+      const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}`), {
+        ...as(token),
         signal: AbortSignal.timeout(3000)
       })
       expect(m.status).toBe(500)
@@ -911,9 +998,9 @@ describe('PhoneServer', () => {
 
   it('stops listing a forgotten phone as watching', async () => {
     const token = await pair()
-    await fetch(url('/api/me'), { headers: { authorization: `Bearer ${token}` } })
-    expect(server.watching()).toEqual([token])
-    forget(server.state, token)
+    await fetch(url('/api/me'), { headers: { cookie: `prism_phone=${token}` } })
+    expect(server.watching()).toEqual([idOf(token)])
+    forget(server.state, idOf(token))
     expect(server.watching()).toEqual([])
   })
 
