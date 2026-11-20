@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { baseZoom, MAX_BASE, PAGE_100_PX, zoomPercent } from './pdfZoom'
+import { baseZoom, FIT_FLOOR, fitScale, MAX_BASE, PAGE_100_PX, padXFor, zoomPercent } from './pdfZoom'
 
 describe('what 100% means for a document', () => {
   it('leaves US Letter exactly where it was', () => {
@@ -54,5 +54,23 @@ describe('the percentage the pill shows', () => {
 
   it('never divides by a base of nothing', () => {
     expect(zoomPercent(1.9, 0)).toBe(100)
+  })
+})
+
+describe('fitting in a narrow pane (audit #83)', () => {
+  it('the gutter shrinks with the box and is 48 from 800 px up', () => {
+    expect(padXFor(1000)).toBe(48)
+    expect(padXFor(800)).toBe(48)
+    expect(padXFor(200)).toBe(12)
+    expect(padXFor(40)).toBe(8)
+  })
+  it('a letter page fits a 200 px pane and a 120 px one (the old 0.25 floor could not)', () => {
+    expect(fitScale('fit-width', { w: 200, h: 400 }, { w: 612, h: 792 }, 24, FIT_FLOOR, 5) * 612 + padXFor(200) * 2).toBeLessThanOrEqual(200)
+    const s = fitScale('fit-width', { w: 120, h: 400 }, { w: 612, h: 792 }, 24, FIT_FLOOR, 5)
+    expect(s).toBeLessThan(0.25)
+    expect(612 * s + padXFor(120) * 2).toBeLessThanOrEqual(120)
+  })
+  it('keeps the old fit in a wide window', () => {
+    expect(fitScale('fit-width', { w: 1000, h: 800 }, { w: 612, h: 792 }, 24, FIT_FLOOR, 5)).toBeCloseTo((1000 - 96 - 1) / 612, 6)
   })
 })
