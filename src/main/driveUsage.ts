@@ -1,7 +1,7 @@
 import { statfs } from 'fs/promises'
-import { join } from 'path'
 import type { BrowseDriveUsage } from '@shared/browse'
 import { execFile } from './spawnWorker'
+import { powershellExe } from './systemBin'
 
 /**
  * HOW FULL EACH DRIVE IS, for the Explorer's This PC rows (#296; owner,
@@ -60,8 +60,7 @@ export function parseLabels(output: string): Map<string, Label> {
   return found
 }
 
-const powershell = (): string =>
-  join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+const powershell = powershellExe
 
 /** UTF-8 first: piped, Windows PowerShell writes in the console's OEM code
  *  page, so a label like "Søren" reached the page as "S?ren" (MEASURED,

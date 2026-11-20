@@ -1,4 +1,5 @@
 import { execFile, launch } from './spawnWorker'
+import { powershellExe } from './systemBin'
 import { createHash, randomUUID } from 'crypto'
 import { access, mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
@@ -253,7 +254,7 @@ export function createIndexerRuntime(
           if (await (deps.serviceAvailable ?? serviceAvailable)(candidate)) {
             pipe = candidate
             const output = await deps
-              .run('powershell.exe', [
+              .run(powershellExe(), [
                 '-NoProfile',
                 '-NonInteractive',
                 '-Command',

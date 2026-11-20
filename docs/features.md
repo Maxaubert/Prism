@@ -3,6 +3,51 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
+
+mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
+(`^0.8.15`), so mammoth and electron-builder resolve the fixed copy. Held by
+`src/main/xmldomVersion.test.ts` (version and override) and `src/main/docxConvertXmldom.test.ts`
+(a real `.docx` still converts).
+
+## Zip members are bounded, adm-zip 0.6.1 (owner, 2026-11-20, audit #25)
+
+`adm-zip` is 0.6.1, which limits what a member may inflate to. Prism's own in-process reader
+(`memberData` in `src/main/archive.ts`) now refuses a deflated member that declares size 0 but carries
+data, and one that declares more than `MEMBER_MAX_BYTES` (4 GiB, the largest a zip member can declare
+without zip64 and far above anything Prism shows). Every other member inflates up to its declared size.
+Held by `src/main/archiveMemberLimit.test.ts`.
+
+## Windows' own programs start by full path (owner, 2026-11-20, audit #1)
+
+Prism starts `reg.exe`, `where.exe`, `rundll32.exe`, `whoami.exe`, `cleanmgr.exe` and Windows PowerShell
+by their full path under `%SystemRoot%\System32`, never by bare name, because a bare name is looked up in
+the folder Prism was started from first. One helper, `src/main/systemBin.ts` (`systemExe`, `powershellExe`),
+builds every such path; the update relaunch uses it too. Held by `src/main/systemBin.test.ts`, which fails
+when a bare system program name reaches a process call, or appears outside `systemExe()`, anywhere in `src/main`.
+## The phone's token is a cookie, and it expires (audit #17, owner, 2026-11-20)
+
+The phone server serves plain HTTP on the user's own network. The audit (#17) found the pairing token
+in `?t=` query strings and the Authorization header: it showed up in page addresses, history, media
+and playlist URLs, and it never expired. The owner chose **"Expire + cookie"**.
+
+- After pairing the token lives in an **HttpOnly, SameSite=Strict cookie** (`prism_phone`, `routes.ts`
+  `tokenCookie`). The `/pair` answer carries only `{ here }`. The page holds no token: `localStorage`
+  is not used (an old key is removed on load), and no URL has `?t=`. `<img>`, `<video>`, `fetch` and
+  HLS segments send the cookie on the same origin, so the playlist names plain files. The server reads
+  the cookie and nothing else: `?t=` and `Authorization` are ignored (a 401).
+- **30 days idle**: a phone unused that long is forgotten (`pairing.ts` `pruneIdle`, on every phone
+  request and whenever the PC lists its phones) and sees the pairing screen again.
+- **Rotation**: a phone in use gets a fresh token, set as a new cookie on that answer, at most once a
+  day (`resolve`). The old token works 5 more minutes (requests already in flight), then stops.
+- A phone has a stable **`id`**, never sent to it. Grants, HLS jobs, the "watching" list and the PC
+  dialog's Forget key on the id, so rotation costs a phone none of its access. Phones saved before
+  this get an id from a hash of their token. The PC dialog is given the id, not the token.
+- Both pairing screens say **"Pair only on a network you trust."** (`data-phone-trust`).
+- Held by `pairing.test.ts` (expiry, rotation, grace, prune, store round trip), `routes.test.ts`
+  (cookie parsing and flags), `server.test.ts` (cookie only, idle forget, rotation keeps access, no
+  token in a playlist or play url), `phone/api.test.ts`, and the phone e2e scenarios.
+
 ## The in-app update runs only a signed installer (#534, owner, 2026-11-19)
 
 The audit (#534 #10) found that Install downloaded the installer from this repo's releases and ran
@@ -3413,8 +3458,8 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   and checked only that the token owned it. The job's own file is re-checked against the
   phone's root on every ask now, and a phone that MOVES loses the old root's grants and its
   running job in the same breath.
-  The token rides as a Bearer header for fetches and as `?t=` for `<video src>`, which can
-  carry no header. Nothing on the phone path is synchronous on main's thread: the page
+  The token is an HttpOnly cookie since 2026-11-20 (see the section at the top); it rides in no
+  URL and no header the page sets. Nothing on the phone path is synchronous on main's thread: the page
   streams, the listing is the bounded async `listDir` the sidebar uses, pairing is a Map.
   One honest exception, and it is the PC's too: an archive listed or extracted for the phone
   goes through main's own reader, and for a zip under the cap that is adm-zip, which is
@@ -3447,9 +3492,9 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   (the forced frames come out as plain I-frames, which the HLS muxer does not cut on), so
   every segment after the first sat 6.5s later than the playlist said and nothing errored.
   Paths go to ffmpeg with FORWARD slashes, or its HLS muxer writes `init.mp4` into the
-  current directory. The token rides on EVERY URI in the playlist (`0.m4s?t=`): a player
-  resolves them against the playlist's url and drops its query, so a token on the playlist
-  alone reached no segment at all (401 on init.mp4, found by the e2e). The decision is PER
+  current directory. Until 2026-11-20 the token rode on EVERY URI in the playlist (`0.m4s?t=`),
+  because a player drops the playlist's query; the cookie replaced that and the playlist names
+  plain files. The decision is PER
   DEVICE, never from a user agent (`decide.ts`, pure): the phone reports what its own
   `canPlayType` answers as tokens (`canPlay.ts`, `can=h264,aac,mp4,mse`), a container the
   phone cannot demux is HLS whatever the codecs, a codec the phone plays is COPIED into the
@@ -3530,7 +3575,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
 - **ONE PLACE PER FILM, ON THE PC** (2026-09-13, #118; owner: some way into a film on the
   PC, opened it on the iPad, and it began at the beginning). The position lived in each
   renderer's own localStorage keyed by the media URL - `fsmedia://` on the PC,
-  `/hls/<job>/index.m3u8?t=<token>` on the phone, which changes with every job and token -
+  `/hls/<job>/index.m3u8` (`?t=<token>` before 2026-11-20) on the phone, which changes with every job -
   so the phone never saw the PC's place and could not even find its own from one evening to
   the next. `src/main/positions.ts` is the store now (`userData/positions.json`, tabs.json's
   shape: debounced, capped at 500 newest, a suggestion), keyed by FILE PATH lower-cased,

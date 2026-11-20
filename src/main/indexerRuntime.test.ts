@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { powershellExe } from './systemBin'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -290,7 +291,7 @@ describe('private bundled indexer', () => {
     const { options, deps } = await setup()
     const original = deps.run.getMockImplementation()!
     deps.run.mockImplementation(async (exe, args) =>
-      exe === 'powershell.exe' ? 'C:\\\r\nD:\\\r\n' : original(exe, args)
+      exe === powershellExe() ? 'C:\\\r\nD:\\\r\n' : original(exe, args)
     )
     const serviceAvailable = vi.fn(async () => true)
     const runtime = createIndexerRuntime(

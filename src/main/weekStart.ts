@@ -1,5 +1,5 @@
 import { execFile } from './spawnWorker'
-import { join } from 'path'
+import { systemExe } from './systemBin'
 
 /**
  * THE USER'S FIRST DAY OF THE WEEK, as Windows has it (#285). File Explorer's
@@ -30,7 +30,7 @@ let asked: Promise<number> | null = null
 export function weekStart(): Promise<number> {
   if (process.platform !== 'win32') return Promise.resolve(FALLBACK_WEEK_START)
   asked ??= new Promise((done) => {
-    const reg = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'reg.exe')
+    const reg = systemExe('reg.exe')
     execFile(
       reg,
       ['query', 'HKCU\\Control Panel\\International', '/v', 'iFirstDayOfWeek'],

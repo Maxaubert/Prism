@@ -1,6 +1,6 @@
 import { useState, type JSX } from 'react'
 
-/** The screen with no token: paste the code, or the link already carried it. */
+/** The screen with no pairing: paste the code, or the link already carried it. */
 export function Pairing({
   initialCode,
   error,
@@ -20,6 +20,9 @@ export function Pairing({
       <h1 className="text-2xl font-semibold">Prism</h1>
       <p className="opacity-70">
         Open More &gt; Phone on the PC and scan the code, or type it here.
+      </p>
+      <p className="text-sm opacity-60" data-phone-trust>
+        Pair only on a network you trust.
       </p>
       <input
         className="w-48 rounded border border-[color:var(--p-line)] bg-transparent px-3 py-2 text-center text-xl uppercase tracking-[0.3em]"

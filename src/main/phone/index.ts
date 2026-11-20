@@ -11,7 +11,7 @@ import { parseStore, serializeStore, type PhoneStore } from './store'
 import { lanAddresses } from './lan'
 import { pairLink } from './routes'
 import { qrSvg } from './qr'
-import { forget as forgetPhone } from './pairing'
+import { forget as forgetPhone, pruneIdle } from './pairing'
 import { writeAtomic } from '../latestWrite'
 import { userPaths } from '../paths'
 import type { PhoneState, FileMemoryPatch } from '@shared/types'
@@ -112,11 +112,24 @@ export function startPhoneService(opts: {
     })
   const phoneState = async (start: string | null): Promise<PhoneState> => {
     await phoneReady
+    // A phone unused for 30 days is forgotten, also when it never comes back
+    // to say so (2026-11-20).
+    const idle = pruneIdle(phoneStore.pairing, Date.now())
+    if (idle.length) {
+      for (const p of idle) phone?.dropGrants(p.id)
+      savePhone()
+    }
     const state: PhoneState = {
       on: !!phone,
       port: phone?.port ?? null,
       addresses: E2E ? ['127.0.0.1'] : lanAddresses(networkInterfaces()),
-      phones: phoneStore.pairing.phones.map((p) => ({ ...p })),
+      phones: phoneStore.pairing.phones.map((p) => ({
+        id: p.id,
+        name: p.name,
+        here: p.here,
+        paired: p.paired,
+        seen: p.seen
+      })),
       watching: phone?.watching() ?? [],
       error: phoneError || undefined
     }
@@ -155,11 +168,11 @@ export function startPhoneService(opts: {
   ipcMain.on(CALL.phoneCodeDrop, () => {
     phoneStore.pairing.codes.length = 0
   })
-  ipcMain.handle(CALL.phoneForget, async (_e, token: unknown, start: unknown) => {
+  ipcMain.handle(CALL.phoneForget, async (_e, id: unknown, start: unknown) => {
     await phoneReady
-    if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
+    if (typeof id === 'string' && forgetPhone(phoneStore.pairing, id)) {
       // Its grants go with it (#106): a forgotten phone keeps nothing.
-      phone?.dropGrants(token)
+      phone?.dropGrants(id)
       savePhone()
       phoneChanged()
     }

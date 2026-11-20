@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pairLink, parseRoute, tokenOf } from './routes'
+import { pairLink, parseRoute, tokenCookie, tokenOf } from './routes'
 
 describe('parseRoute', () => {
   it('maps the index and static assets', () => {
@@ -54,10 +54,22 @@ describe('parseRoute', () => {
 })
 
 describe('tokenOf', () => {
-  it('prefers the bearer header, falls back to the query', () => {
-    expect(tokenOf(new URLSearchParams('t=q'), 'Bearer h')).toBe('h')
-    expect(tokenOf(new URLSearchParams('t=q'), undefined)).toBe('q')
-    expect(tokenOf(new URLSearchParams(''), undefined)).toBeNull()
+  it('reads the phone cookie among others, and nothing else', () => {
+    expect(tokenOf('a=1; prism_phone=abc; b=2')).toBe('abc')
+    expect(tokenOf('prism_phone=abc')).toBe('abc')
+    expect(tokenOf('xprism_phone=abc')).toBeNull()
+    expect(tokenOf('prism_phone=')).toBeNull()
+    expect(tokenOf(undefined)).toBeNull()
+  })
+})
+
+describe('tokenCookie', () => {
+  it('is HttpOnly, SameSite=Strict and 30 days long', () => {
+    const c = tokenCookie('abc', 30 * 86400)
+    expect(c).toContain('prism_phone=abc')
+    expect(c).toContain('HttpOnly')
+    expect(c).toContain('SameSite=Strict')
+    expect(c).toContain('Max-Age=2592000')
   })
 })
 

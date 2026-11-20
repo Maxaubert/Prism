@@ -6,6 +6,7 @@
  * initializes the managed runtime before registering search IPC.
  */
 import { execFile } from './spawnWorker'
+import { systemExe } from './systemBin'
 import { managedIndexerRuntime } from './indexerRuntime'
 import { basename, extname, join } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
@@ -30,7 +31,7 @@ export function findEverything(root?: string, signal?: AbortSignal): Promise<str
     join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Everything', 'es.exe')
   ]
   return new Promise<string>((done) => {
-    execFile('where.exe', ['es.exe'], { windowsHide: true }, (err, out) => {
+    execFile(systemExe('where.exe'), ['es.exe'], { windowsHide: true }, (err, out) => {
       done(!err ? (out.split(/\r?\n/).find((l) => l.trim()) ?? '').trim() : '')
     })
   }).then(async (fromPath) => {

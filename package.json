@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.138.12",
+  "version": "0.138.13",
   "private": true,
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
@@ -49,6 +49,9 @@
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.15"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.11.1",
