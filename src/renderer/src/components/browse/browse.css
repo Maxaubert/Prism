@@ -164,7 +164,8 @@
 .folder-browser input:focus-visible {
   outline: none;
 }
-.folder-browser button:not(:disabled):not([data-selected]):hover {
+/* :where keeps this at the old specificity, so a marked place or drive (data-menu, aria-current) still wins (#506). */
+.folder-browser button:not(:disabled):where(:not([data-selected])):hover {
   background: var(--p-hover);
 }
 .folder-browser svg {
