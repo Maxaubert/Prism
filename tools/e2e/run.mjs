@@ -23976,7 +23976,7 @@ async function zipPreviewClicksScenario(fixtures) {
     await cardRow('docs').click()
     await cardRow('app').click({ modifiers: ['Control'] })
     const manyMenu = await menuRowsOf('app')
-    ok(manyMenu.join('|') === ['Copy 2 items', 'Extract 2 items here', 'Extract 2 items to...'].join('|'), `several rows' menu (${manyMenu.join(', ')})`)
+    ok(manyMenu.join('|') === ['Copy 2 items', 'Extract 2 items here', 'Extract 2 items to…'].join('|'), `several rows' menu (${manyMenu.join(', ')})`)
     ok((await picked()).join('|') === 'app|docs', 'a right-click inside the selection keeps it')
     await closeMenu()
     // Open from the menu goes into a folder in the card.
