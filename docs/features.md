@@ -31,6 +31,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   tab's X landing on its neighbour. Held by `lib/tabs/tabWidthPrefs.test.ts` (`tabWidthClass`).
 - **The find bar fits a narrow pane** (audit #84): capped at the pane's width less 24px, the field shrinks. Held by
   `components/FindBar.test.ts`.
+- **A danger row and the phone error line read on a light theme** (audit #39): the red is mixed with the theme's
+  ink (`DANGER_INK`, `MENU_ROW_DANGER`), like the delete question's outline. And **the title bar's hovers use
+  `--p-hover`** (audit #68), so they show on light themes. Held by `components/menuLook.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 

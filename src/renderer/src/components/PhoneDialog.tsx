@@ -3,6 +3,7 @@ import type { PhoneState } from '@shared/types'
 import { Switch } from 'prism-term-core/renderer/settings/fields'
 import { formatWhen } from '../lib/format'
 import { closeOnly, Dialog } from './Dialog'
+import { DANGER_INK } from './menuLook'
 
 /**
  * More > Phone (2026-09-06, #104, Tools > Phone until #272): the one home of "Prism on your phone".
@@ -82,7 +83,7 @@ export function PhoneDialog({
       )}
       {/* Plain HTTP carries the phone's cookie: said once, in plain words (2026-11-20). */}
       <p data-phone-trust>Pair only on a network you trust.</p>
-      {state.error && <p className="text-[#d97b84]">{state.error}</p>}
+      {state.error && <p className={DANGER_INK}>{state.error}</p>}
       {state.on && state.code && (
         <div className="flex gap-4">
           {/* The SVG is main's own: `qrcode` rendering a link main built from

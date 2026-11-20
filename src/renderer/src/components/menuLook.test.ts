@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MENU_PANEL, MENU_ROW, stepRow } from './menuLook'
+import { DANGER_INK, MENU_PANEL, MENU_ROW, MENU_ROW_DANGER, stepRow } from './menuLook'
 
 // One popup-menu look (#522): the right-click menu and the player's cog menu.
 const src = (f: string): string => readFileSync(join(__dirname, f), 'utf8')
@@ -38,5 +38,18 @@ describe('the one menu look', () => {
     expect(s).toContain('data-menu-back')
     expect(s).toContain('stepRow')
     expect(s).toContain('onKeyDown')
+  })
+})
+describe('the danger red reads on a light panel (audit #39)', () => {
+  it('is mixed with the theme ink, not a fixed dark-panel colour', () => {
+    expect(DANGER_INK).toContain('var(--p-text)')
+    expect(MENU_ROW_DANGER).toContain('var(--p-text)')
+    for (const f of ['ContextMenu.tsx', 'PhoneDialog.tsx']) expect(src(f), f).not.toMatch(/#d97b84|#f0a4ab/)
+  })
+})
+
+describe('the title bar hovers wear the theme hover (audit #68)', () => {
+  it('has no fixed white wash', () => {
+    expect(src(join('titlebar', 'TitleButtons.tsx'))).not.toMatch(/bg-white\//)
   })
 })
