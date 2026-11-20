@@ -652,7 +652,7 @@ function Drawer({
   children: ReactNode
 }): JSX.Element {
   return (
-    <div className="fixed inset-0 z-20 flex" data-phone-drawer>
+    <div className="fixed inset-0 z-20 flex pl-[env(safe-area-inset-left)]" data-phone-drawer>
       {/* The ground. It dismisses, and it is what makes this read as a layer
           over the folder rather than a screen that replaced it. */}
       <button
