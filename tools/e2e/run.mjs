@@ -19081,7 +19081,7 @@ async function phoneExplorerScenario(fixtures) {
     // A FOLDER NO TAB HOLDS, reached by its place: it lists and its file opens.
     await page.goto(`${base}/?at=${encodeURIComponent(OTHER_ROOT)}`)
     await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
-    ok((await fetch(otherFile)).status === 200, 'once listed, its file is served')
+    ok((await fetch(otherFile, { headers: auth })).status === 200, 'once listed, its file is served')
     await page.click('[data-phone-file]:has-text("bad.json")')
     await page.waitForSelector('[data-phone-viewer]', { timeout: 15000 })
     ok(true, 'and opens on the phone')
