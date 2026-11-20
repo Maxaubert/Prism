@@ -52,6 +52,28 @@ changing a feature: each entry records what the owner decided, why, and what hol
   `src/renderer/src/hooks/useListingPrefetch.test.ts`.
 - **A resume place is applied only to the film it was asked for** (audit #91). Held by
   `src/renderer/src/lib/resumePoint.test.ts`.
+- **Find offsets stay on the original text** (audit #67, #71): a letter whose lower case is longer (U+0130)
+  no longer shifts the highlights after it, in documents or PDFs. Held by `src/renderer/src/lib/findInText.test.ts`
+  and `src/renderer/src/lib/pdf/pdfSearch.test.ts`.
+- **A stale stored visualizer style lets the idle loop park** (audit #57). Held by
+  `src/renderer/src/lib/viz/vizGuards.test.ts`.
+- **F2, Delete and Ctrl+C/X do nothing for a zip member or binned file in full view** (audit #77). Held by
+  `src/renderer/src/hooks/useAppKeys.test.ts`.
+- **Deleting a playing film waits a beat for the player to let go** (audit #76). Held by
+  `src/renderer/src/hooks/useFileOps.test.ts`.
+- **Each PDF viewer paints its find under its own highlight names** (audit #55), **and a page that cannot be
+  read counts as empty for find and sizing** (audit #86, #87). Held by `src/renderer/src/lib/highlightSlots.test.ts`,
+  `src/renderer/src/lib/pdfHighlightCss.test.ts` and `src/renderer/src/lib/pdf/pdfSearch.test.ts`.
+- **The document find scrolls only when its match changes** (audit #44). Held by
+  `src/renderer/src/components/DocFind.test.ts`.
+- **A JSON error with no position marks the end of the text** (audit #75). Held by
+  `src/renderer/src/lib/code/codeLint.test.ts`.
+- **The tab strip is draggable again after an outside drag leaves the window** (audit #45). Held by
+  `src/renderer/src/lib/drag/dragInFlight.test.ts`.
+- **The list scrollbar ends a thumb drag when it loses the pointer** (audit #37). Held by
+  `src/renderer/src/components/browse/OverlayScrollbar.test.ts`.
+- **The showcase tools name a missing control or missing ffprobe** (audit #96, #97). Held by
+  `tools/lib/captureGuard.test.mjs` and `tools/lib/durationOf.test.mjs`.
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
