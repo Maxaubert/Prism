@@ -132,6 +132,7 @@ import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
+import { droppedKind } from './lib/droppedKind'
 import { saveCopiesJob } from './lib/saveCopies'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -1279,9 +1280,15 @@ export default function App(): JSX.Element {
       const f = e.dataTransfer?.files?.[0]
       if (!f) return
       const dropped = window.prism.getDroppedPath(f)
-      void window.prism.statFile(dropped).then((st) => {
-        if (st && !st.isFolder) arrive({ explorerFile: dropped, files: [], index: -1, root: '' })
-        else if (st) openInNewTab(dropped, true)
+      // No statFile first: it refuses a path outside the grants, a Desktop drop
+      // among them (audit #23). A file's arrival, or the new tab's own read,
+      // grants what it needs.
+      void droppedKind(dropped, {
+        stat: window.prism.statFile,
+        probe: (p) => window.prism.browseDirectory(nextTabId(), p, { details: false })
+      }).then((kind) => {
+        if (kind === 'file') arrive({ explorerFile: dropped, files: [], index: -1, root: '' })
+        else openInNewTab(dropped, true)
       })
     }
     // The ring clears in the CAPTURE phase (2026-09-03): a drop on a sidebar
