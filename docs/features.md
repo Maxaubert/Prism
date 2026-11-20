@@ -58,6 +58,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A PDF fits a narrow pane** (audit #83): the page's side gutter shrinks with the box (48px from 800px wide up)
   and a fit may go below the 25% zoom floor, so the page is not wider than the pane and opens centred. Held by
   `lib/pdf/pdfZoom.test.ts` (`padXFor`, `fitScale`).
+- **A settings dropdown opens upward when the pane would clip it** (audit #85): the list is measured as it opens
+  and flips above its button when it does not fit below. Held by `packages/term-core/renderer/lib/listFlip.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
