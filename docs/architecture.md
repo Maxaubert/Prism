@@ -270,6 +270,12 @@ Filesmith's conventions.
     `HLS_MIME`).
   - the bundled programs: `src/main/bundledTools.ts` (`ffmpegTools()`, `sevenExe()`,
     `fluidTools()`), never `findFfmpeg(app.isPackaged, ...)` spelled out.
+    Where each one is searched for (resources/bin, or a vendor/<name> walk up four parents) is one
+    helper, `src/main/vendorDirs.ts` (`vendorDirs`), not a copy per program.
+  - the IPC handlers validate and delegate; the work sits beside them: the paste engine
+    (`src/main/pasteJob.ts` `runPaste`, with `PASTE_TICK_MS`) and the Undo restore job
+    (`src/main/binRestore.ts` `runRestore`, with the shell fallback) take a `send` and a `written`
+    callback, so a test needs no ipcMain.
   - what several parts of main share about the app right now (the window, unsaved text, a
     working agent, the close answer, an install or quit under way): `src/main/appState.ts`
     (`appState`, and `E2E`). Read and written in place, never copied out.
