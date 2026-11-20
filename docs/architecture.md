@@ -301,7 +301,7 @@ Filesmith's conventions.
     paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
     results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main
     returns them, the preload promises them, the phone shim answers them.
-  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
+  - the typed contract (#538 item 27): `src/shared/ipcContract.ts` maps a channel to its arguments and answer\r\n    (`InvokeContract`, `SendContract`). The preload's `invoke`/`send` and main's `ipc/typed.ts`\r\n    `handle`/`on` read it, so one side drifting is a type error. Migrated so far: `open.ts`, `links.ts`,\r\n    `thumbs.ts`; a channel not in the map still uses the plain `ipcRenderer`/`ipcMain`. Move an area in\r\n    by adding its rows and switching its two ends.\r\n  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
     fallback)` in `src/preload/index.ts`.
   - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`
     prefixes, `PlayAnswer`, `Me`, the stat, pos and tab answers). The page's fetch helpers are
