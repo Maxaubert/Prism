@@ -33,7 +33,7 @@ import { browseLocation, browseParent } from '../lib/browse'
 import { heldPaused, intendToPlay, pauseQuietly } from '../lib/playState'
 import { wayOutPreview } from '../lib/wayOutPreview'
 import { useBrowseSearch } from './useBrowseSearch'
-import { createDirectoryRequests, directoryKey, visitedDirectories } from '../lib/visitedDirectories'
+import { createDirectoryRequests, directoryKey, readGeneration, visitedDirectories } from '../lib/visitedDirectories'
 import { usePendingHint, type ListPending } from './usePendingHint'
 import { crumb } from 'prism-term-core/renderer/lib/diag'
 import type { DirListing } from '@shared/types'
@@ -412,7 +412,7 @@ export function useFolderBrowsing(
     const shown = !!visitedDirectories.get(path)
     const again = reason === 'dir-changed' || reason === 'focus'
     void readDirectory
-      .current(id, path, `${refreshKey}:${revision}:${settleKey}`, again)
+      .current(id, path, readGeneration(refreshKey, revision, settleKey), again)
       .then((next) => {
         // Said even when the effect has moved on (review of #322): a slow
         // read the user gave up on (a hung network folder) is exactly what
@@ -504,7 +504,7 @@ export function useFolderBrowsing(
       // Start the real read before committing a cached cursor. Its location
       // effect joins this same promise instead of scanning the folder twice.
       const reading = readDirectory
-        .current(tabId, target, `${refreshKey}:${revision}`)
+        .current(tabId, target, readGeneration(refreshKey, revision, settleKey))
         .catch(() => null)
       if (visibleId.current === tabId) {
         // A miss keeps the folder on screen (dimmed after a moment, a hint
@@ -592,7 +592,7 @@ export function useFolderBrowsing(
       }
       if (!cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, next.path) }))
     },
-    [id, path, folder, refreshKey, revision, setState, askArchive]
+    [id, path, folder, refreshKey, revision, settleKey, setState, askArchive]
   )
   useLayoutEffect(() => {
     navigateRef.current = navigate
