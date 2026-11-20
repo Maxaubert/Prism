@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { LAYER } from './layers'
 import { placeTip, type TipSide, type TipSpot } from '../lib/tipPlace'
+import { onTooltipDocuments, tooltipDocuments } from '../lib/tooltipWindows'
 
 /**
  * THE APP'S OWN TOOLTIPS, FOR EVERY `title` (owner, 2026-10-13: "make the
@@ -31,12 +32,15 @@ interface Shown {
   text: string
   item: DOMRect
   prefer: TipSide
+  /** The document the item is in: the tip is drawn there. */
+  doc: Document
 }
 
 /** The element whose title the pointer is on, or null. */
-function titled(el: EventTarget | null): HTMLElement | null {
-  let n = el instanceof Element ? (el as HTMLElement) : null
-  while (n && n !== document.body) {
+export function titled(el: EventTarget | null): HTMLElement | null {
+  // Not instanceof: a node from the preview window is another window's Element (audit #95).
+  let n = (el as Node | null)?.nodeType === 1 ? (el as HTMLElement) : null
+  while (n && n !== n.ownerDocument.body) {
     if (n.hasAttribute('title') || n.dataset.tipTitle !== undefined) return n
     n = n.parentElement
   }
@@ -99,7 +103,7 @@ export default function Tooltips(): JSX.Element | null {
       takeTitle(el)
       const text = el.dataset.tipTitle ?? ''
       if (!text.trim()) return setShown(null)
-      setShown({ text, item: boxOf(el), prefer: sideOf(el) })
+      setShown({ text, item: boxOf(el), prefer: sideOf(el), doc: el.ownerDocument })
     }
     const onOver = (e: MouseEvent): void => {
       const el = titled(e.target)
@@ -126,28 +130,49 @@ export default function Tooltips(): JSX.Element | null {
     const onOut = (e: MouseEvent): void => {
       if (!current) return
       const to = e.relatedTarget
-      if (to instanceof Node && current.contains(to)) return
+      if ((to as Node | null)?.nodeType && current.contains(to as Node)) return
       clear()
     }
     // A press, a key, a scroll or the window losing focus: the tip goes, as
     // Windows' does.
     const away = (): void => clear()
-    document.addEventListener('mouseover', onOver)
-    document.addEventListener('mouseout', onOut)
-    document.addEventListener('pointerdown', away, true)
-    document.addEventListener('keydown', away, true)
-    document.addEventListener('wheel', away, { capture: true, passive: true })
-    window.addEventListener('blur', away)
+    // Every document a tip can appear in: this page's, and each window the
+    // host registered (audit #95). One tip at a time, so the state is shared.
+    const bound = new Map<Document, () => void>()
+    const bind = (doc: Document): (() => void) => {
+      const win = doc.defaultView
+      doc.addEventListener('mouseover', onOver)
+      doc.addEventListener('mouseout', onOut)
+      doc.addEventListener('pointerdown', away, true)
+      doc.addEventListener('keydown', away, true)
+      doc.addEventListener('wheel', away, { capture: true, passive: true })
+      win?.addEventListener('blur', away)
+      return () => {
+        doc.removeEventListener('mouseover', onOver)
+        doc.removeEventListener('mouseout', onOut)
+        doc.removeEventListener('pointerdown', away, true)
+        doc.removeEventListener('keydown', away, true)
+        doc.removeEventListener('wheel', away, { capture: true })
+        win?.removeEventListener('blur', away)
+      }
+    }
+    const sync = (): void => {
+      const want = new Set(tooltipDocuments())
+      for (const [doc, undo] of bound) {
+        if (want.has(doc)) continue
+        undo()
+        bound.delete(doc)
+      }
+      for (const doc of want) if (!bound.has(doc)) bound.set(doc, bind(doc))
+    }
+    sync()
+    const unwatch = onTooltipDocuments(sync)
     return () => {
       clear()
-      document.removeEventListener('mouseover', onOver)
-      document.removeEventListener('mouseout', onOut)
-      document.removeEventListener('pointerdown', away, true)
-      document.removeEventListener('keydown', away, true)
-      document.removeEventListener('wheel', away, { capture: true })
-      window.removeEventListener('blur', away)
-    }
-  }, [])
+      unwatch()
+      bound.forEach((undo) => undo())
+      bound.clear()
+    }  }, [])
 
   // Placed once its own size is known, before it paints.
   useLayoutEffect(() => {
@@ -158,7 +183,7 @@ export default function Tooltips(): JSX.Element | null {
       placeTip(
         { left: shown.item.left, top: shown.item.top, width: shown.item.width, height: shown.item.height },
         { width: r.width, height: r.height },
-        { width: window.innerWidth, height: window.innerHeight },
+        { width: (shown.doc.defaultView ?? window).innerWidth, height: (shown.doc.defaultView ?? window).innerHeight },
         shown.prefer
       )
     )
@@ -183,6 +208,6 @@ export default function Tooltips(): JSX.Element | null {
       {shown.text}
       <style>{'@keyframes p-tip-in{from{opacity:0;transform:var(--p-tip-lean)}to{opacity:1;transform:none}}'}</style>
     </div>,
-    document.body
+    shown.doc.body
   )
 }
