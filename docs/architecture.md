@@ -237,8 +237,9 @@ Filesmith's conventions.
     the pure stack); leaving the window and the update install `hooks/useWindowClose.ts`;
     fullscreen and its fade `hooks/useFullscreenVeil.ts`; the window's keys `hooks/useAppKeys.ts`;
     the tabs (new, close, recent,
-    pick, reorder) `hooks/useTabOps.ts`; the session's tab and shell ids
-    `lib/sessionIds.ts`.
+    pick, reorder) `hooks/useTabOps.ts`; the unsaved text buffers and dirty paths `hooks/useTextBuffers.ts`;
+    the warm viewers and their cooldown `hooks/useWarmViewers.ts` (#538 item 9); the session's tab and shell ids
+    `lib/sessionIds.ts`. FolderBrowser's key answers are the pure `components/browse/folderKeys.ts`.
   - the archive panel's parts (ArchiveView.tsx): `components/archive/` (`useArchiveListing` the
     members and the reload, `useBandSelect` the drag-select band, `entry.ts` the row shape and
     columns, `MemberView`, `LockBadge`, `RenameInput`, `ArcVerb`; the verbs stay
