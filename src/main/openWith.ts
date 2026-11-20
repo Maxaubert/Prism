@@ -1,4 +1,5 @@
 import { execFile } from './spawnWorker'
+import { systemExe } from './systemBin'
 import { basename } from 'path'
 import { exists } from './fsUtil'
 
@@ -93,7 +94,7 @@ const expandEnv = (s: string): string =>
 function query(key: string): Promise<RegValue[]> {
   return new Promise((resolve) => {
     execFile(
-      'reg.exe',
+      systemExe('reg.exe'),
       ['query', key],
       { windowsHide: true, timeout: 3000 },
       (err, stdout) => resolve(err ? [] : parseRegOutput(stdout))

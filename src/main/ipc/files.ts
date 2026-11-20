@@ -19,6 +19,7 @@ import { basename, dirname, extname, join, resolve } from 'path'
 import { readFile, rm, stat, writeFile } from '../userFs'
 import { tmpdir } from 'os'
 import { execFile, launch } from '../spawnWorker'
+import { powershellExe, systemExe } from '../systemBin'
 import { performance } from 'perf_hooks'
 import { hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { clipWriter, ownClip } from '../clipCopy'
@@ -315,7 +316,7 @@ export function registerShellIpc(ctx: MainCtx): void {
   // the store apps the submenu can't launch.
   ipcMain.on(CALL.fileOpenChooser, (_e, p: string) => {
     if (!insideDesktop(p)) return
-    void launch('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p]).catch(() => {})
+    void launch(systemExe('rundll32.exe'), ['shell32.dll,OpenAs_RunDLL', p]).catch(() => {})
   })
 
   // What the "Open in" submenu lists. The candidates main enumerated are the
@@ -781,7 +782,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     ].join('; ')
     const asked = new Promise<boolean>((done) => {
       execFile(
-        'powershell.exe',
+        powershellExe(),
         ['-NoProfile', '-Command', script],
         { windowsHide: true, timeout: 20000 },
         (err) => done(!err)

@@ -2,6 +2,7 @@ import { access } from './userFs'
 import { isAbsolute, join, parse } from 'path'
 import { isLocalFixed } from './driveKinds'
 import { execFile } from './spawnWorker'
+import { systemExe } from './systemBin'
 
 /**
  * WHERE THE RECYCLE BINS ARE (Recycle Bin feature, stage 0). Every reader of
@@ -23,7 +24,7 @@ let sid: Promise<string | null> | null = null
 export function ownSid(): Promise<string | null> {
   sid ??= new Promise((resolve) => {
     try {
-      const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe')
+      const exe = systemExe('whoami.exe')
       execFile(exe, ['/user', '/fo', 'csv', '/nh'], { windowsHide: true, timeout: 5000 }, (error, stdout) =>
         resolve(error ? null : sidOf(String(stdout)))
       )

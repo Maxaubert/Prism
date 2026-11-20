@@ -1,4 +1,5 @@
 import { execFile } from './spawnWorker'
+import { systemExe } from './systemBin'
 import { existsSync } from 'fs'
 
 /**
@@ -123,7 +124,7 @@ type RegistryRunner = (args: string[]) => Promise<{ ok: boolean; out: string }>
 
 function reg(args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    execFile('reg.exe', args, { windowsHide: true, timeout: 10000 }, (err, stdout) =>
+    execFile(systemExe('reg.exe'), args, { windowsHide: true, timeout: 10000 }, (err, stdout) =>
       resolve({ ok: !err, out: stdout ?? '' })
     )
   })

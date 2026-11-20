@@ -3,6 +3,14 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Windows' own programs start by full path (owner, 2026-11-20, audit #1)
+
+Prism starts `reg.exe`, `where.exe`, `rundll32.exe`, `whoami.exe`, `cleanmgr.exe` and Windows PowerShell
+by their full path under `%SystemRoot%\System32`, never by bare name, because a bare name is looked up in
+the folder Prism was started from first. One helper, `src/main/systemBin.ts` (`systemExe`, `powershellExe`),
+builds every such path; the update relaunch uses it too. Held by `src/main/systemBin.test.ts`, which fails
+when a bare system program name reaches a process call, or appears outside `systemExe()`, anywhere in `src/main`.
+
 ## The in-app update runs only a signed installer (#534, owner, 2026-11-19)
 
 The audit (#534 #10) found that Install downloaded the installer from this repo's releases and ran
