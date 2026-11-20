@@ -19135,6 +19135,18 @@ async function phoneExplorerScenario(fixtures) {
       `and one fewer chevron than levels (${crumbs.chevrons} for ${crumbs.levels})`
     )
 
+    // THE FOLDER YOU ARE IN IS IN VIEW (audit #38): at this depth the trail is
+    // wider than the row, and the row must show its END, the current crumb.
+    const curVisible = await page.evaluate(() => {
+      const nav = document.querySelector('nav[aria-label="Folder"]')
+      const cur = nav?.querySelector('[aria-current="location"]')
+      if (!nav || !cur) return false
+      const n = nav.getBoundingClientRect()
+      const c = cur.getBoundingClientRect()
+      return c.left >= n.left - 1 && c.right <= n.right + 1
+    })
+    ok(curVisible, 'the crumb row shows the folder you are in, not the start of the trail')
+
     // HOW BIG IT IS, in the desktop's own units: a size that reads differently
     // on the phone is a second formatter nobody asked for.
     const size = (

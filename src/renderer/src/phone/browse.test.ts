@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crumbs, fileFromHit, isLocalPath, parentOf, samePath, stepFile } from './browse'
+import { answerFor, crumbs, fileFromHit, isLocalPath, parentOf, samePath, scrollCrumbsToEnd, stepFile } from './browse'
 
 const f = (name: string) => ({
   path: `C:\\r\\${name}`,
@@ -61,5 +61,22 @@ describe('browse', () => {
       mtimeMs: 0
     })
     expect(fileFromHit({ path: 'C:\\r\\Dockerfile', name: 'Dockerfile', kind: 'text', dir: '' }).ext).toBe('')
+  })
+})
+
+describe('the crumb row and the search answer (audit #38, #48)', () => {
+  it('scrolls the crumb row to its end, where the folder you are in is', () => {
+    const nav = { scrollLeft: 0, scrollWidth: 900 }
+    scrollCrumbsToEnd(nav)
+    expect(nav.scrollLeft).toBe(900)
+    expect(() => scrollCrumbsToEnd(null)).not.toThrow()
+  })
+  it('an answer counts only for the query AND the folder it was asked in', () => {
+    const a = { q: 'x', dir: 'C:\\A', hits: [] }
+    expect(answerFor(a, 'x', 'C:\\A')).toBe(a)
+    expect(answerFor(a, 'x', 'c:\\a\\')).toBe(a)
+    expect(answerFor(a, 'x', 'C:\\B')).toBeNull()
+    expect(answerFor(a, 'y', 'C:\\A')).toBeNull()
+    expect(answerFor(null, 'x', 'C:\\A')).toBeNull()
   })
 })
