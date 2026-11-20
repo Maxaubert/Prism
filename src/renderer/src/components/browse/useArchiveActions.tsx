@@ -21,6 +21,7 @@ import { useArchiveOps } from '../archive/useArchiveOps'
 import type { BrowseEntry } from './types'
 import { extractAll } from '../../lib/extractAll'
 import { noteBinned } from '../../lib/binnedRows'
+import { archiveCopyNote } from '../../lib/archiveCopyNote'
 
 const ICONS: Record<ArchiveRowId, FileMenuIconName> = {
   open: 'open',
@@ -179,24 +180,35 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
       void (async () => {
         const out: string[] = []
         let locked = 0
+        let failed = 0
+        let why: string | undefined
+        const count = (r: { reason?: string; message?: string }): void => {
+          if (r.reason === 'password' || r.reason === 'aes') locked += 1
+          else {
+            failed += 1
+            why ??= r.message
+          }
+        }
         for (const p of paths) {
-          if (folders.has(p)) {
-            const inner = memberOf(meta, p)
-            if (!inner) continue
-            const r = await window.prism.archiveExtractDir(meta.container, inner)
-            if (r.ok) out.push(r.path)
-            else if (r.reason === 'password' || r.reason === 'aes') locked += 1
-          } else {
-            const r = await window.prism.archiveMember(p, archivePassword(meta.container), true)
-            if (r.ok) out.push(r.path)
-            else if (r.reason === 'password' || r.reason === 'aes') locked += 1
+          try {
+            if (folders.has(p)) {
+              const inner = memberOf(meta, p)
+              if (!inner) continue
+              const r = await window.prism.archiveExtractDir(meta.container, inner)
+              if (r.ok) out.push(r.path)
+              else count(r)
+            } else {
+              const r = await window.prism.archiveMember(p, archivePassword(meta.container), true)
+              if (r.ok) out.push(r.path)
+              else count(r)
+            }
+          } catch {
+            failed += 1
           }
         }
         if (out.length) void copyFilePaths(out)
-        if (locked)
-          setOops(
-            `${locked} of those ${locked === 1 ? 'is' : 'are'} password protected. Open one first to unlock the archive, then copy again.`
-          )
+        const note = archiveCopyNote(locked, failed, why)
+        if (note) setOops(note)
       })()
     },
     [setOops]
