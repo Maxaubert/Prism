@@ -12,6 +12,7 @@ import { IconMute, IconPause, IconPlay, IconVol } from './icons/transport'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
 import { ownWindow } from '../lib/ownWindow'
+import { tipLeft } from '../lib/scrubTip'
 
 // The transport bar shared by every player. One of ten shapes (chosen in
 // Settings) draws the same set of controls — a scrub bar with hover-time and
@@ -101,7 +102,7 @@ function Scrubber({
     hoverX != null && dur > 0 ? (
       <div
         className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--p-text)]"
-        style={{ left: `${hoverX * 100}%` }}
+        style={{ left: tipLeft(hoverX) }}
       >
         {formatTime(hoverX * dur)}
       </div>
@@ -479,7 +480,11 @@ export function Transport({
     case 'wavebold':
       return (
         <div className="pointer-events-auto w-full px-0 pt-1.5">
-          <Scrubber c={c} look={{ kind: 'wave', bold: true }} peaks={peaks} bar={bar} className="h-[50px] px-4" />
+          {/* The side padding is on a wrapper, not the scrubber (audit #70): the seek maps the pointer over the
+              scrubber's whole box, which the bars and the played colour (its content box) must match. */}
+          <div className="px-4">
+            <Scrubber c={c} look={{ kind: 'wave', bold: true }} peaks={peaks} bar={bar} className="h-[50px]" />
+          </div>
           <div className="px-4 pb-3.5 pt-0.5">{boldRow}</div>
         </div>
       )

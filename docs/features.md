@@ -45,6 +45,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   copies `p-overlay-scrollbars` (nothing drew the overlay bar there), and `Tooltips` listens in every document the
   host registers (`addTooltipDocument`), drawing the tip in the item's own window. Held by
   `lib/previewWindowLook.test.ts` and `packages/term-core/renderer/lib/tooltipWindows.test.ts`.
+- **The scrubber's time label stays on the bar and the wave seeks where the pointer is** (audit #69, #70): the
+  label is clamped half its width inside both ends, and the bold wave's side padding moved to a wrapper so the
+  seek maps over the bars. Held by `lib/scrubTip.test.ts` and `components/Transport.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
