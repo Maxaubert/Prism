@@ -3,6 +3,13 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit wave A, safety (2026-11-21)
+
+- **Undo's shell restore reads paths as data** (audit #1): `shellRestore` no longer builds file names into the
+  PowerShell text; the paths go in as JSON on stdin. Held by `src/main/binRestore.test.ts` ("the shell restore").
+- **The installer's own folder needs the backslash** (audit #21): a picked `D:\Tools\NotPrism` or `D:\MyPrism` now
+  gets a `Prism` subfolder, so uninstall never empties a folder Prism did not make. Held by
+  `src/shared/installerOwnFolder.test.ts`.
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
