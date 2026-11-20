@@ -55,10 +55,20 @@ import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
 import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
-import { forget, issueCode, phoneFor, redeem, touch, type PairState, type Phone } from './pairing'
+import {
+  forget,
+  IDLE_MS,
+  issueCode,
+  phoneFor,
+  redeem,
+  resolve,
+  touch,
+  type PairState,
+  type Phone
+} from './pairing'
 import { diagLines } from './diag'
 import { memoryPatch } from './memory'
-import { parseRoute, tokenOf, type Route } from './routes'
+import { parseRoute, tokenCookie, tokenOf, type Route } from './routes'
 import { localPath } from './phoneAccess'
 import { forwardedLocal, localNetwork } from './lan'
 import { HLS_MIME, assetMime } from '../mime'
@@ -77,6 +87,8 @@ const PORT_TRIES = 10
 const REAP_MS = 10_000
 /** A phone walking folders saves where it is at most this often. */
 const HERE_SAVE_MS = 2000
+/** The cookie lives as long as a phone may sit idle. */
+const COOKIE_MAX_AGE_S = Math.floor(IDLE_MS / 1000)
 
 /** What a paired phone may read (`phoneAccess.ts`), handed in so a test can
  *  hold the same rule over its own temp folders. */
@@ -217,7 +229,7 @@ function readBody(req: IncomingMessage, max = 4096): Promise<string> {
 export class PhoneServer {
   private server: Server | null = null
   private bound: number | null = null
-  /** Token -> when it last fetched anything. */
+  /** Phone id -> when it last fetched anything. */
   private seen = new Map<string, number>()
   /** Remote address -> the times it tried to pair inside the window. */
   private pairHits = new Map<string, number[]>()
@@ -247,17 +259,17 @@ export class PhoneServer {
   watching(): string[] {
     const cutoff = this.now() - WATCH_WINDOW_MS
     return [...this.seen.entries()]
-      .filter(([tok, t]) => t >= cutoff && phoneFor(this.state, tok) !== null)
+      .filter(([id, t]) => t >= cutoff && this.state.phones.some((p) => p.id === id))
       .map(([tok]) => tok)
   }
 
   /** A forgotten phone's grants go with it: main calls this from
    *  `phone:forget`, since `forget` itself is pairing's and this server
    *  never hears about it otherwise. */
-  dropGrants(token: string): void {
-    this.grants.drop(token)
-    this.deps.access.release(token)
-    void this.deps.jobs?.stopFor(token)
+  dropGrants(id: string): void {
+    this.grants.drop(id)
+    this.deps.access.release(id)
+    void this.deps.jobs?.stopFor(id)
   }
 
   /** A fresh code that starts a phone at `start` (null: This PC), replacing
@@ -340,18 +352,29 @@ export class PhoneServer {
 
       // THE WALL. Everything past here is a paired phone, and every path it
       // names is checked against what THIS phone may read.
-      const token = tokenOf(route.query, req.headers.authorization)
-      const phone = phoneFor(this.state, token)
-      if (!phone) return void json(res, 401, { error: 'not paired' })
+      // The token is the cookie and only the cookie (2026-11-20). A phone
+      // unused for 30 days is forgotten here; one in use gets a new token
+      // about once a day, set on this very answer.
       const now = this.now()
-      touch(this.state, phone.token, now)
-      this.seen.set(phone.token, now)
+      const { hit, expired } = resolve(this.state, tokenOf(req.headers.cookie), now)
+      if (expired.length) {
+        for (const p of expired) this.dropGrants(p.id)
+        this.deps.onChange()
+      }
+      if (!hit) return void json(res, 401, { error: 'not paired' })
+      const phone = hit.phone
+      if (hit.rotated) {
+        res.setHeader('set-cookie', tokenCookie(phone.token, COOKIE_MAX_AGE_S))
+        this.deps.onChange()
+      }
+      touch(this.state, phone.id, now)
+      this.seen.set(phone.id, now)
 
       if (route.kind === 'media') {
         // A file in a folder this phone listed, or one its own answers granted it.
         const allowed =
-          this.grants.has(phone.token, route.path) ||
-          (this.deps.access.may(phone.token, route.path) && (await this.deps.access.local(route.path)))
+          this.grants.has(phone.id, route.path) ||
+          (this.deps.access.may(phone.id, route.path) && (await this.deps.access.local(route.path)))
         if (!allowed) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
@@ -379,7 +402,7 @@ export class PhoneServer {
       if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
       return void json(res, 400, { error: 'bad request' })
     }
-    let body: { code?: unknown; name?: unknown; token?: unknown }
+    let body: { code?: unknown; name?: unknown }
     try {
       body = JSON.parse(raw) as typeof body
     } catch {
@@ -398,19 +421,21 @@ export class PhoneServer {
     // A phone that is ALREADY paired and scans another code MOVES to that
     // code's folder: it keeps its token and the list does not grow a second
     // entry for the same phone.
-    const existing = phoneFor(this.state, typeof body.token === 'string' ? body.token : null)
+    const existing = phoneFor(this.state, tokenOf(req.headers.cookie))
     if (existing) {
       existing.name = phone.name
       // The code made a second phone for what is one device; the one that
       // already has a token is the one that stays.
-      forget(this.state, phone.token)
+      forget(this.state, phone.id)
       existing.seen = now
       this.setHere(existing, phone.here)
       this.deps.onChange()
-      return void json(res, 200, { token: existing.token, here: existing.here } satisfies PairAnswer)
+      res.setHeader('set-cookie', tokenCookie(existing.token, COOKIE_MAX_AGE_S))
+      return void json(res, 200, { here: existing.here } satisfies PairAnswer)
     }
     this.deps.onChange()
-    json(res, 200, { token: phone.token, here: phone.here } satisfies PairAnswer)
+    res.setHeader('set-cookie', tokenCookie(phone.token, COOKIE_MAX_AGE_S))
+    json(res, 200, { here: phone.here } satisfies PairAnswer)
   }
 
   /** Where the phone is now, saved at most every HERE_SAVE_MS: a phone
@@ -434,7 +459,7 @@ export class PhoneServer {
     req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
-    const { token } = phone
+    const token = phone.id // the phone's key for grants and jobs, never its secret
     const path = q.get('path') ?? ''
     // What this phone may name: a folder it listed or a direct entry of one.
     // A GRANT counts too: a member extracted out of an archive lives in temp,
@@ -454,7 +479,7 @@ export class PhoneServer {
         if (plan.mode === 'direct') {
           return void json(res, 200, {
             mode: 'direct',
-            url: `${mediaPath(path)}?t=${token}`,
+            url: mediaPath(path),
             fps: info?.fps ?? null,
             duration: info?.duration ?? 0
           } satisfies PlayAnswer)
@@ -489,7 +514,7 @@ export class PhoneServer {
         )
         return void json(res, 200, {
           mode: 'hls',
-          url: `${hlsPlaylistPath(id)}?t=${token}`,
+          url: hlsPlaylistPath(id),
           copyVideo: plan.copyVideo,
           // The phone hands an audio-only playlist to its <audio> as the
           // source and a film to the video's convert path (Task 6).
@@ -727,7 +752,7 @@ export class PhoneServer {
     phone: Phone,
     res: ServerResponse
   ): Promise<void> {
-    const token = phone.token
+    const token = phone.id
     const jobs = this.deps.jobs
     if (!jobs || jobs.owner(route.job) !== token)
       return void json(res, 404, { error: 'no such stream' })
@@ -744,9 +769,9 @@ export class PhoneServer {
       return void json(res, 404, { error: 'no such stream' })
     }
     if (route.file === 'index.m3u8') {
-      // The token rides on every uri the playlist names: the player resolves
-      // them against the playlist's url and keeps none of its query.
-      const text = jobs.playlist(route.job, `?t=${encodeURIComponent(token)}`)
+      // The segments are plain relative names: the player's requests carry
+      // the phone's cookie, so no token is written into the playlist.
+      const text = jobs.playlist(route.job)
       if (text === null) return void json(res, 404, { error: 'no such stream' })
       res.writeHead(200, { 'content-type': HLS_MIME['.m3u8'], 'cache-control': 'no-store' })
       return void res.end(text)

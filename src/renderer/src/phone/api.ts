@@ -1,13 +1,16 @@
 /**
- * The phone page's side of the wire (2026-09-06, #104): where the token
- * lives, how a route URL is built, and the one fetch helper that turns a
- * refused request into a PhoneError carrying the status, so the shell can
- * tell "forgotten" (401) from "could not read the folder".
+ * The phone page's side of the wire (2026-09-06, #104): how a route URL is
+ * built, and the one fetch helper that turns a refused request into a
+ * PhoneError carrying the status, so the shell can tell "not paired" (401)
+ * from "could not read the folder". Since 2026-11-20 the page holds NO token:
+ * it lives in an HttpOnly cookie the browser sends on every same-origin
+ * request (fetch, `<img>`, `<video>`, HLS segments), so no URL carries it.
  */
 import { ROUTE, mediaPath, routePath } from '@shared/phoneWire'
 import { thumbKeepsAlpha } from '@shared/thumbAlpha'
 
-export const TOKEN_KEY = 'prism.phone.token'
+/** Where pages before 2026-11-20 kept the token. */
+const LEGACY_TOKEN_KEY = 'prism.phone.token'
 
 export class PhoneError extends Error {
   constructor(
@@ -18,33 +21,23 @@ export class PhoneError extends Error {
   }
 }
 
-export function readToken(): string | null {
+/** A phone paired by an older page still has its token in storage: it is
+ *  not used any more, so it is removed rather than left lying there. */
+export function dropLegacyToken(): void {
   try {
-    return localStorage.getItem(TOKEN_KEY)
+    localStorage.removeItem(LEGACY_TOKEN_KEY)
   } catch {
-    return null
+    /* site data blocked: nothing to remove */
   }
 }
 
-export function writeToken(t: string | null): void {
-  try {
-    if (t) localStorage.setItem(TOKEN_KEY, t)
-    else localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    /* private mode: the session still works until reload */
-  }
-}
-
-/** A route URL with its params and the token in the query. */
+/** A route URL with its params. */
 export function apiUrl(path: string, params: Record<string, string> = {}): string {
-  const q = new URLSearchParams(params)
-  const t = readToken()
-  if (t) q.set('t', t)
-  const s = q.toString()
+  const s = new URLSearchParams(params).toString()
   return s ? `${path}?${s}` : path
 }
 
-/** A tile's picture (#135): an `<img src>` carries no header either.
+/** A tile's picture (#135): the cookie rides along, the URL carries no secret.
  *  A picture that can be clear asks with `a=1` (#477): a NEW url, so the
  *  black JPEG the phone cached for a day before the fix is not shown again.
  *  The server ignores it; main picks the WebP by the extension itself. */
@@ -52,10 +45,9 @@ export function thumbUrl(path: string): string {
   return apiUrl(routePath(ROUTE.thumb), thumbKeepsAlpha(path) ? { path, a: '1' } : { path })
 }
 
-/** `<video src>` cannot carry a header, so the token rides in the query. */
+/** A file's address: the cookie authorises it, so it is just the path. */
 export function mediaUrl(path: string): string {
-  const t = readToken()
-  return `${mediaPath(path)}${t ? `?t=${t}` : ''}`
+  return mediaPath(path)
 }
 
 export async function getJson<T>(path: string, params: Record<string, string> = {}): Promise<T> {

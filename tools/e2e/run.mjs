@@ -13425,10 +13425,10 @@ async function gridPhoneScenario(fixtures) {
   }
   let paired = ''
   try {
-    const { base, token, status } = await pairPhone(win, dir)
-    paired = token
+    const { base, token, id, status } = await pairPhone(win, dir)
+    paired = id
     ok(status === 200, 'a phone pairs')
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = phoneAuth(token)
     const thumbUrl = `${base}/api/thumb?path=${encodeURIComponent(join(dir, 'ph1.jpg'))}`
     const listing = async () => (await (await fetch(`${base}/api/dir?path=${encodeURIComponent(dir)}`, { headers: auth })).json()).files.map((f) => f.name).sort().join()
     const l0 = await listing()
@@ -17946,12 +17946,36 @@ async function pairPhone(win, start) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: state.code?.code ?? '', name: 'e2e phone' })
   })
-  const { token, here } = r.status === 200 ? await r.json() : { token: '', here: '' }
+  const { here } = r.status === 200 ? await r.json() : { here: '' }
+  // The token is the answer's HttpOnly cookie (2026-11-20), never its body.
+  const token = /^prism_phone=([0-9a-f]+);/.exec(r.headers.get('set-cookie') ?? '')?.[1] ?? ''
   // What the page does first: list where it starts, which is what lets it
   // read the files there (the Explorer's own rule, phoneAccess.ts).
-  if (token && here)
-    await fetch(`${base}/api/dir?path=${encodeURIComponent(here)}`, { headers: { authorization: `Bearer ${token}` } })
-  return { base, token, root: here ?? '', state, status: r.status }
+  if (token && here) await fetch(`${base}/api/dir?path=${encodeURIComponent(here)}`, { headers: phoneAuth(token) })
+  // The phone's key on the PC (the dialog's Forget takes it): the newest phone.
+  const id = token ? (await win.evaluate(() => window.prism.phoneGet(null))).phones.at(-1)?.id ?? '' : ''
+  return { base, token, id, root: here ?? '', state, status: r.status }
+}
+
+/** What a phone's browser sends once it holds the cookie. */
+function phoneAuth(token) {
+  return { cookie: `prism_phone=${token}` }
+}
+
+/** Hand a phone window the cookie a paired phone would hold. Open on `/pair`
+ *  first: the cookie is for that origin. */
+async function givePhoneCookie(page, token) {
+  // Through the browser, not document.cookie: an HttpOnly prism_phone left by
+  // an earlier scenario on 127.0.0.1 (cookies ignore the port) cannot be
+  // overwritten from a script, and the page would sit on the pairing screen.
+  const url = new URL(page.url()).origin
+  try {
+    await page.context().addCookies([{ name: 'prism_phone', value: token, url, httpOnly: true, sameSite: 'Strict' }])
+  } catch {
+    await page.evaluate((t) => {
+      document.cookie = `prism_phone=${t}; path=/`
+    }, token)
+  }
 }
 
 async function phoneScenario(fixtures) {
@@ -17984,20 +18008,20 @@ async function phoneScenario(fixtures) {
     ok(status === 200, 'pairing succeeds')
     ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone starts in the folder the PC is showing')
     ok((await fetch(`${base}/api/me`)).status === 401, 'no token, no answer')
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = phoneAuth(token)
     const dir = await (
       await fetch(`${base}/api/dir?path=${encodeURIComponent(fixtures)}`, { headers: auth })
     ).json()
     ok(dir.files.some((f) => f.name === 'one.png'), 'the listing carries the fixture')
     // THE WALL IS THE EXPLORER'S (2026-10-14): a file in a folder this phone
     // never listed is refused, and a share is never listed.
-    const unlisted = await fetch(`${base}/m/${encodeURIComponent('C:\\Windows\\win.ini')}?t=${token}`)
+    const unlisted = await fetch(`${base}/m/${encodeURIComponent('C:\\Windows\\win.ini')}`, { headers: auth })
     ok(unlisted.status === 403, 'a file in a folder the phone never listed is refused')
     const share = await fetch(`${base}/api/dir?path=${encodeURIComponent('\\\\localhost\\c$')}`, { headers: auth })
     ok(share.status === 403, 'a network share is refused')
     const ranged = await fetch(
-      `${base}/m/${encodeURIComponent(join(fixtures, 'ep1.mp4'))}?t=${token}`,
-      { headers: { range: 'bytes=0-99' } }
+      `${base}/m/${encodeURIComponent(join(fixtures, 'ep1.mp4'))}`,
+      { headers: { ...auth, range: 'bytes=0-99' } }
     )
     ok(
       ranged.status === 206 && (ranged.headers.get('content-range') ?? '').startsWith('bytes 0-99/'),
@@ -18011,6 +18035,10 @@ async function phoneScenario(fixtures) {
     await win.waitForSelector('[data-phone-dialog]', { timeout: 5000 })
     await win.waitForSelector('[data-phone-row]', { timeout: 5000 }).catch(() => {})
     ok((await win.locator('[data-phone-row]').count()) === 1, 'the dialog lists the paired phone')
+    ok(
+      (await win.locator('[data-phone-dialog] [data-phone-trust]').textContent()) === 'Pair only on a network you trust.',
+      'the dialog says to pair on a network you trust'
+    )
     await win.screenshot({ path: join(SHOTS, 'phone-dialog.png') })
     await win.keyboard.press('Escape')
 
@@ -18026,6 +18054,10 @@ async function phoneScenario(fixtures) {
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
     await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
     ok(true, 'a spent code lands on the pairing screen')
+    ok(
+      (await page.locator('[data-phone-pairing] [data-phone-trust]').textContent()) === 'Pair only on a network you trust.',
+      'and the pairing screen says to pair on a network you trust'
+    )
     // A second code for the same tab: the first was spent above.
     const again = await win.evaluate(() =>
       window.prism.phoneCode(
@@ -18356,17 +18388,18 @@ async function phoneScenario(fixtures) {
 
     // The page paired with nothing in its storage, so it is a SECOND phone
     // with a token of its own beside the one Node paired above.
-    const pageToken = await page.evaluate(() => localStorage.getItem('prism.phone.token'))
-    ok(
-      typeof pageToken === 'string' && pageToken.length > 0 && pageToken !== token,
-      'the page paired as its own phone'
-    )
+    // The page's token is an HttpOnly cookie it cannot read, and the old
+    // storage key stays empty (2026-11-20).
+    ok((await page.evaluate(() => localStorage.getItem('prism.phone.token'))) === null, 'the page keeps no token in storage')
+    ok(!(await page.evaluate(() => document.cookie)).includes('prism_phone'), 'its script cannot read the cookie')
+    const both = await win.evaluate(() => window.prism.phoneGet(null))
+    ok(both.phones.length === 2 && both.phones.every((p) => !('token' in p)), 'the page paired as its own phone, and the dialog is given no token')
 
     // Forget both from the PC: the phone's next request is a 401 and it re-pairs.
-    const after = await win.evaluate(async (toks) => {
-      for (const t of toks) await window.prism.phoneForget(t, null)
+    const after = await win.evaluate(async (ids) => {
+      for (const i of ids) await window.prism.phoneForget(i, null)
       return window.prism.phoneGet(null)
-    }, [token, pageToken])
+    }, both.phones.map((p) => p.id))
     ok(after.phones.length === 0, 'the dialog lists nobody once both are forgotten')
     await page.click('[aria-label="Back to the folder"]')
     await page.reload()
@@ -18403,7 +18436,7 @@ async function phoneHlsScenario(fixtures) {
   try {
     const { base, token, status } = await pairPhone(win)
     ok(status === 200, 'the phone pairs')
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = phoneAuth(token)
     const can = 'h264,aac,mp4,mse'
     const play = await (
       await fetch(`${base}/api/play?path=${encodeURIComponent(dolby)}&can=${can}`, { headers: auth })
@@ -18423,22 +18456,23 @@ async function phoneHlsScenario(fixtures) {
     ).json()
     ok(picked.mode === 'hls' && picked.audio === commentary && picked.url !== two.url, 'a picked track is a different stream')
     ok(Math.abs(play.duration - 6) < 1, `the answer carries the duration (${play.duration}s)`)
-    ok(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/.test(play.url ?? ''), 'the stream url names a job and carries the token')
+    ok(/^\/hls\/[0-9a-f]{16}\/index\.m3u8$/.test(play.url ?? ''), 'the stream url names a job and carries no token')
     const at = (name) => `${base}${play.url.replace('index.m3u8', name)}`
-    const pl = await (await fetch(at('index.m3u8'))).text()
+    const pl = await (await fetch(at('index.m3u8'), { headers: auth })).text()
+    ok(!pl.includes(token) && !pl.includes('?t='), 'the playlist names no token')
     ok(
       pl.includes('#EXT-X-PLAYLIST-TYPE:VOD') && pl.includes('1.m4s') && pl.trim().endsWith('#EXT-X-ENDLIST'),
       'the playlist lists every segment up front, and ends'
     )
     const t0 = Date.now()
-    const seg0 = await fetch(at('0.m4s'))
+    const seg0 = await fetch(at('0.m4s'), { headers: auth })
     const seg0Bytes = seg0.status === 200 ? (await seg0.arrayBuffer()).byteLength : 0
     ok(seg0.status === 200 && seg0Bytes > 1000, `segment 0 arrives (${Date.now() - t0}ms, ${seg0Bytes} bytes)`)
-    const init = await fetch(at('init.mp4'))
+    const init = await fetch(at('init.mp4'), { headers: auth })
     ok(init.status === 200 && (await init.arrayBuffer()).byteLength > 0, 'init.mp4 arrives')
-    const seg1 = await fetch(at('1.m4s'))
+    const seg1 = await fetch(at('1.m4s'), { headers: auth })
     ok(seg1.status === 200 && (await seg1.arrayBuffer()).byteLength > 0, 'the last segment arrives')
-    ok((await fetch(at('9.m4s'))).status === 404, 'a segment past the film is refused')
+    ok((await fetch(at('9.m4s'), { headers: auth })).status === 404, 'a segment past the film is refused')
     // A second phone, paired on a fresh code for the same tab: the job is
     // the first phone's, and the answer is 404 rather than 403, which would
     // confirm that a stream exists.
@@ -18452,9 +18486,9 @@ async function phoneHlsScenario(fixtures) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code: again.code?.code ?? '', name: 'e2e phone two' })
     })
-    const otherToken = other.status === 200 ? (await other.json()).token : ''
+    const otherToken = /^prism_phone=([0-9a-f]+);/.exec(other.headers.get('set-cookie') ?? '')?.[1] ?? ''
     ok(
-      !!otherToken && (await fetch(`${base}${play.url.replace(/t=.*$/, `t=${otherToken}`)}`)).status === 404,
+      !!otherToken && (await fetch(`${base}${play.url}`, { headers: phoneAuth(otherToken) })).status === 404,
       'another phone gets no stream'
     )
 
@@ -18464,7 +18498,7 @@ async function phoneHlsScenario(fixtures) {
     ).json()
     ok(xvid.mode === 'hls' && xvid.copyVideo === false, 'xvid is re-encoded')
     const tx = Date.now()
-    const xseg = await fetch(`${base}${xvid.url.replace('index.m3u8', '0.m4s')}`)
+    const xseg = await fetch(`${base}${xvid.url.replace('index.m3u8', '0.m4s')}`, { headers: auth })
     const xBytes = xseg.status === 200 ? (await xseg.arrayBuffer()).byteLength : 0
     ok(
       xseg.status === 200 && xBytes > 1000,
@@ -18475,7 +18509,7 @@ async function phoneHlsScenario(fixtures) {
     // HLS. The page is handed Node's token, so it is the same phone and the
     // same job as above.
     page = await openPhoneWindow(app, `${base}/pair`)
-    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await givePhoneCookie(page, token)
     await page.goto(`${base}/`)
     // The tab is rooted at the film's own folder, so the file is on the
     // first screen.
@@ -18672,7 +18706,7 @@ async function phoneDocsScenario(fixtures) {
     page.on('console', (m) => {
       if (m.type() === 'error') console.warn('  phone console:', m.text())
     })
-    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await givePhoneCookie(page, token)
     // A finger rather than a pointer: Chromium's touch emulation is what
     // flips `(pointer: coarse)` and what makes a dispatched touch arrive as
     // a touch pointer. Set before the reload so the page is laid out for it.
@@ -19001,14 +19035,14 @@ async function phoneExplorerScenario(fixtures) {
     const { base, token, root, status } = await pairPhone(win)
     ok(status === 200, 'the phone pairs')
     ok(root.toLowerCase() === fixtures.toLowerCase(), 'it starts in the folder the PC is showing')
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = phoneAuth(token)
     // Refused BEFORE the phone has listed it, like any folder it never opened.
-    const otherFile = `${base}/m/${encodeURIComponent(join(OTHER_ROOT, 'bad.json'))}?t=${token}`
-    ok((await fetch(otherFile)).status === 403, 'a file in a folder the phone never listed is refused')
+    const otherFile = `${base}/m/${encodeURIComponent(join(OTHER_ROOT, 'bad.json'))}`
+    ok((await fetch(otherFile, { headers: auth })).status === 403, 'a file in a folder the phone never listed is refused')
 
     page = await openPhoneWindow(app, `${base}/pair`)
     page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
-    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await givePhoneCookie(page, token)
     await page.goto(`${base}/`)
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
 
@@ -19055,7 +19089,7 @@ async function phoneExplorerScenario(fixtures) {
     // A FOLDER NO TAB HOLDS, reached by its place: it lists and its file opens.
     await page.goto(`${base}/?at=${encodeURIComponent(OTHER_ROOT)}`)
     await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
-    ok((await fetch(otherFile)).status === 200, 'once listed, its file is served')
+    ok((await fetch(otherFile, { headers: auth })).status === 200, 'once listed, its file is served')
     await page.click('[data-phone-file]:has-text("bad.json")')
     await page.waitForSelector('[data-phone-viewer]', { timeout: 15000 })
     ok(true, 'and opens on the phone')
