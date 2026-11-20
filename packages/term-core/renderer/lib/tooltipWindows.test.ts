@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addTooltipDocument, onTooltipDocuments, tooltipDocuments } from './tooltipWindows'
-import { titled } from '../components/Tooltips'
+import { addTooltipDocument, onTooltipDocuments, titled, tooltipDocuments } from './tooltipWindows'
 
 // Tips in a window the host draws into (audit #95).
 describe('tooltipWindows', () => {
