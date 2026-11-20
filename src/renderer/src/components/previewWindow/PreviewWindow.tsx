@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { keyTarget, previewWindowKey, previewWindowStep } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
 import { addPageDocument } from '../../lib/pageDocuments'
+import { previewClass } from '../../lib/previewWindowLook'
 import './previewWindow.css'
 
 /**
@@ -238,7 +239,7 @@ function dress(win: Window): () => void {
   document.head.childNodes.forEach(copy)
   const mirror = (from: Element, to: Element): void => {
     for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name)
-    for (const a of [...from.attributes]) to.setAttribute(a.name, a.value)
+    for (const a of [...from.attributes]) to.setAttribute(a.name, a.name === 'class' ? previewClass(a.value) : a.value)
   }
   mirror(document.documentElement, doc.documentElement)
   mirror(document.body, doc.body)
