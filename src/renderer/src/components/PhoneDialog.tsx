@@ -80,6 +80,8 @@ export function PhoneDialog({
           leaves it.
         </p>
       )}
+      {/* Plain HTTP carries the phone's cookie: said once, in plain words (2026-11-20). */}
+      <p data-phone-trust>Pair only on a network you trust.</p>
       {state.error && <p className="text-[#d97b84]">{state.error}</p>}
       {state.on && state.code && (
         <div className="flex gap-4">
@@ -119,17 +121,17 @@ export function PhoneDialog({
         <span className="font-medium text-[var(--p-text)]">Paired phones</span>
         {state.phones.length === 0 && <span>None yet.</span>}
         {state.phones.map((p) => (
-          <div key={p.token} className="flex items-center justify-between gap-3" data-phone-row>
+          <div key={p.id} className="flex items-center justify-between gap-3" data-phone-row>
             <span className="min-w-0 truncate">
               <span className="text-[var(--p-text)]">{p.name}</span>{' '}
               <span data-phone-here>in {p.here ?? 'This PC'},</span>{' '}
-              {state.watching.includes(p.token)
+              {state.watching.includes(p.id)
                 ? 'watching now'
                 : `seen ${formatWhen(p.seen, { comma: true, empty: 'never' })}`}
             </span>
             <button
               className="shrink-0 rounded px-2 py-0.5 text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-              onClick={() => void window.prism.phoneForget(p.token, start).then(setState)}
+              onClick={() => void window.prism.phoneForget(p.id, start).then(setState)}
             >
               Forget
             </button>

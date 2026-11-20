@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { askPlay, installShim, searchHere, type PlayAnswer } from './prismShim'
-import { writeToken } from './api'
 import { aliasWindow } from '../testing/host'
 
 aliasWindow()
@@ -23,15 +22,14 @@ function answerPlay(answer: PlayAnswer | ((path: string) => PlayAnswer)): Return
 describe('the phone shim', () => {
   beforeEach(() => {
     localStorage.clear()
-    writeToken('tok')
     installShim()
   })
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
-  it('builds media urls with the token', () => {
-    expect(window.prism.mediaUrl('C:\\x.mp4')).toBe('/m/C%3A%5Cx.mp4?t=tok')
+  it('builds media urls without a token', () => {
+    expect(window.prism.mediaUrl('C:\\x.mp4')).toBe('/m/C%3A%5Cx.mp4')
   })
   it('says what it cannot do, and never throws for it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -68,12 +66,12 @@ describe('the phone shim', () => {
     }
     const asked = (f: ReturnType<typeof vi.fn>): URL => new URL(String(f.mock.calls[0][0]), 'http://phone')
 
-    it('readText hits /api/text with the token, and a refusal reads as unreadable', async () => {
+    it('readText hits /api/text without a token in the url, and a refusal reads as unreadable', async () => {
       const f = answer('/api/text', { text: 'hello' })
       await expect(window.prism.readText('C:\\a.txt')).resolves.toEqual({ text: 'hello' })
       expect(asked(f).pathname).toBe('/api/text')
       expect(asked(f).searchParams.get('path')).toBe('C:\\a.txt')
-      expect(asked(f).searchParams.get('t')).toBe('tok')
+      expect(asked(f).searchParams.get('t')).toBeNull()
       answer('/api/text', { error: 'forgotten' }, 401)
       await expect(window.prism.readText('C:\\a.txt')).resolves.toEqual({ error: 'unreadable' })
     })
@@ -114,7 +112,7 @@ describe('the phone shim', () => {
       expect(asked(f).searchParams.get('q')).toBe('a mp4')
       expect(asked(f).searchParams.get('dir')).toBe('C:\\r')
       expect(asked(f).searchParams.get('path')).toBeNull()
-      expect(asked(f).searchParams.get('t')).toBe('tok')
+      expect(asked(f).searchParams.get('t')).toBeNull()
       answer('/api/search', { error: 'no' }, 403)
       await expect(searchHere('C:\\r', 'a')).resolves.toEqual({ hits: [], truncated: false })
     })
@@ -142,24 +140,24 @@ describe('the phone shim', () => {
   })
 
   describe('playing through /api/play', () => {
-    it('asks with the token and what the device plays', async () => {
-      const f = answerPlay({ mode: 'direct', url: '/m/x?t=tok', fps: 24, duration: 10 })
+    it('asks with what the device plays', async () => {
+      const f = answerPlay({ mode: 'direct', url: '/m/x', fps: 24, duration: 10 })
       await askPlay('C:\\a.mp4')
       const asked = new URL(String(f.mock.calls[0][0]), 'http://phone')
       expect(asked.pathname).toBe('/api/play')
       expect(asked.searchParams.get('path')).toBe('C:\\a.mp4')
       expect(asked.searchParams.get('can')).toBe('h264,aac,mp4')
-      expect(asked.searchParams.get('t')).toBe('tok')
+      expect(asked.searchParams.get('t')).toBeNull()
     })
     it('a direct file is a probe with nothing to convert, and the frame rate', async () => {
-      answerPlay({ mode: 'direct', url: '/m/x?t=tok', fps: 24, duration: 10 })
+      answerPlay({ mode: 'direct', url: '/m/x', fps: 24, duration: 10 })
       await expect(window.prism.probeMedia('C:\\a.mp4')).resolves.toEqual({ ffmpeg: true, needed: false, fps: 24 })
       await expect(window.prism.convertVideo('C:\\a.mp4')).resolves.toMatchObject({ error: expect.any(String) })
     })
     it('an hls film is a "conversion" whose copy is the playlist, quick when the picture is copied', async () => {
       answerPlay((path) => ({
         mode: 'hls',
-        url: `/hls/0123456789abcdef/index.m3u8?t=tok`,
+        url: `/hls/0123456789abcdef/index.m3u8`,
         copyVideo: path.endsWith('copy.mkv'),
         audioOnly: false,
         fps: 23.976,
@@ -176,15 +174,15 @@ describe('the phone shim', () => {
         convert: { reason: 'container', quick: false }
       })
       await expect(window.prism.convertVideo('C:\\copy.mkv')).resolves.toEqual({
-        url: '/hls/0123456789abcdef/index.m3u8?t=tok'
+        url: '/hls/0123456789abcdef/index.m3u8'
       })
     })
     it('an audio-only hls stream IS the source, the way the PC decoder is', async () => {
-      answerPlay({ mode: 'hls', url: '/hls/0123456789abcdef/index.m3u8?t=tok', copyVideo: false, audioOnly: true, fps: null, duration: 200 })
+      answerPlay({ mode: 'hls', url: '/hls/0123456789abcdef/index.m3u8', copyVideo: false, audioOnly: true, fps: null, duration: 200 })
       await expect(window.prism.probeMedia('C:\\a.wma')).resolves.toEqual({
         ffmpeg: true,
         needed: true,
-        url: '/hls/0123456789abcdef/index.m3u8?t=tok'
+        url: '/hls/0123456789abcdef/index.m3u8'
       })
     })
     it('none is no ffmpeg, with the reason kept for the shell', async () => {
@@ -194,7 +192,7 @@ describe('the phone shim', () => {
     })
     it('asks once per file, for every hook that wants to know, and again once the answer is stale', async () => {
       vi.useFakeTimers({ now: 1_000 })
-      const f = answerPlay({ mode: 'direct', url: '/m/x?t=tok', fps: 24, duration: 10 })
+      const f = answerPlay({ mode: 'direct', url: '/m/x', fps: 24, duration: 10 })
       await askPlay('C:\\b.mp4')
       await window.prism.probeMedia('C:\\b.mp4')
       await window.prism.convertVideo('C:\\b.mp4')
