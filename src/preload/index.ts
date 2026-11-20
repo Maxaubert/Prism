@@ -269,8 +269,8 @@ const api = {
   /** The dialog closed: no code it showed may still pair a phone. */
   phoneCodeDrop: (): void => ipcRenderer.send(CALL.phoneCodeDrop),
   /** Forget a paired phone by token. */
-  phoneForget: (token: string, start: string | null): Promise<PhoneState> =>
-    ipcRenderer.invoke(CALL.phoneForget, token, start),
+  phoneForget: (id: string, start: string | null): Promise<PhoneState> =>
+    ipcRenderer.invoke(CALL.phoneForget, id, start),
   /** The Quick access pins, for the phone's drawer (2026-10-14). */
   phonePins: (pins: ReadonlyArray<{ name: string; path: string }>): void =>
     ipcRenderer.send(CALL.phonePins, pins),

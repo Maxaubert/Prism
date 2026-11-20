@@ -375,7 +375,8 @@ export interface TailEvent {
  *  and the folder it was last in, null for This PC (2026-10-14: a phone is in
  *  a folder anywhere on the PC, not on a tab). */
 export interface PhoneInfo {
-  token: string
+  /** The phone's key on the PC; never the secret its cookie carries. */
+  id: string
   name: string
   here: string | null
   paired: number
@@ -388,7 +389,7 @@ export interface PhoneState {
   port: number | null
   addresses: string[]
   phones: PhoneInfo[]
-  /** Phones that fetched something in the last 30 seconds, by token. */
+  /** Phones that fetched something in the last 30 seconds, by id. */
   watching: string[]
   /** A pairing code for the folder in front (or This PC): link and QR (SVG), when the server is up. */
   code?: { code: string; link: string; svg: string; expires: number }
