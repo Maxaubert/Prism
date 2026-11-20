@@ -1,11 +1,13 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { EntryIcon, GROUND_SIDE } from '../icons/EntryIcon'
 import { FolderGlyph } from '../icons/FolderGlyph'
+import { NO_MATCHES, plural } from '../../lib/emptyText'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { hitFolder, stepActive } from '@shared/searchSuggest'
 import { useSearchSuggestions, type Suggestion } from '../../hooks/useSearchSuggestions'
 import { BrowseIcon } from '../icons/BrowseIcon'
+import { Spinner } from '../LoadingState'
 import './search-popup.css'
 
 /**
@@ -73,8 +75,8 @@ export function BrowseSearchPopup(props: {
     : answer.running && !hits.length
       ? 'Searching'
       : hits.length
-        ? `${hits.length} ${hits.length === 1 ? 'match' : 'matches'}${answer.more ? ', more with Show more' : ''}`
-        : 'No matches in this folder or its subfolders'
+        ? `${plural(hits.length, 'match', 'matches')}${answer.more ? ', more with Show more' : ''}`
+        : NO_MATCHES
 
   return createPortal(
     // data-owns-escape: App's capture-phase Escape stands down while it is up.
@@ -147,7 +149,7 @@ export function BrowseSearchPopup(props: {
               }
             }}
           />
-          {answer.running && !!query.trim() && <span className="browse-search-popup-spin" aria-hidden />}
+          {answer.running && !!query.trim() && <Spinner small className="browse-search-popup-spin" />}
         </div>
         {showMore && !answer.running && !hits.length && (
           <p className="browse-search-popup-empty">No names match here. Show more searches everything.</p>
@@ -171,7 +173,7 @@ export function BrowseSearchPopup(props: {
                 {hit.isFolder ? (
                   (() => {
                     const own = folderIconOf(folderIcons, hit.path)
-                    const folder = <FolderIcon color="var(--p-tree-folder)" />
+                    const folder = <EntryIcon kind="folder" />
                     return own ? (
                       <FolderGlyph icon={own} size={16} color="var(--p-tree-folder)" fallback={folder} />
                     ) : (
@@ -180,13 +182,12 @@ export function BrowseSearchPopup(props: {
                   })()
                 ) : (
                   hit.file && (
-                    <KindIcon
+                    <EntryIcon
                       kind={hit.file.kind}
                       ext={hit.file.ext}
                       name={hit.name}
-                      color={iconColour(hit.file.kind)}
                       size={16}
-                      bg="var(--p-side-flat)"
+                      ground={GROUND_SIDE}
                     />
                   )
                 )}

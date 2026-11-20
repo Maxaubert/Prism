@@ -9,8 +9,10 @@ import {
   type MouseEvent
 } from 'react'
 import { memberOf, placeOf, type ArchiveSummary } from '@shared/archivePlace'
+import { contents } from '../../lib/emptyText'
 import { formatBytes, formatWhen } from '../../lib/format'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { KindIcon } from '../icons/FileIcons'
+import { EntryIcon } from '../icons/EntryIcon'
 import { FileMenuIcon } from '../icons/FileMenuIcon'
 import { BrowseIcon } from '../icons/BrowseIcon'
 import { fileKind } from '@shared/fileKind'
@@ -38,6 +40,7 @@ import {
   type CardPick
 } from './archiveCardNav'
 import './archive.css'
+import './place-strip.css'
 
 type Row = { name: string; dir: boolean; size: number }
 
@@ -48,7 +51,7 @@ const lastPlace = new Map<string, string>()
 /**
  * THE ARCHIVE CARD (#300, mockup 01): what the preview pane shows for an
  * archive's row outside it, in place of the old panel. Its name and totals,
- * the neutral Open / Extract here / Extract to..., what is inside ("Inside,
+ * the neutral Open / Extract here / Extract to…, what is inside ("Inside,
  * in <the one top folder>" when that is all there is), with Unpacked and
  * Modified at the foot. Drawn from one `archive:summary`, which main answers
  * from the parse it keeps, so selecting a zip is instant.
@@ -126,8 +129,7 @@ export function ArchiveCard({
   const meta = got?.ok ? got.meta : null
   const facts = meta
     ? [
-        `${meta.files} ${meta.files === 1 ? 'file' : 'files'}`,
-        meta.folders ? `${meta.folders} ${meta.folders === 1 ? 'folder' : 'folders'}` : '',
+        contents(meta.files, meta.folders),
         `${formatBytes(meta.packed)} compressed`
       ]
         .filter(Boolean)
@@ -400,17 +402,17 @@ export function ArchiveCard({
         </div>
       </div>
       <div className="archive-card-verbs">
-        <button className="browse-archive-button" onClick={onOpen} data-archive-verb="open">
+        <button className="browse-place-button" onClick={onOpen} data-archive-verb="open">
           <FileMenuIcon name="open" />
           Open
         </button>
-        <button className="browse-archive-button" onClick={onExtractHere} data-archive-verb="extract-here">
+        <button className="browse-place-button" onClick={onExtractHere} data-archive-verb="extract-here">
           <FileMenuIcon name="extract" />
           Extract here
         </button>
-        <button className="browse-archive-button" onClick={onExtractTo} data-archive-verb="extract-to">
+        <button className="browse-place-button" onClick={onExtractTo} data-archive-verb="extract-to">
           <FileMenuIcon name="extract" />
-          Extract to...
+          Extract to…
         </button>
       </div>
       {got?.ok && (
@@ -497,20 +499,14 @@ export function ArchiveCard({
                   }}
                   onDragEnd={() => setDrag(null)}
                 >
-                  {row.dir ? (
-                    <FolderIcon color="var(--p-tree-folder)" />
-                  ) : (
-                    <KindIcon
-                      kind={kind}
-                      ext={extOf(row.name)}
-                      name={row.name}
-                      color={iconColour(kind)}
-                      size={14}
-                      bg={
-                        selected ? (inUse ? 'var(--p-sel-tint-seen)' : 'var(--p-sel-tint-dim-seen)') : 'var(--p-bg)'
-                      }
-                    />
-                  )}
+                  <EntryIcon
+                    kind={row.dir ? 'folder' : kind}
+                    ext={extOf(row.name)}
+                    name={row.name}
+                    size={14}
+                    selected={selected}
+                    dimmed={!inUse}
+                  />
                   <span>{row.name}</span>
                   <span>{row.dir ? '' : formatBytes(row.size)}</span>
                 </button>

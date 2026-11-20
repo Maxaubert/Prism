@@ -52,46 +52,65 @@ export function Slider({
   value,
   min = 0,
   max,
+  step = 1,
   onChange,
   label,
   format,
-  disabled
+  disabled,
+  id,
+  variant = 'row',
+  onReset,
+  data
 }: {
   value: number
   min?: number
   max: number
+  step?: number
   onChange: (v: number) => void
   label: string
   format: (v: number) => string
   disabled?: boolean
+  id?: string
+  /** `row` is a Settings row's slider, its value said beside it. `menu` fills a
+   *  menu's width and says nothing beside it (the menu shows the value above). */
+  variant?: 'row' | 'menu'
+  /** A double click puts the value back where it belongs. */
+  onReset?: () => void
+  /** `data-*` hooks for the host's keys and tests. */
+  data?: Record<`data-${string}`, string>
 }): JSX.Element {
   const pct = max === min ? 0 : ((value - min) / (max - min)) * 100
+  const menu = variant === 'menu'
   return (
-    <span className="flex shrink-0 items-center gap-3">
+    <span className={menu ? 'flex w-full items-center' : 'flex shrink-0 items-center gap-3'}>
       <input
+        {...data}
+        id={id}
         type="range"
         min={min}
         max={max}
-        step={1}
+        step={step}
         value={value}
         aria-label={label}
         aria-valuetext={format(value)}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.currentTarget.value))}
-        className={SLIDER}
-        style={{ background: `linear-gradient(to right, var(--p-sel-bg) ${pct}%, var(--p-track) ${pct}%)` }}
+        onDoubleClick={onReset}
+        className={menu ? SLIDER.replace('w-[168px]', 'w-full') : SLIDER}
+        style={{ ['--slider-fill' as string]: `linear-gradient(to right, var(--p-sel-bg) ${pct}%, var(--p-track) ${pct}%)` }}
       />
-      <span
-        data-slider-value=""
-        className={`w-[38px] text-right text-[12px] font-semibold tabular-nums ${disabled ? 'text-[var(--p-dim)]' : 'text-[var(--p-text)]'}`}
-      >
-        {format(value)}
-      </span>
+      {!menu && (
+        <span
+          data-slider-value=""
+          className={`w-[38px] text-right text-[12px] font-semibold tabular-nums ${disabled ? 'text-[var(--p-dim)]' : 'text-[var(--p-text)]'}`}
+        >
+          {format(value)}
+        </span>
+      )}
     </span>
   )
-}
-const SLIDER =
-  'h-[6px] w-[168px] cursor-pointer appearance-none rounded-full outline-none disabled:cursor-default disabled:opacity-50 ' +
+}const SLIDER =
+  'h-[6px] w-[168px] cursor-pointer appearance-none rounded-full outline-none [background-image:var(--slider-fill)] disabled:cursor-default disabled:opacity-50 ' +
   '[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:appearance-none ' +
   '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.45)]'
 

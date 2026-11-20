@@ -28,6 +28,7 @@ import { LoadingState } from './LoadingState'
 import { StageNotice } from './StageNotice'
 import { codeMenu } from '../menus/viewers/code'
 import { lintKeymap } from '@codemirror/lint'
+import { formatBytes } from '../lib/format'
 import { isProse, langFor } from '../lib/code/codeLang'
 import { lintFor } from '../lib/code/codeLint'
 import { prismCodeTheme } from '../lib/code/codeTheme'
@@ -37,6 +38,9 @@ import { inNavSurface, isFormField } from '../lib/focusGuards'
 import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 import { yieldsFindToExplorer } from '../lib/previewFind'
 import { landSave, saveTarget } from './codeSave'
+
+const TOO_LARGE = 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
+const UNREADABLE = 'This file could not be read. Nothing has been changed on disk.'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -57,12 +61,6 @@ const wrapComp = new Compartment()
 // Read-only while FOLLOWING a file: a log that is still being written is a
 // view, not a buffer, and typing into one would be lost by the next chunk.
 const roComp = new Compartment()
-
-/** A byte count as the banner says it. */
-function mb(bytes: number): string {
-  const mbs = bytes / (1024 * 1024)
-  return mbs >= 1024 ? `${(mbs / 1024).toFixed(1)} GB` : `${Math.round(mbs)} MB`
-}
 
 /** How much of a file too big for the editor is worth showing. 2MB of tail
  *  is thousands of lines, which is what anybody opening a 900MB log wants. */
@@ -718,7 +716,7 @@ export function CodeView({
           differs from disk, or when the pencil put us in a mode to leave. */}
       {tailed && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
-          Showing the end of this file ({mb(tailed.size)} in all), and following it. Read-only.
+          Showing the end of this file ({formatBytes(tailed.size)} in all), and following it. Read-only.
         </div>
       )}
       {!tailed && following && (
@@ -727,11 +725,11 @@ export function CodeView({
         </div>
       )}
       {unreadable && (
-        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92">
+        <StageNotice className="pointer-events-none z-10 bg-[var(--p-bg)]/92" text={unreadable === 'too-large' ? TOO_LARGE : UNREADABLE} op="code">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {unreadable === 'too-large'
-              ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
-              : 'This file could not be read. Nothing has been changed on disk.'}
+              ? TOO_LARGE
+              : UNREADABLE}
           </div>
         </StageNotice>
       )}

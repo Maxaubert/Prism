@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { TOAST_MS } from '../../lib/sayCore'
 import type { ArchiveMeta, ViewerFile } from '@shared/types'
 import { memberOf } from '@shared/archivePlace'
 import { baseName, parentDir } from '@shared/path'
@@ -17,7 +18,6 @@ import { FileMenuIcon, type FileMenuIconName } from '../icons/FileMenuIcon'
 import { ZIP_WRITE_MAX } from '@shared/archiveLimits'
 import { ARCHIVE_COPY } from '../archive/archiveOps'
 import { useArchiveOps } from '../archive/useArchiveOps'
-import { BrowseRename } from './BrowseRename'
 import type { BrowseEntry } from './types'
 import { extractAll } from '../../lib/extractAll'
 import { noteBinned } from '../../lib/binnedRows'
@@ -94,6 +94,11 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   /** The zip card's rows (#483): the member verbs on what the card picked. */
   cardMenu: ArchiveCardMenu
   rename: (entry: BrowseEntry, meta: ArchiveMeta) => void
+  /** The member being renamed in its row (#523, inline like everywhere):
+   *  the row's path, else null. `commitRename` gets the trimmed new name. */
+  renamingPath: string | null
+  commitRename: (name: string) => void
+  cancelRename: () => void
   remove: (paths: string[], meta: ArchiveMeta) => void
   copy: (paths: string[], meta: ArchiveMeta, folders: ReadonlySet<string>) => void
   extractWhole: (meta: ArchiveMeta, here: boolean, rows: string[]) => void
@@ -121,14 +126,14 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     rename: renameMember,
     say: setOops
   } = ops
-  const [renaming, setRenaming] = useState<{ meta: ArchiveMeta; inner: string; name: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ meta: ArchiveMeta; inner: string; name: string; path: string } | null>(null)
   const [facts, setFacts] = useState<{ name: string; lines: Array<[string, string]> } | null>(null)
   const [done, setDone] = useState(false)
   const doneTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flashDone = (): void => {
     setDone(true)
     if (doneTimer.current) clearTimeout(doneTimer.current)
-    doneTimer.current = setTimeout(() => setDone(false), 2000)
+    doneTimer.current = setTimeout(() => setDone(false), TOAST_MS)
   }
 
   const inners = (meta: ArchiveMeta, paths: string[]): string[] =>
@@ -202,8 +207,15 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
     // A folder inside a zip is not renamed: `renameMember` is file-only, a
     // decision recorded 2026-08-30 (the spec's Decision 5).
     if (!inner || entry.isFolder || meta.readOnly) return
-    setRenaming({ meta, inner, name: entry.name })
+    setRenaming({ meta, inner, name: entry.name, path: entry.path })
   }, [])
+  const cancelRename = useCallback((): void => setRenaming(null), [])
+  const commitRename = (name: string): void => {
+    if (!renaming) return
+    const { meta, inner } = renaming
+    setRenaming(null)
+    renameMember(meta.container, inner, renaming.name, name)
+  }
 
   const remove = useCallback(
     (paths: string[], meta: ArchiveMeta): void => {
@@ -427,22 +439,24 @@ export function useArchiveActions(deps: ArchiveActionDeps): {
   const dialogs = (
     <>
       {ops.dialogs}
-      {renaming && (
-        <BrowseRename
-          name={renaming.name}
-          onCancel={() => setRenaming(null)}
-          onSave={(name) => {
-            const { meta, inner } = renaming
-            setRenaming(null)
-            renameMember(meta.container, inner, renaming.name, name)
-          }}
-        />
-      )}
       {facts && (
         <ArchiveFactsDialog name={facts.name} lines={facts.lines} onClose={() => setFacts(null)} />
       )}
     </>
   )
 
-  return { menu, cardMenu, rename, remove, copy, extractWhole, drop, done, dialogs }
+  return {
+    menu,
+    cardMenu,
+    rename,
+    renamingPath: renaming?.path ?? null,
+    commitRename,
+    cancelRename,
+    remove,
+    copy,
+    extractWhole,
+    drop,
+    done,
+    dialogs
+  }
 }

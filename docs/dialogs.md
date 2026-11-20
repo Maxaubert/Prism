@@ -13,9 +13,9 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
   reads a dialog's props for that (`specOf`, `labels`, `pick`).
 - **A new question gets a new file here**, never an inline `<Dialog>` in a component, and a line
   in the table below.
-- The shell is `components/Dialog.tsx` over `components/Modal.tsx` (scrim, Escape and a press
-  outside cancel, focus on the primary button); the look is `components/dialogLook.ts`. The
-  buttons read safe first: Cancel, then the act.
+- The shell is `components/Dialog.tsx` over the core's `Modal` (`packages/term-core/renderer/components/Modal.tsx`:
+  scrim, Escape and a press outside cancel, Tab stays inside, focus on the primary button and back on close, #513); the look is the core's `renderer/components/dialogLook.ts` (`dialogBox({ width, pad })`, `dialogButton({ primary, danger, selected, compact })`, #514; the update window wears it too). The
+  buttons read safe first: Cancel, then the act. A text field in a dialog is `components/DialogInput.tsx` (#516), never a bare `<input>`.
 - **App holds one question at a time**: the `Ask` union in `dialogs/asks.ts`, drawn by
   `dialogs/AskDialogs.tsx` from App's answers (`AskAnswers`). It draws in two layers, `under` and
   `over`, so each question keeps its old place in the tree (the dialogs are not portalled, and
@@ -27,23 +27,21 @@ Every question and notice Prism puts up in a dialog, and where its text lives (s
 |---|---|---|
 | `DeleteDialog` | Delete one file or folder: Cancel, Delete permanently (red outline, asks once more), Delete (red, to the Recycle Bin, the default). Title "Delete <name>?", one line: its size | App (`delete`): Explorer row, tree row, Delete key |
 | `DeleteManyDialog` | The same for several: "Delete N items?", the first two names, "+rest" and the total size | App (`delete-many`): marked rows |
-| `MoveClashDialog` | Names already taken where a move lands: Keep both or Replace | App (`move-clash`): drag, paste |
-| `MoveClashDialog` (again) | A Restore from the Recycle Bin onto names already taken: the same dialog, its own ask kind, Keep both lands `name (2)`, Replace sends what is there to the bin | App (`bin-clash`): the bin's Restore |
+| `ClashDialog` | A name already taken (#515): Cancel, Keep both (accent), Replace (red, left out inside a zip). Title "<name> is already there" | App (`move-clash`: drag, paste; `bin-clash`; `clash`: rename), `archive/useArchiveOps.tsx` (`where="archive"`) |
 | `PermanentDeleteDialog` | Delete for good: "Delete <name> permanently?" (or "N items"), the size. Cancel (the default) and Delete permanently. The middle button's second question, the bin's Delete permanently, and a zip's Delete | App (`delete-permanent`, `bin-delete`): the middle button, Delete key, the strip, the row menu |
 | `EmptyBinDialog` | "Empty the Recycle Bin?", "N items · size" and one bar per drive (used, in the accent the part it frees, "<free> free" left, "+<freed>" right). Cancel (the default) and Empty Recycle Bin | App (`bin-empty`): the strip, the list's empty space, the sidebar row |
-| `NameTakenDialog` | A rename onto a taken name: Replace or Keep both | App (`clash`) |
 | `FileChangedDialog` | A file with unsaved edits changed on disk: Keep mine or Reload | App (`file-changed`) |
 | `UnsavedDialog` | Unsaved changes: Cancel, Discard, Save all changes | App (`close-dirty`, `close-tab`) |
-| `NoticeDialog` | One line that did not work, one button | App (`failed`, "That didn't work"), `Sidebar.tsx` (Paste, Add to archive), `archive/useArchiveOps.tsx` ("Archive") |
+| `NoticeDialog` | One line that did not work, one Close button. Title "That didn't work" (`SAY_TITLE`) | App (`failed`), and `say(text, { kind: 'dialog' })` through `SayNotice` (archive notices) |
 | `PasswordDialog` | The archive's password (again, when it was wrong) | `components/archive/ArchiveQuestion.tsx` only, beside App: every route asks through `lib/archiveQuestion.ts`, so an archive never has two up |
 | `ArchiveDeleteDialog` | Delete members from a zip: the permanent question, no middle button | `archive/useArchiveOps.tsx` |
-| `ArchiveClashDialog` | Added files, or members moved inside a zip (#70 D7), land on names the zip has: Keep both | `archive/useArchiveOps.tsx` |
-| `ArchiveFactsDialog` | A zip member's facts | `browse/useArchiveActions.tsx` |
+| `ArchiveFactsDialog` | A zip member's facts (Close, the file window's list) | `browse/useArchiveActions.tsx` |
 | `FolderIconDialog` | Icon for a folder (or N folders): search, a grid of the built-in icons, Cancel, Reset to default, From a file... (the picture's refusal is App's `failed` NoticeDialog, its text `ICON_REFUSED` in `lib/iconFromFile.ts`). A body that is a tool, so `Dialog`'s `wide` box | App (`folder-icon`): Change icon... on a folder row, marked folder rows, a sidebar pin |
 
+**Close-only dialogs and both Properties windows** (#520) say "Close" and use `DialogFooter` (`closeOnly` builds the choice). Properties of a file or drive is a `Dialog` with a `label` and a body that draws its own header; the phone window is a `Dialog`.
+
 Not here, on purpose: forms and panels that are more than a question. `browse/BrowseRename.tsx`
-(the rename field in a dialog; its words, Rename or New folder, are `dialogs/renameWording.ts`,
-pinned by its test), `properties/PropertiesDialog.tsx`, `PhoneDialog.tsx`, the core's
+(the Rename dialog, kept only for F2 on a file open in full view, where no row holds the inline field, #523; every other rename is the inline `RenameField`), `properties/PropertiesDialog.tsx` and `PhoneDialog.tsx` (`Dialog` frames, above), the core's
 `UpdateDialog`, `ExtractWindow.tsx` (it cannot be dismissed, so it shares only the look), and
 `browse/BusyBar.tsx`, the loading bar over a held list (not a dialog: it covers one tab's list only,
 and the rest of the window stays yours).

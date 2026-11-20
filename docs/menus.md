@@ -76,12 +76,13 @@ File Explorer may move under a "More" flyout or go.
 | Markdown | `viewers/markdown.tsx` `markdownMenu` | `MarkdownView.tsx` |
 | Office documents and ebooks | `viewers/doc.tsx` `docMenu` | `DocView.tsx` |
 | Code and text (editable and read-only) | `viewers/code.tsx` `codeMenu` | `CodeView.tsx` |
-| The old zip panel (phone only since #300): a member, several, empty space | `viewers/archivePanel.tsx` `archiveRowMenu`, `archivePanelMenu` | `ArchiveView.tsx` |
+| The old zip panel (phone only since #300): a member, several, empty space | `viewers/archivePanel.tsx` `archiveRowMenu`, `archivePanelMenu` (the same `archiveMenuRows` table, row ids mapped to handlers, #518) | `ArchiveView.tsx` |
 
 ## Menus that are not `ContextMenu`
 
 - **The player cog** (video and audio settings): `components/PlayerMenu.tsx`, its own popover.
   Its speed, audio track and subtitle pickers duplicate the video right-click menu's.
+  It wears the same panel and row classes (components/menuLook.ts, #522) and keeps its drill-down.
 - **Windows File Explorer's own menu** ("Open file", "Open in Prism" on folders): registry verbs in
   `src/main/shellVerb.ts`, held by `shellVerb.test.ts`.
 - Electron's default menus are off (`Menu.setApplicationMenu(null)`); text inputs have no

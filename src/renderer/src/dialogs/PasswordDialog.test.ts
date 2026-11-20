@@ -10,8 +10,8 @@ const text = (wrong: boolean): string =>
 describe('PasswordDialog', () => {
   it('asks for the password, then says it was wrong', () => {
     expect(text(false)).toContain('This archive is password protected')
-    expect(text(false)).toContain('Enter the password to open "a.zip":')
-    expect(text(true)).toContain(`That password didn't open "a.zip". Try again:`)
+    expect(text(false)).toContain('Enter the password to open a.zip:')
+    expect(text(true)).toContain(`That password didn't open a.zip. Try again:`)
   })
 
   it('offers Cancel, then Unlock', () => {

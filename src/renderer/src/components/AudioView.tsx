@@ -15,6 +15,8 @@ import { useDecodedSource } from '../hooks/useDecodedSource'
 import { wasPlaying, whenIntended } from '../lib/playState'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 
+const SYNTH_FAILED = 'Prism could not synthesise this score.'
+
 // The audio player: the chosen visualizer fills the window. Style, colour, and
 // framing all come from the host's MediaLook (#29; Prism's is its Settings window). The
 // filename stays in the title bar rather than on the glass. The <audio> element is
@@ -203,11 +205,11 @@ export function AudioView({
         <ContextMenu x={menu.x} y={menu.y} at={menu.at} items={menuItems()} onClose={() => setMenu(null)} />
       )}
       {(synthesising || synthFailed) && (
-        <StageNotice className="z-30 bg-[var(--p-bg)]/90">
+        <StageNotice className="z-30 bg-[var(--p-bg)]/90" text={synthFailed ? SYNTH_FAILED : undefined} op="audio">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
             {synthesising
               ? 'Synthesising this score. A MIDI file holds no sound of its own, so Prism is playing it through its instrument bank.'
-              : 'Prism could not synthesise this score.'}
+              : SYNTH_FAILED}
           </div>
         </StageNotice>
       )}
@@ -231,7 +233,7 @@ export function AudioView({
       />
 
       {c.error ? (
-        <StageNotice className="text-sm text-[#c9ccd6]">{c.error}</StageNotice>
+        <StageNotice className="text-sm text-[#c9ccd6]" text={c.error} op="audio">{c.error}</StageNotice>
       ) : (
         <>
           {/* The visualizer fills the whole viewer, the same box the nav arrows

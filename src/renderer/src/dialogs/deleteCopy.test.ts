@@ -22,6 +22,7 @@ describe('deleteTitle', () => {
   it('names one item, counts several', () => {
     expect(deleteTitle(['a.txt'], 1, false)).toBe('Delete a.txt?')
     expect(deleteTitle(['a', 'b'], 2, false)).toBe('Delete 2 items?')
+    expect(deleteTitle([], 12000, false)).toBe('Delete 12,000 items?')
     expect(deleteTitle(['a.txt'], 1, true)).toBe('Delete a.txt permanently?')
     expect(deleteTitle(['a', 'b'], 9, true)).toBe('Delete 9 items permanently?')
   })

@@ -1,0 +1,46 @@
+/* THE SELECTION LOOK, ONE RULE for every marked row and tile (#524; owner,
+   2026-10-03: "more transparent like selecting files in file explorer"): the
+   accent tint (theme.ts `--p-sel-tint`) with a faint edge. The Explorer's
+   list and grid, the archive card and the archive tab all wear it through
+   `[data-selected]`, so no surface has a copy of its own.
+   - A run of marked rows is one block: `data-join-up` / `data-join-down` (a
+     marked neighbour above or below) leave out the edge between them and
+     square the shared corners. Inset shadows, so nothing in the row moves.
+   - It DIMS, File Explorer's inactive selection, under a parent
+     `[data-inactive]` (the user acts elsewhere: #296, #483) and on a row
+     marked cut (`data-cut`, #272): the dimmed tint and its edge.
+   - Background-color, never the shorthand (browse.css, #272). */
+[data-selected] {
+  --sel-fill: var(--p-sel-tint);
+  --sel-edge: var(--p-sel-line);
+}
+[data-selected],
+[data-selected]:hover {
+  background-color: var(--sel-fill);
+  box-shadow: inset 0 0 0 1px var(--sel-edge);
+}
+[data-selected]:is([data-join-up], [data-join-down]),
+[data-selected]:is([data-join-up], [data-join-down]):hover {
+  box-shadow:
+    inset 1px 0 0 var(--sel-edge),
+    inset -1px 0 0 var(--sel-edge),
+    inset 0 1px 0 var(--sel-top-edge, var(--sel-edge)),
+    inset 0 -1px 0 var(--sel-bottom-edge, var(--sel-edge));
+}
+[data-selected][data-join-up] {
+  --sel-top-edge: transparent;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+[data-selected][data-join-down] {
+  --sel-bottom-edge: transparent;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+/* --sel-seen is the opaque colour the tint shows as (a drag ghost paints it). */
+[data-inactive] [data-selected],
+[data-selected][data-cut] {
+  --sel-fill: var(--p-sel-tint-dim);
+  --sel-edge: var(--p-sel-line-dim);
+  --sel-seen: var(--p-sel-tint-dim-seen);
+}

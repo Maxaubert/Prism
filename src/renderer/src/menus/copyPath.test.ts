@@ -61,6 +61,7 @@ describe('Copy path without navigator.clipboard (the phone page)', () => {
     pick(
       archivePanelMenu({
         archivePath: 'C:\\a.zip',
+        zip: 'a.zip',
         caps: { write: false, clipboard: false, explorer: false, drag: false },
         writable: false,
         busy: false,
@@ -69,7 +70,8 @@ describe('Copy path without navigator.clipboard (the phone page)', () => {
         addFiles: vi.fn(),
         selectAll: vi.fn()
       } as unknown as Parameters<typeof archivePanelMenu>[0]),
-      'Copy path'
+      // The archive's own place, so the table's word for it (#518).
+      'Copy address'
     )
     expect(clipboardText).toHaveBeenCalledWith('C:\\a.zip')
   })

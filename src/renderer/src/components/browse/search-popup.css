@@ -12,7 +12,7 @@
   justify-content: center;
   align-items: flex-start;
   padding: max(48px, calc(50vh - 230px)) 24px 24px;
-  background: rgb(0 0 0 / 0.35);
+  background: var(--p-scrim);
   backdrop-filter: blur(6px);
   -webkit-app-region: no-drag;
   font-family: 'Segoe UI', sans-serif;
@@ -55,24 +55,9 @@
   color: var(--p-field-hint);
   opacity: 1;
 }
+/* The popup's spinner is components/LoadingState's Spinner (#524); this only keeps it from shrinking in the row. */
 .browse-search-popup-spin {
-  width: 14px;
-  height: 14px;
   flex-shrink: 0;
-  border: 2px solid color-mix(in srgb, var(--p-text) 18%, transparent);
-  border-top-color: var(--p-text-soft);
-  border-radius: 50%;
-  animation: browse-search-spin 700ms linear infinite;
-}
-@keyframes browse-search-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .browse-search-popup-spin {
-    animation-duration: 2s;
-  }
 }
 /* Up to 25 likely matches (owner, same day: "can hold a bit more items, so
    you can scroll", first 50, then "maybe 25 items instead of 50"), scrolling

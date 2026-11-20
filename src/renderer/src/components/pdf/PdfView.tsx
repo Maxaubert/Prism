@@ -7,7 +7,7 @@ import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdf
 import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdf/pdfLinks'
 import { baseZoom, zoomPercent } from '../../lib/pdf/pdfZoom'
-import { PdfFindBar } from './PdfFindBar'
+import { FindBar } from '../FindBar'
 import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
 import { clamp } from '../../lib/clamp'
@@ -882,11 +882,11 @@ export function PdfView({
       </div>
 
       {findOpen && (
-        <PdfFindBar
+        <FindBar
           query={query}
           onQuery={setQuery}
-          current={curMatch}
-          total={matches.length}
+          at={curMatch}
+          count={matches.length}
           onStep={stepFind}
           onClose={closeFind}
         />

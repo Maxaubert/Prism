@@ -297,7 +297,7 @@ describe('deleteMembers', () => {
   })
   it('names the one member that stayed, or counts several', async () => {
     const none = fakeIpc({ archiveDelete: async () => false })
-    expect(await deleteMembers(none, 'z', ['d/a.txt'], ['a.txt'])).toBe('Couldn\'t delete "a.txt".')
+    expect(await deleteMembers(none, 'z', ['d/a.txt'], ['a.txt'])).toBe('Couldn\'t delete a.txt.')
     const half = fakeIpc({ archiveDelete: async (_z, p) => p === 'a' })
     expect(await deleteMembers(half, 'z', ['a', 'b', 'c'], ['a', 'b', 'c'])).toBe(
       "2 of 3 couldn't be deleted from the archive."
@@ -330,7 +330,7 @@ describe('renameMember', () => {
 describe('the dialog copy', () => {
   it('is pinned', () => {
     // The delete question's words live in dialogs/deleteCopy.tsx (#500).
-    expect(ARCHIVE_COPY.clashTitle(['a.txt'])).toBe('"a.txt" is already in the archive')
+    expect(ARCHIVE_COPY.clashTitle(['a.txt'])).toBe('a.txt is already in the archive')
     expect(ARCHIVE_COPY.clashTitle(['a', 'b'])).toBe('2 names are already in the archive')
   })
 })

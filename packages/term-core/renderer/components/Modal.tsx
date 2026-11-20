@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type ReactNode, type RefObject } from 'react'
-import { LAYER } from './layers'
+import { LAYER, SCRIM } from './layers'
 
 /**
  * EVERY POPUP DIALOG IN BOTH APPS (audit 2026-10-12: six dialogs each wrote
@@ -39,6 +39,23 @@ export function returnsFocus(
   return !!before && before.isConnected === true && before !== body && (active === null || active === body)
 }
 
+/** A text field that already has the focus keeps it (#516): a dialog's field
+ *  focuses itself as it mounts, before the Modal's own effect runs, and the
+ *  primary button must not take the focus off it. */
+export function fieldHasFocus(
+  box: { contains: (n: never) => boolean } | null,
+  active: { tagName?: string } | null
+): boolean {
+  if (!box || !active || !box.contains(active as never)) return false
+  const tag = active.tagName?.toUpperCase()
+  return tag === 'INPUT' || tag === 'TEXTAREA'
+}
+
+const swallow = (e: { preventDefault: () => void; stopPropagation: () => void }): void => {
+  e.preventDefault()
+  e.stopPropagation()
+}
+
 export function Modal({
   onCancel,
   locked = false,
@@ -48,7 +65,8 @@ export function Modal({
   role = 'dialog',
   focus = '[data-primary="true"]',
   focusKey,
-  scrim = 'bg-black/50 backdrop-blur-[2px]',
+  scrim = SCRIM,
+  layer = LAYER.modal,
   shadow = true,
   scrimAttrs,
   boxAttrs,
@@ -69,8 +87,11 @@ export function Modal({
   focus?: string
   /** Focus again when this changes (a new question in the same dialog). */
   focusKey?: unknown
-  /** The scrim's tint and blur. */
+  /** The scrim's tint and blur: `SCRIM` unless a popup has its own blur. */
   scrim?: string
+  /** The stacking class: a dialog that must lie over another one (the extraction
+   *  window over the update window) names a higher layer. */
+  layer?: string
   /** The box's drop shadow. Off where the owner's popup rule holds (a popup
    *  blurs what is behind it and casts no shadow, 2026-09-22). */
   shadow?: boolean
@@ -99,6 +120,7 @@ export function Modal({
     if (!el) return
     // A colour picker opened again inside it as it mounted keeps the focus.
     if (document.activeElement?.closest('[data-colour-popover]') && el.contains(document.activeElement)) return
+    if (fieldHasFocus(el, document.activeElement)) return
     ;(el.querySelector<HTMLElement>(focus) ?? el).focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey])
@@ -140,10 +162,21 @@ export function Modal({
       data-modal-scrim
       {...scrimAttrs}
       role="presentation"
-      className={`no-drag fixed inset-0 ${LAYER.modal} grid place-items-center p-6 ${scrim}`}
+      className={`no-drag fixed inset-0 ${layer} grid place-items-center p-6 ${scrim}`}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !live.current.locked) live.current.onCancel()
+        if (e.target !== e.currentTarget) return
+        // THE PRESS STOPS HERE (measured on deleteFocus, 2026-11-09): a dialog closing
+        // inside this event hands the keyboard back to the list, and the browser's own
+        // default for a press on nothing then took it off again. A locked one keeps
+        // the focus where it is for the same reason.
+        e.preventDefault()
+        if (!live.current.locked) live.current.onCancel()
       }}
+      // A locked dialog is the app's one busy window: no menu from the scrim, and a
+      // file dropped on it is not "open this" to a host that listens on the window.
+      onContextMenu={locked ? (e) => e.preventDefault() : undefined}
+      onDragOver={locked ? swallow : undefined}
+      onDrop={locked ? swallow : undefined}
     >
       <div
         ref={box}

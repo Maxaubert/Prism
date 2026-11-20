@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AskDialogs, type AskAnswers } from './AskDialogs'
 import type { Ask } from './asks'
 import { BinDeleteAsk, BinEmptyAsk, DeleteAsk, DeleteManyAsk, PurgeAsk } from './DeleteAsks'
-import { MoveClashDialog } from './MoveClashDialog'
+import { ClashDialog } from './ClashDialog'
 import { FolderIconDialog } from './FolderIconDialog'
 import { NoticeDialog } from './NoticeDialog'
 import { UnsavedDialog } from './UnsavedDialog'
@@ -117,10 +117,10 @@ describe('AskDialogs', () => {
     expect(a.runBinEmpty).toHaveBeenCalled()
   })
 
-  it('a Restore clash reuses the move clash dialog: Keep both and Replace restore with that mode', () => {
+  it('a Restore clash uses the clash dialog: Keep both and Replace restore with that mode', () => {
     const a = answers()
     const el = draw({ kind: 'bin-clash', paths: ['p1', 'p2'], names: ['a', 'b'] }, 'under', a)
-    expect(el?.type).toBe(MoveClashDialog)
+    expect(el?.type).toBe(ClashDialog)
     expect(el?.props.names).toEqual(['a', 'b'])
     el?.props.onKeepBoth?.()
     expect(a.runBinRestore).toHaveBeenCalledWith(['p1', 'p2'], 'keep-both')
@@ -128,9 +128,13 @@ describe('AskDialogs', () => {
     expect(a.runBinRestore).toHaveBeenCalledWith(['p1', 'p2'], 'replace')
   })
 
-  it('a rename clash keeps both', () => {
+  it('a rename clash keeps both, in the shared clash dialog with its suggestion', () => {
     const a = answers()
-    draw({ kind: 'clash', path: 'C:/a', name: 'b', suggestion: 'b (2)' }, 'over', a)?.props.onKeepBoth?.()
+    const el = draw({ kind: 'clash', path: 'C:/a', name: 'b', suggestion: 'b (2)' }, 'over', a)
+    expect(el?.type).toBe(ClashDialog)
+    expect(el?.props.suggestion).toBe('b (2)')
+    expect(el?.props.canReplace).toBe(true)
+    el?.props.onKeepBoth?.()
     expect(a.runRename).toHaveBeenCalledWith('C:/a', 'b', 'keep-both')
   })
 

@@ -598,7 +598,7 @@ export function VideoView({
         </div>
       )}
       {playable.error && (
-        <StageNotice className="z-40 bg-[var(--p-bg)]/92 text-sm text-[var(--p-text-soft)]">
+        <StageNotice className="z-40 bg-[var(--p-bg)]/92 text-sm text-[var(--p-text-soft)]" text={`This video could not be converted (${playable.error}).`} op="video">
           This video could not be converted ({playable.error}).
         </StageNotice>
       )}
@@ -715,7 +715,7 @@ export function VideoView({
         converting: isConverting,
         converted: isConverted
       }) && (
-        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]">
+        <StageNotice className="bg-[var(--p-bg)]/90 text-sm text-[var(--p-text-soft)]" text={c.error ?? undefined} op="video">
           {c.error}
         </StageNotice>
       )}

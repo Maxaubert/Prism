@@ -1,5 +1,6 @@
 import type { MediaProps, TextProps } from '@shared/props'
 import { parentDir } from '@shared/path'
+import { count } from './emptyText'
 import { formatWhen } from './format'
 
 /**
@@ -8,14 +9,11 @@ import { formatWhen } from './format'
  * every phrase the mockups settled is held by a test rather than by eye.
  */
 
-/** 12345 -> "12,345": counts read the way Explorer writes them. */
-export function count(n: number): string {
-  return Math.round(n).toLocaleString('en-US')
-}
+export { count }
 
 /** "9 Oct 2026, 21:14", the mockup's date; empty for a time nobody gave. */
 export function whenLabel(ms: number | undefined): string {
-  return formatWhen(ms).replace(/ (\d\d:\d\d)$/, ', $1')
+  return formatWhen(ms, { comma: true })
 }
 
 /** "1.6 MP": one decimal, which is how cameras print it. */

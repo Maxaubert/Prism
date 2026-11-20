@@ -5,9 +5,9 @@ import { markLanded } from '../../lib/landMarks'
 import { stoppedNote, withFileJob } from '../../lib/fileJob'
 import { parentDir } from '@shared/path'
 import type { UndoEntry } from '../../lib/undo'
-import { ArchiveClashDialog } from '../../dialogs/ArchiveClashDialog'
+import { ClashDialog } from '../../dialogs/ClashDialog'
 import { ArchiveDeleteAsk } from '../../dialogs/DeleteAsks'
-import { NoticeDialog } from '../../dialogs/NoticeDialog'
+import { noticeStore, say } from '../../lib/say'
 import { askArchivePassword, useArchiveQuestionUp } from '../../lib/archiveQuestion'
 import {
   addMembers,
@@ -18,6 +18,9 @@ import {
   runWithPassword,
   type ArchiveFail
 } from './archiveOps'
+
+/** An archive failure, said in the one notice (#517). */
+const setOops = (text: string): void => say(text, { op: 'archive', kind: 'dialog' })
 
 export interface ArchiveOpsDeps {
   /** The place on screen changed under Prism's own write. */
@@ -89,7 +92,7 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
   useLayoutEffect(() => {
     latest.current = deps
   })
-  const [oops, setOops] = useState<string | null>(null)
+  const oops = noticeStore.use()
   const passwordUp = useArchiveQuestionUp()
   /** Requests waiting on the question: they go with this host. */
   const waiting = useRef(new Set<() => void>())
@@ -340,8 +343,10 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
         />
       )}
       {clash && (
-        <ArchiveClashDialog
+        <ClashDialog
           names={clash.names}
+          where="archive"
+          canReplace={false}
           onCancel={() => {
             if (clash.kind === 'add') clash.settled?.()
             setClash(null)
@@ -353,7 +358,6 @@ export function useArchiveOps(deps: ArchiveOpsDeps): ArchiveOps {
           }
         />
       )}
-      {oops && <NoticeDialog title="Archive" message={oops} op="archive" onClose={() => setOops(null)} />}
     </>
   )
 

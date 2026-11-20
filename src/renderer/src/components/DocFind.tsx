@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { useEffect, useState, type JSX, type RefObject } from 'react'
 import { matchRanges, stepMatch } from '../lib/findInText'
-import { Icon } from './icons/Icon'
+import { FindBar } from './FindBar'
 import { listenOn, ownWindow, useViewerWindows, type OwnWindow } from '../lib/ownWindow'
 
 /**
@@ -14,8 +14,8 @@ import { listenOn, ownWindow, useViewerWindows, type OwnWindow } from '../lib/ow
  * would fight the renderer that owns those nodes and would have to be undone
  * exactly. A Highlight paints ranges and touches nothing.
  *
- * The bar itself is the PDF viewer's shape, so the two do not read as two
- * different applications.
+ * The bar itself is FindBar (components/FindBar.tsx), shared with the PDF viewer,
+ * so the two do not read as two different applications.
  */
 
 /**
@@ -99,7 +99,6 @@ export function DocFind({
   const hl = { all: `prism-find-${slot}`, current: `prism-find-current-${slot}` }
   const [query, setQuery] = useState('')
   const [at, setAt] = useState(-1)
-  const input = useRef<HTMLInputElement>(null)
   // State rather than a ref: the paint effect has to re-run when they change,
   // and a ref written from a handler would not tell it to.
   const [ranges, setRanges] = useState<Range[]>([])
@@ -108,11 +107,6 @@ export function DocFind({
   // (the preview window draws the document in its own, `lib/ownWindow.ts`).
   const [painted] = useState(() => new Set<OwnWindow>())
   const wins = useViewerWindows(scroller)
-
-  useEffect(() => {
-    input.current?.focus()
-    input.current?.select()
-  }, [])
 
   /**
    * Escape closes it from anywhere (2026-08-30).
@@ -193,56 +187,16 @@ export function DocFind({
   const step = (delta: number): void => setAt((i) => stepMatch(ranges.length, i, delta))
 
   return (
-    <div
-      data-find-bar
-      data-owns-escape
-      className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 shadow-[0_10px_28px_rgba(0,0,0,.45)]"
-    >
-      <input
-        ref={input}
-        value={query}
-        spellCheck={false}
-        placeholder="Find"
-        aria-label="Find in document"
-        className="w-[180px] bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
-        onChange={(e) => {
-          setQuery(e.target.value)
-          run(e.target.value)
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Escape') onClose()
-          else if (e.key === 'Enter') step(e.shiftKey ? -1 : 1)
-        }}
-      />
-      <span className="min-w-[52px] shrink-0 text-right text-[11px] tabular-nums text-[var(--p-dim2)]">
-        {query ? (count ? `${at + 1} of ${count}` : 'none') : ''}
-      </span>
-      <button
-        aria-label="Previous match"
-        disabled={!count}
-        className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] disabled:opacity-40"
-        onClick={() => step(-1)}
-      >
-        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-          <path d="M18 15l-6-6-6 6" />
-        </svg>
-      </button>
-      <button
-        aria-label="Next match"
-        disabled={!count}
-        className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] disabled:opacity-40"
-        onClick={() => step(1)}
-      >
-        <Icon name="chevronDown" size={12} weight="2.2" join={false} />
-      </button>
-      <button
-        aria-label="Close find"
-        className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-        onClick={onClose}
-      >
-        <Icon name="close" size={12} weight="2.2" join={false} />
-      </button>
-    </div>
+    <FindBar
+      query={query}
+      onQuery={(q) => {
+        setQuery(q)
+        run(q)
+      }}
+      count={count}
+      at={at}
+      onStep={step}
+      onClose={onClose}
+    />
   )
 }
