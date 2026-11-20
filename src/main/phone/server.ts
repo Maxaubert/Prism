@@ -353,12 +353,17 @@ export class PhoneServer {
       this.hereTimer = null
       this.deps.onChange()
     }
+    // The port goes first (audit #73): stopAll waits on ffmpeg and a retrying
+    // rm, and a server started in that window found the port taken and
+    // moved to the next one for good.
+    const closed = s
+      ? new Promise<void>((resolve) => {
+          s.closeAllConnections()
+          s.close(() => resolve())
+        })
+      : Promise.resolve()
     await this.deps.jobs?.stopAll()
-    if (!s) return
-    await new Promise<void>((resolve) => {
-      s.closeAllConnections()
-      s.close(() => resolve())
-    })
+    await closed
   }
 
   /**
@@ -504,6 +509,14 @@ export class PhoneServer {
         return void json(res, 200, {
           mode: 'none',
           reason: 'Prism has no ffmpeg to convert with'
+        })
+      }
+      // A file with no duration (a MediaRecorder WebM) has no playlist to
+      // write: HLS would carry its first segment and refuse the rest (audit #74).
+      if (!(info.duration > 0)) {
+        return void json(res, 200, {
+          mode: 'none',
+          reason: 'Prism cannot tell how long this file is'
         })
       }
       // A track the phone PICKED (#120): the phone has no sidecar decoder,
