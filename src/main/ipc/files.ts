@@ -18,8 +18,8 @@ import { isCopyFormat } from '@shared/imageCopy'
 import { basename, dirname, extname, join, resolve } from 'path'
 import { readFile, rm, stat, writeFile } from '../userFs'
 import { tmpdir } from 'os'
-import { execFile, launch } from '../spawnWorker'
-import { powershellExe, systemExe } from '../systemBin'
+import { launch } from '../spawnWorker'
+import { systemExe } from '../systemBin'
 import { performance } from 'perf_hooks'
 import { hasWindowsFiles, readWindowsFiles } from '../fileClipboard'
 import { clipWriter, ownClip } from '../clipCopy'
@@ -33,8 +33,9 @@ import { documentImages } from '../docImages'
 import { encodeText, fallbackShape, moveShapes } from '../textFile'
 import { replaceFile } from '../replaceFile'
 import { readTail, startTail, stopTail } from '../fileTail'
-import { binIndex, restoreIndexed } from '../binRestore'
-import { binDirs, shellBinAllowed, slowBinMs } from '../binRoots'
+import { runRestore } from '../binRestore'
+import { PASTE_TICK_MS, runPaste } from '../pasteJob'
+import { binDirs, slowBinMs } from '../binRoots'
 import { binReader } from '../binList'
 import { binUsage } from '../binUsage'
 import { driveUsage } from '../driveUsage'
@@ -44,7 +45,7 @@ import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
 import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
-import { copyCounted, dropPartial, isAborted, movePct, pastesIntoItself, pctOf, predictNames, walkSizes } from '../pasteCopy'
+import { copyCounted, dropPartial, pctOf } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { samePath } from '@shared/path'
 import type { OnClash, OpenWithApp, RenameResult, TextRead, WriteResult } from '@shared/types'
@@ -59,9 +60,6 @@ import type { MainCtx, ReadyCtx } from './context'
 
 /** Whose tail it is: the page's webContents id (fileTail's `owner`). */
 export const tailOwner = (sender: { id: number }): string => `page-${sender.id}`
-
-/** At most one paste progress message this often, ms. */
-const PASTE_TICK_MS = 120
 
 /** Move to the Recycle Bin: Windows' own, or under the e2e seam the fake bin
  *  (binTrash.ts), so no scenario can reach the real one. */
@@ -432,6 +430,10 @@ export function registerShellIpc(ctx: MainCtx): void {
   })
 
 
+  /** The paste engine (pasteJob.ts), told where to send its progress. */
+  const paste = (sender: Electron.WebContents, destDir: string, src: string[], moving: boolean, jobId?: string): Promise<PasteResult> =>
+    runPaste({ send: (c, p) => void windows.sendTo(sender, c, p), written, textShape }, destDir, src, moving, jobId)
+
   /**
    * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
    * Windows copy/cut metadata is authoritative, including when another app
@@ -465,7 +467,7 @@ export function registerShellIpc(ctx: MainCtx): void {
           cut.every((c) => src.some((f) => samePath(f, String(c)))))
     }
     if (!src.length) return say({ pasted: 0, failed: 0, empty: true, paths: [] }, moving, 0, source)
-    const result = await runPaste(e.sender, destDir, src, moving, jobId)
+    const result = await paste(e.sender, destDir, src, moving, jobId)
     // A cut moves once: the record has nothing left to move.
     // One stopped by Cancel still has the rest to move.
     if (source.from === 'prism' && moving && result.pasted) {
@@ -494,207 +496,8 @@ export function registerShellIpc(ctx: MainCtx): void {
     const src = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && !!p) : []
     if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
     if (!src.every(movable)) return { pasted: 0, failed: 0, refused: true, paths: [] }
-    return runPaste(e.sender, destDir, src, false, jobId)
+    return paste(e.sender, destDir, src, false, jobId)
   })
-
-  /** The paste engine: copy (or, for a cut, move) `src` into `destDir`. */
-  const runPaste = async (
-    sender: Electron.WebContents,
-    destDir: string,
-    src: string[],
-    moving: boolean,
-    jobId?: string
-  ): Promise<PasteResult> => {
-    // The progress goes to the window that pasted (2026-10-29), and to
-    // nobody once it has closed.
-    const sendToPage = (channel: typeof PUSH.pasteProgress, payload: unknown): void =>
-      void windows.sendTo(sender, channel, payload)
-    const fs = await import('../userFs')
-    const job = typeof jobId === 'string' ? jobId : ''
-    // Cancel (the loading bar, owner 2026-11-09): checked between items, and
-    // aborts the file being written (copyCounted).
-    const stop = startCopies(job)
-    const signal = stop.signal
-    // THE LIST SHOWS WHAT IS LANDING (owner, 2026-10-28: "nothing happens and
-    // suddenly items just appear"): a copy names each item and the path it
-    // is expected at, so the list can draw it as a row with its own bar.
-    // The names are picked in order, each apart from the ones before it, and
-    // the copy writes to exactly that name (review, 2026-10-28: two sources
-    // called readme.md both predicted readme.md, one row hid the other).
-    let current = -1
-    let itemDone = 0
-    const predicted = moving
-      ? []
-      : await predictNames(
-          src.map((s) => basename(s)),
-          (name, taken) => uniqueNameAsync(destDir, name, taken)
-        )
-    const reserved = new Set(predicted.map((n) => n.toLowerCase()))
-    if (!moving) {
-      const items = await Promise.all(
-        src.map(async (s, i) => {
-          const isFolder = await stat(s).then((st) => st.isDirectory(), () => false)
-          return { path: join(destDir, predicted[i]), name: predicted[i], isFolder }
-        })
-      )
-      sendToPage(PUSH.pasteProgress, { jobId: job, pct: 0, start: { dir: destDir, items } })
-    }
-    // Sized AFTER the rows are said (review, 2026-10-28, finding 17): a big
-    // folder's walk no longer holds the list empty. lstat, never following a
-    // junction (pasteCopy.walkSizes). A move is a rename and sizes nothing.
-    const sizes = moving
-      ? src.map(() => 0) // only the cross-volume fallback counts bytes
-      : await Promise.all(src.map((f) => walkSizes(f, () => signal.aborted).catch(() => 0)))
-    const total = sizes.reduce((x, y) => x + y, 0)
-    let done = 0
-    let lastSent = 0
-    // A message at most every PASTE_TICK_MS, bytes and landings alike (review,
-    // 2026-10-28: one per landed item, unthrottled, was a message, a store
-    // update and a list pass per file of a 3,000-photo paste). Progress on an
-    // item says every item before it is through, so a landing skipped here is
-    // said by the next message (lib/jobs.ts updateLanding).
-    const due = (): boolean => {
-      const now = Date.now()
-      if (now - lastSent <= PASTE_TICK_MS) return false
-      lastSent = now
-      return true
-    }
-    let unsaid = -1
-    const count = (): { done: number; total: number } => ({ done: pasted + failed, total: src.length })
-    const tick = (bytes: number): void => {
-      done += bytes
-      itemDone += bytes
-      if (total > 0 && due()) {
-        unsaid = -1
-        const size = sizes[current] ?? 0
-        sendToPage(PUSH.pasteProgress, {
-          jobId: job,
-          pct: pctOf(done, total),
-          count: count(),
-          ...(current >= 0 && size > 0 ? { item: current, itemPct: pctOf(itemDone, size) } : {})
-        })
-      }
-    }
-    const sayLanded = (i: number): void =>
-      sendToPage(PUSH.pasteProgress, {
-        jobId: job,
-        pct: total > 0 ? pctOf(done, total) : 100,
-        count: count(),
-        item: i,
-        itemPct: 100
-      })
-    const landed = (i: number): void => {
-      if (moving) {
-        if (due()) sendToPage(PUSH.pasteProgress, { jobId: job, pct: pctOf(pasted + failed, src.length), count: count() })
-        return
-      }
-      if (due()) {
-        unsaid = -1
-        sayLanded(i)
-      } else unsaid = i
-    }
-    let pasted = 0
-    let failed = 0
-    const paths: string[] = []
-    const from: string[] = []
-    // Why each one failed, for the `op` line (owner, 2026-11-06): the error's
-    // code (ENOENT, EBUSY, EPERM) or what Prism refused.
-    const failures: Array<{ name: string; reason: string }> = []
-    const failedWith = (s: string, reason: string): void => {
-      failed += 1
-      failures.push({ name: basename(s), reason })
-    }
-    let cancelled = false
-    for (const [i, s] of src.entries()) {
-      if (signal.aborted) {
-        cancelled = true
-        break
-      }
-      current = i
-      itemDone = 0
-      // A folder pasted into itself or below itself is skipped and counted
-      // as failed (2026-10-16): it used to copy its own copy until the path
-      // ran out, and a cut fell through to the same copy (pasteCopy.ts).
-      if (pastesIntoItself(s, destDir)) {
-        failedWith(s, 'into itself')
-        continue
-      }
-      // A cut pasted back into its own folder does nothing, like a drag put
-      // back down (audit 2026-11-18, #533): it used to rename the item to
-      // "name (2)", since its own name was taken by itself.
-      if (moving && resolve(dirname(s)).toLowerCase() === resolve(destDir).toLowerCase()) continue
-      // What this item has actually started writing, for the clean-up below:
-      // a name it never wrote to is not its to remove.
-      let writing: string | null = null
-      try {
-        // The predicted name, unless something took it meanwhile (then the
-        // next free one that no other item of this paste is to land under).
-        const name =
-          predicted[i] && !(await exists(join(destDir, predicted[i])))
-            ? predicted[i]
-            : await uniqueNameAsync(destDir, basename(s), reserved)
-        const target = join(destDir, name)
-        if (moving) {
-          try {
-            await fs.rename(s, target)
-          } catch {
-            // EXDEV or a lock: counted copy, then the source goes, its share
-            // of the job counted in items (pasteCopy.ts movePct).
-            const size = await walkSizes(s, () => signal.aborted).catch(() => 0)
-            let moved = 0
-            writing = target
-            await copyCounted(
-              s,
-              target,
-              (b) => {
-                moved += b
-                if (size > 0 && due())
-                  sendToPage(PUSH.pasteProgress, { jobId: job, pct: movePct(i, src.length, moved, size), count: count() })
-              },
-              { signal, keep: true }
-            )
-            writing = null
-            // The copy is whole: only now does the source go.
-            await fs.rm(s, { recursive: true })
-          }
-          // A cut carries the text shape like a drag-move does (2026-10-16).
-          moveShapes(textShape, s, target)
-        } else {
-          writing = target
-          await copyCounted(s, target, tick, { signal })
-          writing = null
-        }
-        paths.push(target)
-        from.push(s)
-        pasted += 1
-        landed(i)
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException | null)?.code
-        const stopped = isAborted(err, signal)
-        // A copy that did not finish never stays half-written. `EEXIST` is the
-        // one error that means the name was NOT ours: leave that file alone.
-        if (writing && code !== 'EEXIST') await dropPartial(writing)
-        if (stopped) {
-          cancelled = true
-          break
-        }
-        failedWith(s, typeof code === 'string' ? code : String((err as Error | null)?.message ?? err).slice(0, 120))
-      }
-    }
-    if (unsaid >= 0) sayLanded(unsaid)
-    endCopies(job)
-    await written(destDir, ...(moving ? src : []))
-    return {
-      pasted,
-      failed,
-      paths,
-      from,
-      moved: moving,
-      total: src.length,
-      ...(failures.length ? { failures } : {}),
-      ...(cancelled ? { cancelled } : {})
-    }
-  }
 
   // The icon Windows itself shows for a file of this type - the user's own
   // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
@@ -730,67 +533,7 @@ export function registerShellIpc(ctx: MainCtx): void {
     // that was undone (pathWall `putBack`).
     if (!Array.isArray(all) || !all.length || !all.every((p) => insideDesktop(p) || ctx.wall.putBack(p)))
       return job ? { ok: false, restored: [], left: Array.isArray(all) ? all : [], cancelled: false } : false
-    const stop = job ? startCopies(job) : null
-    const paths: string[] = []
-    const direct: string[] = []
-    let cancelled = false
-    let lastSent = 0
-    const index = await binIndex(all)
-    for (const [i, p] of all.entries()) {
-      if (stop?.signal.aborted) {
-        cancelled = true
-        break
-      }
-      if (await restoreIndexed(p, index).catch(() => false)) direct.push(p)
-      else paths.push(p)
-      if (job && Date.now() - lastSent > PASTE_TICK_MS) {
-        lastSent = Date.now()
-        void windows.sendTo(e.sender, PUSH.pasteProgress, { jobId: job, pct: pctOf(i + 1, all.length), count: { done: i + 1, total: all.length } })
-      }
-    }
-    if (job) endCopies(job)
-    if (cancelled) {
-      await written(...all)
-      return { ok: false, restored: direct, left: all.filter((p) => !direct.includes(p)), cancelled: true }
-    }
-    if (!paths.length) {
-      await written(...all)
-      return job ? { ok: true, restored: all, left: [], cancelled: false } : true
-    }
-    // Under the e2e seam the shell is not asked: its walk would read the owner's
-    // REAL bin. What the fake bin does not hold is simply not there.
-    if (!shellBinAllowed()) {
-      await written(...all)
-      return job ? { ok: false, restored: direct, left: paths, cancelled: false } : false
-    }
-    const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
-    const script = [
-      '$ErrorActionPreference = "SilentlyContinue"',
-      '$missing = $false',
-      '$sh = New-Object -ComObject Shell.Application',
-      '$bin = $sh.Namespace(0xA)',
-      `foreach ($p in @(${list})) {`,
-      '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
-      '  $item = @($bin.Items() | Where-Object {',
-      '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
-      '  })[-1]',
-      '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
-      '}',
-      // Nothing came back: say so, or undo would claim a restore that never
-      // happened (an emptied Recycle Bin is the common case).
-      'if ($missing) { exit 1 }'
-    ].join('; ')
-    const asked = new Promise<boolean>((done) => {
-      execFile(
-        powershellExe(),
-        ['-NoProfile', '-Command', script],
-        { windowsHide: true, timeout: 20000 },
-        (err) => done(!err)
-      )
-    }).finally(() => written(...all))
-    if (!job) return asked
-    const back = await asked
-    return { ok: back, restored: back ? all : direct, left: back ? [] : paths, cancelled: false }
+    return runRestore({ send: (c, p) => void windows.sendTo(e.sender, c, p), written }, all, job)
   })
 
   /* ----- the Recycle Bin view's verbs (Recycle Bin feature, D13 to D15) -----
