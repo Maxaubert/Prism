@@ -37,7 +37,7 @@ exact source and version of each is in BtbN's build scripts (`scripts.d`) at the
   aribb24 and GMP are LGPL v3, the build is configured with `--enable-version3` and ffmpeg as a
   whole is under LGPL v3 or later.
 
-### 7-Zip 25.00 (GNU LGPL, with the unRAR restriction; parts BSD 3-clause and 2-clause)
+### 7-Zip 26.06 (GNU LGPL, with the unRAR restriction; parts BSD 3-clause and 2-clause)
 Igor Pavlov. `7z.exe` and `7z.dll` in `resources/bin`. The rar code is under the unRAR licence
 restriction: it may not be used to recreate the RAR compression algorithm. Licence:
 `resources/bin/License.txt`. https://www.7-zip.org

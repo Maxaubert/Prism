@@ -22,8 +22,8 @@ import { ROOT } from './lib/repo.mjs'
 
 const OUT = join(ROOT, 'vendor', '7zip')
 
-const ASSET = '7z2500-x64.msi'
-const SHA256 = 'b48e905ed02c530638e6173f2d743668e63561aac1914d2723fbee5690792272'
+const ASSET = '7z2606-x64.msi'
+const SHA256 = '6dc822569e777d9a3ecd5ffcbc22b55600af87e6c5d9810a64e8566cf5a4af9f'
 const URL = `https://www.7-zip.org/a/${ASSET}`
 const WANTED = ['7z.exe', '7z.dll', 'License.txt']
 
