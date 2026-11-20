@@ -8,6 +8,7 @@ import {
   sidecarSize,
   timeForByte,
   wavHeader,
+  BYTES_PER_SEC,
   WAV_HEADER_BYTES
 } from './ffmpeg'
 
@@ -74,6 +75,17 @@ interface Deps {
   packaged: boolean
   resourcesPath: string
   appPath: string
+}
+
+/** Most the stream may pad when ffmpeg ends early: a second of silence (audit #14). */
+export const MAX_PAD_BYTES = BYTES_PER_SEC
+
+/** A decode that ended missing bytes short: a frame or two at the end of a file is padded
+ *  to keep the promised length; a long gap means the decode failed, which must say so
+ *  instead of becoming one huge buffer of silence. */
+export function shortfall(missing: number): 'none' | 'pad' | 'error' {
+  if (missing <= 0) return 'none'
+  return missing <= MAX_PAD_BYTES ? 'pad' : 'error'
 }
 
 /** Async (owner, 2026-10-12, main never waits on the disk): this answers every
@@ -162,8 +174,13 @@ export async function serveSidecarAudio(request: Request, deps: Deps): Promise<R
         try {
           // Short by a frame or two at the very end of a file: pad rather than
           // break the promised Content-Length, which Chromium reads as an error.
-          if (sent < length) controller.enqueue(new Uint8Array(length - sent))
-          controller.close()
+          // A long gap is a failed decode: an error, not a giant buffer of zeros (audit #14).
+          const gap = shortfall(length - sent)
+          if (gap === 'error') controller.error(new Error('ffmpeg ended early'))
+          else {
+            if (gap === 'pad') controller.enqueue(new Uint8Array(length - sent))
+            controller.close()
+          }
         } catch {
           /* already closed */
         }
