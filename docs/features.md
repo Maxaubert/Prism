@@ -8,6 +8,11 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A portrait film keeps its size on the phone** (audit #33): the HLS encode ceiling (1080) is the SHORT side
   of the picture as shown, so a 1080x1920 film with no display matrix is no longer scaled to 608x1080.
   Held by `src/main/phone/decide.test.ts` and `hls.test.ts`.
+- **A file with no duration is not streamed as one 4-second clip** (audit #74): `/api/play` answers "none"
+  with a reason instead of a one-segment playlist. Held by `server.test.ts`.
+- **The phone server frees its port before it waits on ffmpeg, and starts one at a time** (audit #73): a
+  relaunch from standby while a film streams keeps the saved port. Held by `server.test.ts` (`stop()`) and
+  `oneAtATime.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 

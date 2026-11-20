@@ -796,6 +796,34 @@ describe('PhoneServer', () => {
     expect(none).toMatchObject({ mode: 'none', reason: expect.any(String) })
   })
 
+  it('/api/play refuses HLS for a file with no duration (audit #74)', async () => {
+    const token = await pair()
+    deps.probe = async (p) => {
+      const i = probeOf(p)
+      return i ? { ...i, duration: 0 } : null
+    }
+    const none = await play(token, 'clip.mkv')
+    expect(none).toMatchObject({ mode: 'none', reason: expect.any(String) })
+    expect(none.url).toBeUndefined()
+  })
+
+  it('stop() frees the port before it waits on the ffmpeg jobs (audit #73)', async () => {
+    let release: () => void = () => undefined
+    const slow = new Promise<void>((r) => (release = r))
+    deps.jobs = { ...deps.jobs!, stopAll: () => slow } as typeof deps.jobs
+    const stopping = server.stop()
+    await new Promise((r) => setTimeout(r, 50))
+    // The listener is closed while stopAll is still pending: a new server can bind it.
+    const next = new PhoneServer({ ...deps, jobs: null }, emptyState())
+    const again = await next.start(port)
+    expect(again).toBe(port)
+    await next.stop()
+    release()
+    await stopping
+    server = new PhoneServer(deps, emptyState())
+    port = await server.start(0)
+  })
+
   it('/api/play says none, with a reason, when there is no ffmpeg to convert with', async () => {
     const token = await pair()
     deps.jobs = null
