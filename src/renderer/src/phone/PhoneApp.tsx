@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
-import { PHONE_PAIR, ROUTE, routePath, type Me, type PairAnswer } from '@shared/phoneWire'
-import { codeFromLocation, getJson, PhoneError, readToken, writeToken } from './api'
+import { PHONE_PAIR, ROUTE, routePath, type Me } from '@shared/phoneWire'
+import { codeFromLocation, dropLegacyToken, getJson, PhoneError } from './api'
 import { Pairing } from './Pairing'
 import { Browser } from './Browser'
 
@@ -12,15 +12,18 @@ function deviceName(): string {
 }
 
 /**
- * The phone shell (2026-09-06, #104). Two states: no token (pair), and the
- * PC to browse. A 401 anywhere drops the token: the PC forgot this phone, and
- * SCANNING AGAIN is that phone's screen alone (2026-09-08). Since 2026-10-14
+ * The phone shell (2026-09-06, #104). Two states: not paired (pair), and the
+ * PC to browse. The token is an HttpOnly cookie the page never sees
+ * (2026-11-20): `/api/me` answers 401 when there is none, or when the PC
+ * forgot the phone or it sat unused for 30 days, and that is the pairing
+ * screen. SCANNING AGAIN is that phone's screen alone (2026-09-08). Since 2026-10-14
  * the phone is not on a tab: it browses the whole PC like the Explorer, and
  * `/api/me` says only where it left off.
  */
 export function PhoneApp(): JSX.Element {
   const [me, setMe] = useState<Me | null>(null)
-  const [token, setToken] = useState<string | null>(readToken())
+  /** Null until the PC has answered once. */
+  const [paired, setPaired] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [initialCode] = useState(() => codeFromLocation(window.location.search))
   /** How many times this page has paired: a re-scan starts a fresh browser. */
@@ -31,15 +34,14 @@ export function PhoneApp(): JSX.Element {
   // effect calls as a synchronous one, awaits or not. State is set only in
   // the callbacks the network hands back to.
   const load = useCallback((): Promise<void> => {
-    if (!readToken()) return Promise.resolve()
     return getJson<Me>(routePath(ROUTE.me)).then(
-      (m) => setMe(m),
+      (m) => {
+        setMe(m)
+        setPaired(true)
+      },
       (e: unknown) => {
-        if (e instanceof PhoneError && e.status === 401) {
-          writeToken(null)
-          setToken(null)
-          setError('This PC forgot this phone. Scan again.')
-        } else setError(e instanceof Error ? e.message : String(e))
+        if (e instanceof PhoneError && e.status === 401) setPaired(false)
+        else setError(e instanceof Error ? e.message : String(e))
       }
     )
   }, [])
@@ -49,31 +51,34 @@ export function PhoneApp(): JSX.Element {
       fetch(PHONE_PAIR, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        // The current token rides along: an already-paired phone scanning
-        // another code MOVES to that code's folder and keeps its token.
-        body: JSON.stringify({ code, name: deviceName(), token: readToken() ?? undefined })
+        // The cookie rides along: an already-paired phone scanning another
+        // code MOVES to that code's folder and keeps its token.
+        body: JSON.stringify({ code, name: deviceName() })
       }).then(
         async (r) => {
           // The last attempt's message stands until this one has an answer.
           if (!r.ok) {
             const j = (await r.json().catch(() => ({}))) as { error?: string }
             setError(j.error ?? 'Could not pair')
+            setPaired((p) => p ?? false)
             return
           }
-          const j = (await r.json()) as PairAnswer
-          setError(null)
-          writeToken(j.token)
-          setToken(j.token)
+          setError(null) // the cookie came with the answer
+          setPaired(true)
           window.history.replaceState(null, '', '/') // the code has been spent
           setPairs((n) => n + 1)
           await load()
         },
-        () => setError('Could not reach Prism. Is the phone on the same Wi-Fi?')
+        () => {
+          setError('Could not reach Prism. Is the phone on the same Wi-Fi?')
+          setPaired((p) => p ?? false)
+        }
       ),
     [load]
   )
 
   useEffect(() => {
+    dropLegacyToken()
     // A link with a code pairs (or re-pairs onto another tab) on arrival.
     if (initialCode) void pair(initialCode)
     else void load()
@@ -82,8 +87,8 @@ export function PhoneApp(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (!token) return <Pairing initialCode={initialCode} error={error} onPair={pair} />
-  if (!me)
+  if (paired === false) return <Pairing initialCode={initialCode} error={error} onPair={pair} />
+  if (!me || !paired)
     return (
       <div className="p-6 opacity-70" data-phone-connecting>
         {error ?? 'Connecting…'}

@@ -108,9 +108,9 @@ export interface PlacesAnswer {
   drives: PhoneDrive[]
 }
 
-/** `/pair`: the phone's token and the folder it starts in (null: This PC). */
+/** `/pair`: the folder the phone starts in (null: This PC). Its token is not
+ *  in the body: it arrives as an HttpOnly cookie. */
 export interface PairAnswer {
-  token: string
   here: string | null
 }
 
