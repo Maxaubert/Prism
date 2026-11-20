@@ -60,6 +60,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   `lib/pdf/pdfZoom.test.ts` (`padXFor`, `fitScale`).
 - **A settings dropdown opens upward when the pane would clip it** (audit #85): the list is measured as it opens
   and flips above its button when it does not fit below. Held by `packages/term-core/renderer/lib/listFlip.test.ts`.
+- **The player's cog menu fits a narrow preview pane** (audit #94): its width and height are capped to the room
+  between its button and the edge of the viewer box that clips it (the phone's bottom sheet is left alone). Held by
+  `lib/menuFit.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
