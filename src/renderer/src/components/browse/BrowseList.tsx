@@ -65,6 +65,7 @@ import { ThumbImage } from './ThumbImage'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
 import { RenameField } from '../RenameField'
+import { layerShift } from '../../lib/layerShift'
 import { landingTile } from '../../lib/landingGrid'
 import { LandingBar } from './LandingBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
@@ -1696,6 +1697,7 @@ export function BrowseList(props: Props): JSX.Element {
                   firstItem={firstItem}
                   entries={rendered}
                   translateY={liveTop + first * rowHeight - logicalTop}
+                  shiftByTop={props.renamingPath != null}
                   tile={(entry, index, rect) => {
                     const key = entry.path.toLowerCase()
                     const selected = isMarked(entry.path)
@@ -1724,9 +1726,7 @@ export function BrowseList(props: Props): JSX.Element {
               {!layout && (
                 <div
                   className="browse-row-layer"
-                  style={{
-                    transform: `translateY(${liveTop + first * rowHeight - logicalTop}px)`
-                  }}
+                  style={layerShift(liveTop + first * rowHeight - logicalTop, props.renamingPath != null)}
                 >
                   {rendered.map((entry, offset) => {
                     const divider = divided?.divider(firstItem + offset)
