@@ -10,6 +10,12 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **The installer's own folder needs the backslash** (audit #21): a picked `D:\Tools\NotPrism` or `D:\MyPrism` now
   gets a `Prism` subfolder, so uninstall never empties a folder Prism did not make. Held by
   `src/shared/installerOwnFolder.test.ts`.
+- **Electron 43.8.12** (audit #25): the shipped Chromium and Node moved from 43.2.0 to the newest 43.x patch;
+  `build:sweep` still builds and self-tests against it. Held by `src/main/electronVersion.test.ts`.
+- **7-Zip 26.06** (audit #24): the bundled `7z.exe` moved from 25.00 to 26.06, which has the fix for
+  CVE-2025-55188 (an archive link written outside the extraction folder). The MSI is pinned by its SHA-256 in
+  `tools/fetch-7zip.mjs`. Held by `src/main/sevenZipPin.test.ts`.
+
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
