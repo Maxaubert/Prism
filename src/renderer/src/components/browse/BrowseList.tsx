@@ -15,18 +15,13 @@ import {
 import type { ArchiveMeta } from '@shared/types'
 import { browsableArchive, memberOf } from '@shared/archivePlace'
 import { goesToWindows } from '../../lib/unsupported'
-import { formatBytes, formatWhen } from '../../lib/format'
-import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
-import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { BusyBar } from './BusyBar'
-import { EntryIcon } from '../icons/EntryIcon'
-import { FolderGlyph } from '../icons/FolderGlyph'
-import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
+import { useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars } from '../../lib/explorerSize'
 import {
@@ -43,31 +38,28 @@ import { anchorAt, anchorScroll, type Anchor } from '../../lib/zoomAnchor'
 import { createZoomWheel } from '../../lib/zoomWheel'
 import { GRID_GAP, GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
 import { gridHeaderColumns } from '../../lib/gridHeader'
-import { binColumns, binnedOf, binnedPath } from '../../lib/binView'
 import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
 import { cellSpan, cellsInBox, nearestCell } from '../../lib/cellsInBox'
 import { useSweep } from '../../hooks/useSweep'
-import { BrowseIcon } from '../icons/BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
-import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
+import type { BrowseEntry, FolderBrowserProps } from './types'
 import type { ListPending } from '../../hooks/usePendingHint'
 import { divideRows, type DateDivider } from '../../lib/dateGroups'
-import { nextSort } from '../../lib/downloadsView'
 import { listKey, spaceKey, stepTo, type ListKey } from '../../lib/listKeys'
 import { nearerEscape } from '../../lib/nearerEscape'
 import { menuOrDialogUp } from '../../lib/pageDocuments'
-import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { createScrollSettle } from '../../lib/scrollSettle'
 import { tierFor } from '@shared/thumbTypes'
-import { thumbSource, visibleWants } from '../../lib/thumbKind'
+import { visibleWants } from '../../lib/thumbKind'
 import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
-import { ThumbImage } from './ThumbImage'
+import { BrowseColumnHeader } from './BrowseColumnHeader'
+import { headerColumnsFor } from './browseColumns'
+import { BrowseRow, DividerRow, PendingRow } from './BrowseRow'
+import { rowPicture, tilePicture, type EntryPictures } from './EntryMedia'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
 import { RenameField } from '../RenameField'
 import { layerShift } from '../../lib/layerShift'
-import { landingTile } from '../../lib/landingGrid'
-import { LandingBar } from './LandingBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
 
 const OVERSCAN = 12
@@ -103,26 +95,7 @@ const LIST_OWN: ReadonlySet<ListKey> = new Set<ListKey>([
   'focus-end',
   'toggle-mark'
 ])
-const columns: Array<{ key: BrowseSort['key']; label: string }> = [
-  { key: 'name', label: 'Name' },
-  { key: 'type', label: 'Type' },
-  { key: 'size', label: 'Size' },
-  { key: 'modified', label: 'Date modified' }
-]
-// Inside an archive (#300): Packed, right after Size, the container's own
-// number for what each member occupies.
-const archiveColumns: typeof columns = [
-  { key: 'name', label: 'Name' },
-  { key: 'type', label: 'Type' },
-  { key: 'size', label: 'Size' },
-  { key: 'packed', label: 'Packed' },
-  { key: 'modified', label: 'Date modified' }
-]
-const searchColumns: typeof columns = [
-  { key: 'name', label: 'Name' },
-  { key: 'path', label: 'Path' },
-  { key: 'size', label: 'Size' }
-]
+
 
 type Props = Pick<
   FolderBrowserProps,
@@ -1491,53 +1464,19 @@ export function BrowseList(props: Props): JSX.Element {
     }
   })
 
-  /** A tile's picture box: the photo or film's thumbnail when it has one, else
-   *  the kind icon (or the folder's) centred on the same quiet ground. The box
-   *  is the same size before and after a picture arrives (spec 4.6). */
-  const tileMedia = (entry: BrowseEntry, selected: boolean): JSX.Element => {
-    const edge = look.edge
-    const iconSize = Math.min(64, Math.round(edge * 0.4))
-    const src =
-      thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
-    const kind = (size: number): JSX.Element => (
-      <EntryIcon kind={entry.file!.kind} ext={entry.file!.ext} name={entry.name} size={size} selected={selected} />
-    )
-    if (entry.file && src)
-      return (
-        <ThumbImage
-          feed={thumbFeed}
-          path={entry.path}
-          source={src}
-          film={entry.file.kind === 'video'}
-          box={edge}
-          icon={kind(iconSize)}
-        />
-      )
-    let icon: JSX.Element
-    if (entry.isFolder) {
-      const own = folderIconOf(folderIcons, entry.path)
-      const folder = <EntryIcon kind="folder" size={iconSize} />
-      icon = own ? (
-        <FolderGlyph icon={own} size={iconSize} color="var(--p-tree-folder)" fallback={folder} />
-      ) : (
-        folder
-      )
-    } else icon = entry.file ? kind(iconSize) : <span />
-    return (
-      <span className="browse-thumb" style={{ width: edge, height: edge }} data-thumb-state="icon">
-        <span className="browse-thumb-icon">{icon}</span>
-      </span>
-    )
+  const pictures: EntryPictures = {
+    on: thumbsOn,
+    feed: thumbFeed,
+    landing: props.landing,
+    folderIcons
   }
 
   /** The header's buttons: a list's columns, or a grid's packed strip. */
-  const headerColumns = searching
-    ? searchColumns
-    : props.bin
-      ? binColumns
-      : props.archive
-        ? archiveColumns
-        : columns
+  const headerColumns = headerColumnsFor({
+    searching,
+    bin: !!props.bin,
+    archive: !!props.archive
+  })
   const stripColumns = gridOn ? gridHeaderColumns(headerColumns, width) : headerColumns
 
   return (
@@ -1579,54 +1518,14 @@ export function BrowseList(props: Props): JSX.Element {
             {props.strip}
           </div>
         )}
-        <div
-          className="browse-column-viewport"
-          ref={columnScroller}
-          onScroll={(event) => {
-            const head = event.currentTarget
-            if (scroller.current && scroller.current.scrollLeft !== head.scrollLeft) {
-              scroller.current.scrollLeft = head.scrollLeft
-              // A list with nothing to scroll cannot follow: the header goes
-              // back to it, or a focused last header cell (its box runs on to
-              // the edge) leaves the labels shifted off their columns. Seen
-              // in the bin, where Type is the last cell.
-              if (scroller.current.scrollLeft !== head.scrollLeft) head.scrollLeft = scroller.current.scrollLeft
-            }
-          }}
-        >
-          <div className="browse-columns">
-            {stripColumns.map(({ key, label }) => (
-              <button
-                key={key}
-                className={`browse-column-${key}`}
-                title={`Sort by ${label.toLowerCase()}`}
-                aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
-                onClick={() => props.onSortChange(nextSort(props.sort, key, !!props.downloads))}
-              >
-                {label}
-                {/* Every column carries its arrow, as File Explorer's do (owner,
-                    2026-10-04: "that arrow shows only when you hover over them
-                    while the currently sorted item has an arrow at all times").
-                    It is always in the layout and only fades in, so a hover
-                    never moves the label. Unsorted, it points the way a click
-                    would sort (ascending; Date modified in Downloads, newest
-                    first, #285). */}
-                <span
-                  className="browse-sort-arrow"
-                  aria-hidden="true"
-                  data-sorted={props.sort.key === key || undefined}
-                  data-descending={
-                    props.sort.key === key
-                      ? props.sort.direction === 'desc'
-                      : nextSort(props.sort, key, !!props.downloads).direction === 'desc'
-                  }
-                >
-                  <BrowseIcon name="up" />
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <BrowseColumnHeader
+          columns={stripColumns}
+          sort={props.sort}
+          downloads={!!props.downloads}
+          onSortChange={props.onSortChange}
+          headerRef={columnScroller}
+          listRef={scroller}
+        />
         {/* A folder slower than 300 ms (#271): a thin bar under the header,
             never text over the list. Always in the layout, faded in, so the
             rows never move for it. */}
@@ -1708,7 +1607,7 @@ export function BrowseList(props: Props): JSX.Element {
                         path={entry.path}
                         index={index}
                         rect={rect}
-                        media={tileMedia(entry, selected)}
+                        media={tilePicture(entry, selected, look, pictures)}
                         selected={selected}
                         primary={entry.path === props.selectedPath}
                         cursor={cursor === entry.path}
@@ -1729,218 +1628,55 @@ export function BrowseList(props: Props): JSX.Element {
                   style={layerShift(liveTop + first * rowHeight - logicalTop, props.renamingPath != null)}
                 >
                   {rendered.map((entry, offset) => {
-                    const divider = divided?.divider(firstItem + offset)
+                    const itemIndex = firstItem + offset
+                    const divider = divided?.divider(itemIndex)
                     if (divider)
-                      // A label, not a row: nothing to pick, focus, drag or drop
-                      // on, and hidden from the listbox, whose options are files.
                       return (
-                        <div
+                        <DividerRow
                           key={`group-${divider.group}`}
-                          className="browse-divider"
-                          aria-hidden="true"
-                          data-date-group={divider.group}
-                        >
-                          <span>{divider.label}</span>
-                        </div>
+                          group={divider.group}
+                          label={divider.label}
+                        />
                       )
                     if (!entry)
-                      return (
-                        <div
-                          key={`pending-${firstItem + offset}`}
-                          className="browse-row"
-                          aria-hidden="true"
-                        >
-                          <span className="browse-column-name browse-name">
-                            {/* A search row still on its way is a blank row (#271):
-                              no loading text anywhere in the list. */}
-                            {entry === null ? 'Item unavailable' : ''}
-                          </span>
-                        </div>
-                      )
+                      return <PendingRow key={`pending-${itemIndex}`} unavailable={entry === null} />
+                    const key = entry.path.toLowerCase()
                     const primary = entry.path === props.selectedPath
                     const selected = isMarked(entry.path)
                     // A marked run is one block: its edge is drawn round the
                     // run, never between two marked neighbours (browse.css).
                     const above = rendered[offset - 1]
                     const below = rendered[offset + 1]
-                    const joinUp = selected && !!above && isMarked(above.path)
-                    const joinDown = selected && !!below && isMarked(below.path)
-                    // Being renamed (#523): the row is a plain box with the field in it,
-                    // no press, drag or drop of its own (the field's mouse is the field's).
                     const renamingHere = props.renamingPath === entry.path
-                    const Row = renamingHere ? 'div' : 'button'
                     return (
-                      <Row
+                      <BrowseRow
                         key={entry.path}
-                        role="option"
-                        aria-selected={selected}
-                        aria-posinset={
-                          (divided
-                            ? (divided.entryAt(firstItem + offset) ?? 0)
-                            : firstItem + offset) + 1
-                        }
-                        aria-setsize={divided ? props.entries.length : count}
-                        tabIndex={primary ? 0 : -1}
-                        className="browse-row"
-                        data-cut={cut.has(entry.path.toLowerCase()) || undefined}
-                        data-landing={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                        aria-busy={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                        // Still copying: nothing to open, preview or drag yet.
-                        inert={props.landing?.has(entry.path.toLowerCase()) || undefined}
-                        aria-description={
+                        entry={entry}
+                        itemIndex={itemIndex}
+                        posInSet={(divided ? (divided.entryAt(itemIndex) ?? 0) : itemIndex) + 1}
+                        setSize={divided ? props.entries.length : count}
+                        primary={primary}
+                        selected={selected}
+                        joinUp={selected && !!above && isMarked(above.path)}
+                        joinDown={selected && !!below && isMarked(below.path)}
+                        cursor={cursor === entry.path}
+                        cut={cut.has(key)}
+                        landing={props.landing?.has(key) ? props.landing.get(key) : undefined}
+                        description={
                           [
-                            groupOf?.[divided?.entryAt(firstItem + offset) ?? -1],
-                            cut.has(entry.path.toLowerCase()) ? 'Cut' : ''
+                            groupOf?.[divided?.entryAt(itemIndex) ?? -1],
+                            cut.has(key) ? 'Cut' : ''
                           ]
                             .filter(Boolean)
                             .join(', ') || undefined
                         }
-                        data-browse-path={entry.path}
-                        data-browse-index={firstItem + offset}
-                        data-selected={selected || undefined}
-                        data-cursor={(cursor === entry.path && !primary) || undefined}
-                        data-join-up={joinUp || undefined}
-                        data-join-down={joinDown || undefined}
-                        title={searching ? entry.path : undefined}
-                        {...(renamingHere ? {} : entryHandlers(entry, selected))}
-                      >
-                        <span className="browse-column-name browse-name">
-                          {entry.isFolder
-                            ? (() => {
-                                const own = folderIconOf(folderIcons, entry.path)
-                                // At the picture steps (3, 4) a folder is as big as a file's
-                                // icon (owner, 2026-11-10); steps 0 to 2 keep the row icon.
-                                const folder = <EntryIcon kind="folder" size={look.thumb ? look.icon : undefined} />
-                                // A picked glyph wears the folder colour (D4).
-                                const glyph = own ? (
-                                  <FolderGlyph
-                                    icon={own}
-                                    size={look.icon}
-                                    color="var(--p-tree-folder)"
-                                    fallback={folder}
-                                  />
-                                ) : (
-                                  folder
-                                )
-                                return look.thumb ? (
-                                  <span className="browse-thumb-slot">{glyph}</span>
-                                ) : (
-                                  glyph
-                                )
-                              })()
-                            : entry.file &&
-                              (() => {
-                                // Steps 3 and 4: a photo or a film gets a picture box (its icon
-                                // half the box until the picture arrives); every other row keeps
-                                // its icon centred in a slot of the same width, so names line up.
-                                const src =
-                                  thumbsOn && !props.landing?.has(entry.path.toLowerCase())
-                                    ? thumbSource(entry)
-                                    : null
-                                // A marked row is a tint, so its icon keeps its own
-                                // colours; its knockouts are the tint as seen
-                                // (dimmed or not: browse.css sets --sel-seen).
-                                const kind = (size: number): JSX.Element => (
-                                  <EntryIcon
-                                    kind={entry.file!.kind}
-                                    ext={entry.file!.ext}
-                                    name={entry.name}
-                                    size={size}
-                                    selected={selected}
-                                  />
-                                )
-                                if (src)
-                                  return (
-                                    <ThumbImage
-                                      feed={thumbFeed}
-                                      path={entry.path}
-                                      source={src}
-                                      film={entry.file.kind === 'video'}
-                                      box={look.thumb}
-                                      icon={kind(Math.min(64, Math.round(look.thumb * 0.5)))}
-                                    />
-                                  )
-                                return look.thumb ? (
-                                  <span className="browse-thumb-slot">{kind(look.icon)}</span>
-                                ) : (
-                                  kind(look.icon)
-                                )
-                              })()}
-                          {renamingHere ? (
-                            renameField(entry, 'row')
-                          ) : (
-                            <span className="browse-name-text">
-                              <span {...(searching ? {} : hiddenTitle(entry.name))}>
-                                {entry.name}
-                              </span>
-                            </span>
-                          )}
-                        </span>
-                        {/* THE BIN'S TWO COLUMNS (D7): where it was and when it was
-                            deleted, right after the name. The full original path
-                            is the cell's title. */}
-                        {props.bin && !searching && (
-                          <>
-                            <span
-                              className="browse-column-from"
-                              title={binnedOf(entry) ? binnedPath(binnedOf(entry)!.from, entry.name) : undefined}
-                            >
-                              {binnedOf(entry)?.from ?? ''}
-                            </span>
-                            <span className="browse-column-deleted">
-                              {binnedOf(entry) ? formatWhen(binnedOf(entry)!.at) : ''}
-                            </span>
-                          </>
-                        )}
-                        {!(props.bin && !searching) && (
-                          <span
-                            className={
-                              searching
-                                ? 'browse-column-path browse-result-location'
-                                : 'browse-column-type'
-                            }
-                          >
-                            {searching
-                              ? (browseParent(entry.path) ?? entry.path)
-                              : props.landing?.has(entry.path.toLowerCase())
-                                ? landingTile(props.landing.get(entry.path.toLowerCase())).caption
-                                : typeLabel(entry.name, entry.isFolder)}
-                          </span>
-                        )}
-                        <span
-                          className="browse-column-size"
-                          title={
-                            entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined
-                          }
-                        >
-                          {/* No size yet is a blank cell, never "0 B" (#271). */}
-                          {props.landing?.has(entry.path.toLowerCase()) ? (
-                            <LandingBar pct={props.landing.get(entry.path.toLowerCase())} />
-                          ) : entry.file ? (
-                            entry.file.size === undefined ? (
-                              ''
-                            ) : (
-                              formatBytes(entry.file.size)
-                            )
-                          ) : (
-                            folderSizeLabel(entry.folderSize)
-                          )}
-                        </span>
-                        {!!props.archive && !searching && (
-                          <span className="browse-column-packed">
-                            {entry.file?.packed !== undefined ? formatBytes(entry.file.packed) : ''}
-                          </span>
-                        )}
-                        {props.bin && !searching && (
-                          <span className="browse-column-type">{typeLabel(entry.name, entry.isFolder)}</span>
-                        )}
-                        {!searching && !props.bin && (
-                          <span className="browse-column-modified">
-                            {/* A folder's date too, now it has one (#285). */}
-                            {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
-                          </span>
-                        )}
-                      </Row>
+                        searching={searching}
+                        bin={!!props.bin}
+                        archive={!!props.archive}
+                        picture={rowPicture(entry, selected, look, pictures)}
+                        renameField={renamingHere ? renameField(entry, 'row') : null}
+                        handlers={entryHandlers(entry, selected)}
+                      />
                     )
                   })}
                 </div>
