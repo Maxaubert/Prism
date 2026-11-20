@@ -2359,7 +2359,8 @@ async function deleteFocusScenario(fixtures) {
       window.addEventListener(
         'focusout',
         (e) => {
-          if (e.target.closest?.('.browse-list') && !e.relatedTarget) window.__rowDropped++
+          // The rename field stands in the row (#523): its own blur is the field closing, not the row dropping.
+          if (e.target.closest?.('.browse-list') && e.target.tagName !== 'INPUT' && !e.relatedTarget) window.__rowDropped++
         },
         true
       )
