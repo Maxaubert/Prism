@@ -34,6 +34,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A danger row and the phone error line read on a light theme** (audit #39): the red is mixed with the theme's
   ink (`DANGER_INK`, `MENU_ROW_DANGER`), like the delete question's outline. And **the title bar's hovers use
   `--p-hover`** (audit #68), so they show on light themes. Held by `components/menuLook.test.ts`.
+- **A tall dialog scrolls inside the window and a long name wraps** (audit #41, #42): the dialog box is capped
+  to the window height less its margin and scrolls, so Reset, Close and the other buttons stay reachable; the
+  title and body break a name with no spaces. Held by `packages/term-core/renderer/components/dialogLook.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
