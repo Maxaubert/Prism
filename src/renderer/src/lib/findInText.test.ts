@@ -67,3 +67,18 @@ describe('stepping', () => {
     expect(stepMatch(0, -1, 1)).toBe(-1)
   })
 })
+
+describe('case folding that changes the length (audit #71)', () => {
+  it('keeps offsets on the original text after U+0130', () => {
+    const text = 'İstanbul foo'
+    const [m] = matchRanges(text, 'foo')
+    expect(text.slice(m.start, m.end)).toBe('foo')
+  })
+
+  it('finds a hit at the very end after several such letters', () => {
+    const text = 'İİİ end'
+    const ms = matchRanges(text, 'end')
+    expect(ms).toHaveLength(1)
+    expect(text.slice(ms[0].start, ms[0].end)).toBe('end')
+  })
+})
