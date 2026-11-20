@@ -64,3 +64,11 @@ describe('stepMatch', () => {
     expect(stepMatch(0, 1, 0)).toBe(-1)
   })
 })
+
+describe('findMatches with a letter whose lower case is longer (audit #67)', () => {
+  it('keeps item offsets on the original text', () => {
+    const m = findMatches([page('İstanbul foo')], 'foo')
+    expect(m).toHaveLength(1)
+    expect(m[0]).toMatchObject({ item: 0, start: 9, end: 12 })
+  })
+})
