@@ -22,6 +22,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   scenario in `tools/e2e/run.mjs` (the current crumb is inside the row; not run here).
 - **A phone search answer belongs to its folder** (audit #48): an answer for a query in folder A is never
   drawn as the answer, or narrowed into the preview, in folder B. Held by `browse.test.ts` (`answerFor`).
+- **The phone page keeps clear of a landscape notch** (audit #52): the page root, the drawer and the player's
+  fixed menu pad the left and right with `env(safe-area-inset-*)`. Held by `phone/safeArea.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
