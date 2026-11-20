@@ -3,6 +3,14 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Zip members are bounded, adm-zip 0.6.1 (owner, 2026-11-20, audit #25)
+
+`adm-zip` is 0.6.1, which limits what a member may inflate to. Prism's own in-process reader
+(`memberData` in `src/main/archive.ts`) now refuses a deflated member that declares size 0 but carries
+data, and one that declares more than `MEMBER_MAX_BYTES` (4 GiB, the largest a zip member can declare
+without zip64 and far above anything Prism shows). Every other member inflates up to its declared size.
+Held by `src/main/archiveMemberLimit.test.ts`.
+
 ## Windows' own programs start by full path (owner, 2026-11-20, audit #1)
 
 Prism starts `reg.exe`, `where.exe`, `rundll32.exe`, `whoami.exe`, `cleanmgr.exe` and Windows PowerShell

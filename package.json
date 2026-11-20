@@ -40,7 +40,7 @@
     "icons:folders": "node tools/icons/folder-icons.mjs"
   },
   "dependencies": {
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "exifr": "^7.1.3",
     "heic-convert": "^2.1.0",
     "mammoth": "^1.12.1",

@@ -196,6 +196,12 @@ export async function unpackMember(
 
 const DEFLATED = 8
 
+/** The most one member may inflate to in this process: 4 GiB, the largest a zip
+ *  member can declare without zip64, and far above anything Prism can show. */
+export const MEMBER_MAX_BYTES = 4 * 1024 * 1024 * 1024
+/** A deflate stream for no bytes is two; anything longer is real data. */
+const EMPTY_DEFLATE_MAX = 16
+
 /**
  * One member's bytes, WITHOUT stopping main for the length of the inflate
  * (2026-09-19, #166).
@@ -214,21 +220,30 @@ const DEFLATED = 8
  * copy, and a ZipCrypto one has to be decrypted by adm-zip's own (synchronous)
  * code first, so both of those stay with `getData`.
  */
-function memberData(e: ZipEntryLike, password?: string): Promise<Buffer> {
+export function memberData(e: ZipEntryLike, password?: string): Promise<Buffer> {
   const plain = (e.header.flags & 1) === 0
   if (!plain || e.header.method !== DEFLATED) return Promise.resolve(e.getData(password))
+  const declared = e.header.size
+  const packed = e.getCompressedData()
+  // A member that declares NO size but carries compressed data is a lie (an
+  // empty deflate stream is two bytes), and one that declares more than the
+  // hard cap is refused: neither is inflated without a limit (audit #25).
+  if (declared > MEMBER_MAX_BYTES) return Promise.reject(new Error('member too large'))
+  if (declared <= 0) {
+    return packed.length > EMPTY_DEFLATE_MAX
+      ? Promise.reject(new Error('member declares size 0 but carries data'))
+      : Promise.resolve(Buffer.alloc(0))
+  }
   return new Promise((done, fail) => {
     // The cap is what the container itself declared, so a member that lies
-    // about its size cannot inflate without limit.
-    const opts = e.header.size > 0 ? { maxOutputLength: e.header.size } : {}
-    inflateRaw(e.getCompressedData(), opts, (err, data) => {
+    // about its size cannot inflate past it.
+    inflateRaw(packed, { maxOutputLength: declared }, (err, data) => {
       if (err) return fail(err)
       if (crc32(data) !== e.header.crc >>> 0) return fail(new Error('bad crc'))
       done(data)
     })
   })
 }
-
 /** Who is watching an in-process extraction: the window's progress, and the
  *  question the loop asks between members. */
 export interface ExtractWatch {
