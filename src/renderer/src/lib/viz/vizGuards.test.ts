@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { styleIsBuilt, VIZ_STYLES } from './styles'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from './vizGuards'
 
 describe('when the visualizer spends anything', () => {
@@ -60,5 +61,14 @@ describe('a hidden visualizer paints nothing (#15)', () => {
 
   it('looks again at a low rate, not at the display refresh', () => {
     expect(HIDDEN_POLL_MS).toBeGreaterThanOrEqual(100)
+  })
+})
+
+describe('a stored style id that no longer exists (audit #57)', () => {
+  it('counts as built once its fallback is built, so the idle loop can park', () => {
+    const fallback = VIZ_STYLES[0].id
+    expect(styleIsBuilt('wave-bars', fallback)).toBe(true)
+    expect(styleIsBuilt(fallback, fallback)).toBe(true)
+    expect(styleIsBuilt(VIZ_STYLES[1].id, fallback)).toBe(false)
   })
 })
