@@ -13,6 +13,10 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **The phone server frees its port before it waits on ffmpeg, and starts one at a time** (audit #73): a
   relaunch from standby while a film streams keeps the saved port. Held by `server.test.ts` (`stop()`) and
   `oneAtATime.test.ts`.
+- **The phone page goes back to pairing when the PC forgets it** (audit #53): a 401 on any read tells the
+  shell, instead of every folder showing as unreadable. And **a spent code link no longer hides a valid
+  pairing** (audit #54): after a failed pair the page asks `/api/me` and shows the pairing screen only on a
+  401. Held by `src/renderer/src/phone/api.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
