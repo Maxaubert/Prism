@@ -226,6 +226,35 @@ function readBody(req: IncomingMessage, max = 4096): Promise<string> {
   })
 }
 
+/** The request body parsed as JSON, or the status and reason that refuse it:
+ *  413 past the cap, 400 for anything unreadable. */
+async function readJson(
+  req: IncomingMessage,
+  max?: number
+): Promise<{ body: unknown } | { status: 413 | 400; error: string }> {
+  try {
+    return { body: JSON.parse(await readBody(req, max)) as unknown }
+  } catch (err) {
+    if (err instanceof TooLarge) return { status: 413, error: 'too large' }
+    return { status: 400, error: 'bad request' }
+  }
+}
+
+/** What a phone route is handed: the phone, its key, the `path` it named. */
+type ApiCall = {
+  phone: Phone
+  token: string
+  path: string
+  q: URLSearchParams
+  req: IncomingMessage
+  res: ServerResponse
+}
+type ApiRoute = { walled: boolean; run: (c: ApiCall) => Promise<void> }
+/** A route on a path: `api` checks the wall once, before `run`. */
+const walled = (run: ApiRoute['run']): ApiRoute => ({ walled: true, run })
+/** A route that reads no path, or walls itself (search, dir, places, me, diag). */
+const open = (run: ApiRoute['run']): ApiRoute => ({ walled: false, run })
+
 export class PhoneServer {
   private server: Server | null = null
   private bound: number | null = null
@@ -452,6 +481,231 @@ export class PhoneServer {
     this.hereTimer.unref?.()
   }
 
+  /** One phone route, by name. `walled` routes name a path and pass `inside`
+   *  once, before the handler runs; the rest wall themselves (or read nothing). */
+  private apiRoutes = new Map<string, ApiRoute>([
+    // Direct or HLS, per file and per DEVICE: the phone reports what it
+    // plays in `can` and `decide` is a lookup against it. The wall is
+    // the table's, once: a job is only ever opened on a path that passed it, and
+    // the job id is what the /hls routes are keyed by afterwards.
+    [ROUTE.play, walled(async ({ phone, token, path, q, res }) => {
+      const info = await this.deps.probe(path)
+      const plan = decide(info, extname(path), parseCan(q.get('can')))
+      if (plan.mode === 'direct') {
+        return void json(res, 200, {
+          mode: 'direct',
+          url: mediaPath(path),
+          fps: info?.fps ?? null,
+          duration: info?.duration ?? 0
+        } satisfies PlayAnswer)
+      }
+      if (plan.mode === 'none') return void json(res, 200, plan)
+      if (!this.deps.jobs || !info) {
+        return void json(res, 200, {
+          mode: 'none',
+          reason: 'Prism has no ffmpeg to convert with'
+        })
+      }
+      // A track the phone PICKED (#120): the phone has no sidecar decoder,
+      // so a pick is a stream with that audio, which is a job of its own.
+      // Only one of the file's own tracks is accepted; anything else is
+      // refused rather than handed to ffmpeg as a stream index.
+      const wantAudio = q.get('audio')
+      let audioIndex = info.audio?.index ?? null
+      if (wantAudio !== null && wantAudio !== '') {
+        const picked = info.tracks.find((t) => String(t.index) === wantAudio)
+        if (!picked) return void json(res, 400, { error: 'no such audio track' })
+        audioIndex = picked.index
+      }
+      const { id } = this.deps.jobs.open({
+        token,
+        file: path,
+        plan: audioIndex !== null && audioIndex !== (info.audio?.index ?? null) ? { ...plan, copyAudio: false } : plan,
+        duration: info.duration,
+        audioIndex
+      })
+      this.deps.log?.(
+        `play "${phone.name}" ${basename(path)} -> job ${id} (${plan.copyVideo ? 'copy' : 'encode'} ${info.videoCodec ?? 'no'} video, ${plan.copyAudio ? 'copy' : 'encode'} ${info.audio?.codec ?? 'no'} audio, ${Math.round(info.duration)}s, can=${q.get('can') ?? ''})`
+      )
+      return void json(res, 200, {
+        mode: 'hls',
+        url: hlsPlaylistPath(id),
+        copyVideo: plan.copyVideo,
+        // The phone hands an audio-only playlist to its <audio> as the
+        // source and a film to the video's convert path (Task 6).
+        audioOnly: plan.audioOnly,
+        fps: info.fps,
+        duration: info.duration,
+        // Every track the file holds and which one this stream carries,
+        // so the phone's picker can offer the rest.
+        tracks: info.tracks.map((t) => ({
+          index: t.index,
+          codec: t.codec,
+          channels: t.channels,
+          language: t.language,
+          title: t.title
+        })),
+        audio: audioIndex
+      } satisfies PlayAnswer)
+    })],
+    // `name` is the PHONE's, as the PC lists it; `here` is the folder it
+    // was last in, which is where the page opens (null: This PC).
+    [ROUTE.me, open(async ({ phone, res }) => {
+      return void json(res, 200, { name: phone.name, here: phone.here } satisfies Me)
+    })],
+    // The drawer and the This PC page: the Explorer's own places, read on
+    // the ask (a drive can come and go). `here=1` is the page being SHOWN,
+    // which makes This PC where the phone is.
+    [ROUTE.places, open(async ({ phone, q, res }) => {
+      if (q.get('here') === '1') this.setHere(phone, null)
+      return void json(res, 200, await this.deps.places())
+    })],
+    // Where the film had got to (#118), read and written by path: a film
+    // left at minute 40 on the PC opens at minute 40 on the phone, and the
+    // place the phone reaches is what the PC opens at next.
+    [ROUTE.pos, walled(async ({ path, req, res }) => {
+      if (req.method === 'POST') {
+        const read = await readJson(req)
+        if ('status' in read) return void json(res, read.status, { error: read.error })
+        const patch = memoryPatch(read.body)
+        if (!patch) return void json(res, 400, { error: 'bad memory' })
+        this.deps.positions.set(path, patch)
+        return void json(res, 200, { ok: true })
+      }
+      return void json(res, 200, {
+        t: null,
+        ...((await this.deps.positions.get(path)) ?? {})
+      } satisfies PosAnswer)
+    })],
+    // The phone's half of the diagnostics log (2026-09-12): a handful of
+    // short lines from its player, written beside the server's own
+    // timeline under the phone's name. Capped by `diagLines`, and the
+    // body by `readBody`; a phone cannot fill the disk with it.
+    [ROUTE.diag, open(async ({ phone, req, res }) => {
+      if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
+      const read = await readJson(req, 32 * 1024)
+      if ('status' in read) return void json(res, read.status, { error: read.error })
+      const lines = diagLines(read.body)
+      for (const l of lines) this.deps.log?.(`phone "${phone.name}" ${l}`)
+      return void json(res, 200, { ok: true, lines: lines.length })
+    })],
+    // The folder the phone is in and everything below it. The folder has to
+    // be one this phone listed; every hit's folder is then granted to it,
+    // as the Explorer's search grants its hits' folders, so a hit opens.
+    [ROUTE.search, open(async ({ token, q, res }) => {
+      const where = q.get('dir') ?? ''
+      if (!localPath(where) || !this.deps.access.may(token, where))
+        return void json(res, 403, { error: 'outside the folder' })
+      const found = await this.deps.search(where, q.get('q') ?? '')
+      for (const hit of found.hits) {
+        this.deps.access.listed(token, dirname(hit.path))
+        if (hit.isFolder) this.deps.access.listed(token, hit.path)
+      }
+      return void json(res, 200, found)
+    })],
+    // ANY local folder (2026-10-14): what the Explorer can open, the phone
+    // can list. Listing it is what grants it, and it is where the phone is.
+    [ROUTE.dir, open(async ({ phone, token, path, res }) => {
+      if (!localPath(path) || !(await this.deps.access.local(path)))
+        return void json(res, 403, { error: 'not a folder on this PC' })
+      const listing = await this.deps.listDir(path)
+      if (!listing.unreadable) this.deps.access.listed(token, path)
+      this.setHere(phone, path)
+      return void json(res, 200, listing)
+    })],
+    // The grid's pictures (#135): walled like every path, cached by the
+    // phone for a day since a key changes with the file, and 404 for a
+    // file with no picture in it, which the tile draws as its icon.
+    [ROUTE.thumb, walled(async ({ path, res }) => {
+      const pic = await this.deps.thumb(path)
+      if (!pic) return void json(res, 404, { error: 'no thumbnail' })
+      // A WebP with alpha for a picture that can be clear (#477).
+      const type = pic.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+      return await this.sendFile(pic, type, res, 'private, max-age=86400')
+    })],
+    // What `file:stat` answers the editor and the Properties popup: size,
+    // modified time and folder-ness. Async where the IPC is `statSync`,
+    // because the phone path shares main's one thread with a playing film.
+    [ROUTE.stat, walled(async ({ path, res }) => {
+      try {
+        // The USER'S file: the plain fs, or an .asar is a 0-byte folder and
+        // the archive stays held open (EBUSY for a later delete).
+        const st = await userStat(path)
+        return void json(res, 200, {
+          size: st.size,
+          mtimeMs: st.mtimeMs,
+          isFolder: st.isDirectory()
+        } satisfies PhoneStat)
+      } catch {
+        return void json(res, 404, { error: 'no such file' })
+      }
+    })],
+    [ROUTE.subs, walled(async ({ path, res }) => {
+      return void json(res, 200, await this.deps.subsFor(path))
+    })],
+    [ROUTE.subsRead, walled(async ({ path, res }) => {
+      const vtt = await this.deps.readSubs(path)
+      if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
+      res.writeHead(200, {
+        'content-type': 'text/vtt; charset=utf-8',
+        'cache-control': 'no-store'
+      })
+      return void res.end(vtt)
+    })],
+    // A text file, read-only: the phone has no route to write one back.
+    // A MARKDOWN grants the pictures it names to the phone that read it
+    // (they may sit in a folder it never listed, as `docImages.ts` explains), and to
+    // main's own wall in the same breath, since `/m/` passes through both.
+    [ROUTE.text, walled(async ({ token, path, res }) => {
+      const r = await this.deps.readText(path)
+      if ('text' in r && this.deps.isMarkdown(path)) {
+        const imgs = await this.deps.docImages(path, r.text)
+        for (const img of imgs) this.grants.grant(token, img)
+        if (imgs.length) this.deps.grantServable(imgs)
+      }
+      return void json(res, 200, r)
+    })],
+    // An office or ebook document as the sanitised HTML the PC's DocView
+    // renders; 404 with a reason when main could not convert it.
+    [ROUTE.doc, walled(async ({ path, res }) => {
+      const html = await this.deps.docHtml(path)
+      if (html === null)
+        return void json(res, 404, { error: 'Prism could not convert this document' })
+      return void json(res, 200, { html } satisfies DocAnswer)
+    })],
+    // A comic book, read-only: unpacked once under userData by main, and
+    // the phone granted the WHOLE directory rather than each page (a book
+    // with chapters has pages a folder down, and a 200-page one would be
+    // 200 entries to keep in step with an eviction). Main's own wall
+    // already allows its comics directory, so nothing is added there.
+    // The kind gate is the IPC's (`comicOk`) and so is the failure shape:
+    // a phone asking to open a .txt as a comic gets the same `failed`.
+    [ROUTE.comic, walled(async ({ token, path, q, res }) => {
+      if (!this.deps.isComic(path)) return void json(res, 200, { error: 'failed' })
+      const got = await this.deps.comicOpen(path, q.get('pw') ?? '')
+      if ('error' in got) return void json(res, 200, got)
+      this.grants.grantDir(token, got.dir)
+      return void json(res, 200, { pages: got.pages })
+    })],
+    // An archive's listing, and one member extracted for viewing. Read
+    // only, by construction: there is no route for the panel's write verbs
+    // and the shim has no member for them. The extracted copy is main's
+    // own temp file, already in main's `extractedPaths`; the grant here is
+    // the one that lets THIS phone fetch it.
+    [ROUTE.archive, walled(async ({ path, q, res }) => {
+      if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
+      return void json(res, 200, await this.deps.archiveList(path, q.get('pw') || undefined))
+    })],
+    [ROUTE.archiveExtract, walled(async ({ token, path, q, res }) => {
+      const entry = q.get('entry')
+      if (!entry) return void json(res, 400, { error: 'no entry' })
+      if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
+      const r = await this.deps.archiveExtract(path, entry, q.get('pw') || undefined)
+      if (r.ok) this.grants.grant(token, r.path)
+      return void json(res, 200, r)
+    })]
+  ])
+
   private async api(
     name: string,
     q: URLSearchParams,
@@ -459,257 +713,22 @@ export class PhoneServer {
     req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
+    const route = this.apiRoutes.get(name)
+    if (!route) return void json(res, 404, { error: 'no such route' })
     const token = phone.id // the phone's key for grants and jobs, never its secret
     const path = q.get('path') ?? ''
     // What this phone may name: a folder it listed or a direct entry of one.
     // A GRANT counts too: a member extracted out of an archive lives in temp,
     // and reading it is exactly what the phone asked for.
-    const inside = async (): Promise<boolean> =>
-      this.grants.has(token, path) ||
-      (localPath(path) && this.deps.access.may(token, path) && (await this.deps.access.local(path)))
-    switch (name) {
-      // Direct or HLS, per file and per DEVICE: the phone reports what it
-      // plays in `can` and `decide` is a lookup against it. The wall is
-      // here, once: a job is only ever opened on a path that passed it, and
-      // the job id is what the /hls routes are keyed by afterwards.
-      case ROUTE.play: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const info = await this.deps.probe(path)
-        const plan = decide(info, extname(path), parseCan(q.get('can')))
-        if (plan.mode === 'direct') {
-          return void json(res, 200, {
-            mode: 'direct',
-            url: mediaPath(path),
-            fps: info?.fps ?? null,
-            duration: info?.duration ?? 0
-          } satisfies PlayAnswer)
-        }
-        if (plan.mode === 'none') return void json(res, 200, plan)
-        if (!this.deps.jobs || !info) {
-          return void json(res, 200, {
-            mode: 'none',
-            reason: 'Prism has no ffmpeg to convert with'
-          })
-        }
-        // A track the phone PICKED (#120): the phone has no sidecar decoder,
-        // so a pick is a stream with that audio, which is a job of its own.
-        // Only one of the file's own tracks is accepted; anything else is
-        // refused rather than handed to ffmpeg as a stream index.
-        const wantAudio = q.get('audio')
-        let audioIndex = info.audio?.index ?? null
-        if (wantAudio !== null && wantAudio !== '') {
-          const picked = info.tracks.find((t) => String(t.index) === wantAudio)
-          if (!picked) return void json(res, 400, { error: 'no such audio track' })
-          audioIndex = picked.index
-        }
-        const { id } = this.deps.jobs.open({
-          token,
-          file: path,
-          plan: audioIndex !== null && audioIndex !== (info.audio?.index ?? null) ? { ...plan, copyAudio: false } : plan,
-          duration: info.duration,
-          audioIndex
-        })
-        this.deps.log?.(
-          `play "${phone.name}" ${basename(path)} -> job ${id} (${plan.copyVideo ? 'copy' : 'encode'} ${info.videoCodec ?? 'no'} video, ${plan.copyAudio ? 'copy' : 'encode'} ${info.audio?.codec ?? 'no'} audio, ${Math.round(info.duration)}s, can=${q.get('can') ?? ''})`
-        )
-        return void json(res, 200, {
-          mode: 'hls',
-          url: hlsPlaylistPath(id),
-          copyVideo: plan.copyVideo,
-          // The phone hands an audio-only playlist to its <audio> as the
-          // source and a film to the video's convert path (Task 6).
-          audioOnly: plan.audioOnly,
-          fps: info.fps,
-          duration: info.duration,
-          // Every track the file holds and which one this stream carries,
-          // so the phone's picker can offer the rest.
-          tracks: info.tracks.map((t) => ({
-            index: t.index,
-            codec: t.codec,
-            channels: t.channels,
-            language: t.language,
-            title: t.title
-          })),
-          audio: audioIndex
-        } satisfies PlayAnswer)
-      }
-      // `name` is the PHONE's, as the PC lists it; `here` is the folder it
-      // was last in, which is where the page opens (null: This PC).
-      case ROUTE.me:
-        return void json(res, 200, { name: phone.name, here: phone.here } satisfies Me)
-      // The drawer and the This PC page: the Explorer's own places, read on
-      // the ask (a drive can come and go). `here=1` is the page being SHOWN,
-      // which makes This PC where the phone is.
-      case ROUTE.places: {
-        if (q.get('here') === '1') this.setHere(phone, null)
-        return void json(res, 200, await this.deps.places())
-      }
-      // The phone's half of the diagnostics log (2026-09-12): a handful of
-      // short lines from its player, written beside the server's own
-      // timeline under the phone's name. Capped by `diagLines`, and the
-      // body by `readBody`; a phone cannot fill the disk with it.
-      // Where the film had got to (#118), read and written by path: a film
-      // left at minute 40 on the PC opens at minute 40 on the phone, and the
-      // place the phone reaches is what the PC opens at next.
-      case ROUTE.pos: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        if (req.method === 'POST') {
-          let body: unknown
-          try {
-            body = JSON.parse(await readBody(req))
-          } catch (err) {
-            if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
-            return void json(res, 400, { error: 'bad request' })
-          }
-          const patch = memoryPatch(body)
-          if (!patch) return void json(res, 400, { error: 'bad memory' })
-          this.deps.positions.set(path, patch)
-          return void json(res, 200, { ok: true })
-        }
-        return void json(res, 200, {
-          t: null,
-          ...((await this.deps.positions.get(path)) ?? {})
-        } satisfies PosAnswer)
-      }
-      case ROUTE.diag: {
-        if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
-        let lines: string[]
-        try {
-          lines = diagLines(JSON.parse(await readBody(req, 32 * 1024)))
-        } catch (err) {
-          if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
-          return void json(res, 400, { error: 'bad request' })
-        }
-        for (const l of lines) this.deps.log?.(`phone "${phone.name}" ${l}`)
-        return void json(res, 200, { ok: true, lines: lines.length })
-      }
-      // The folder the phone is in and everything below it. The folder has to
-      // be one this phone listed; every hit's folder is then granted to it,
-      // as the Explorer's search grants its hits' folders, so a hit opens.
-      case ROUTE.search: {
-        const where = q.get('dir') ?? ''
-        if (!localPath(where) || !this.deps.access.may(token, where))
-          return void json(res, 403, { error: 'outside the folder' })
-        const found = await this.deps.search(where, q.get('q') ?? '')
-        for (const hit of found.hits) {
-          this.deps.access.listed(token, dirname(hit.path))
-          if (hit.isFolder) this.deps.access.listed(token, hit.path)
-        }
-        return void json(res, 200, found)
-      }
-      // ANY local folder (2026-10-14): what the Explorer can open, the phone
-      // can list. Listing it is what grants it, and it is where the phone is.
-      case ROUTE.dir: {
-        if (!localPath(path) || !(await this.deps.access.local(path)))
-          return void json(res, 403, { error: 'not a folder on this PC' })
-        const listing = await this.deps.listDir(path)
-        if (!listing.unreadable) this.deps.access.listed(token, path)
-        this.setHere(phone, path)
-        return void json(res, 200, listing)
-      }
-      // What `file:stat` answers the editor and the Properties popup: size,
-      // modified time and folder-ness. Async where the IPC is `statSync`,
-      // because the phone path shares main's one thread with a playing film.
-      // The grid's pictures (#135): walled like every path, cached by the
-      // phone for a day since a key changes with the file, and 404 for a
-      // file with no picture in it, which the tile draws as its icon.
-      case ROUTE.thumb: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const pic = await this.deps.thumb(path)
-        if (!pic) return void json(res, 404, { error: 'no thumbnail' })
-        // A WebP with alpha for a picture that can be clear (#477).
-        const type = pic.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg'
-        return await this.sendFile(pic, type, res, 'private, max-age=86400')
-      }
-      case ROUTE.stat: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        try {
-          // The USER'S file: the plain fs, or an .asar is a 0-byte folder and
-          // the archive stays held open (EBUSY for a later delete).
-          const st = await userStat(path)
-          return void json(res, 200, {
-            size: st.size,
-            mtimeMs: st.mtimeMs,
-            isFolder: st.isDirectory()
-          } satisfies PhoneStat)
-        } catch {
-          return void json(res, 404, { error: 'no such file' })
-        }
-      }
-      case ROUTE.subs: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        return void json(res, 200, await this.deps.subsFor(path))
-      }
-      case ROUTE.subsRead: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const vtt = await this.deps.readSubs(path)
-        if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
-        res.writeHead(200, {
-          'content-type': 'text/vtt; charset=utf-8',
-          'cache-control': 'no-store'
-        })
-        return void res.end(vtt)
-      }
-      // A text file, read-only: the phone has no route to write one back.
-      // A MARKDOWN grants the pictures it names to the phone that read it
-      // (they may sit in a folder it never listed, as `docImages.ts` explains), and to
-      // main's own wall in the same breath, since `/m/` passes through both.
-      case ROUTE.text: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const r = await this.deps.readText(path)
-        if ('text' in r && this.deps.isMarkdown(path)) {
-          const imgs = await this.deps.docImages(path, r.text)
-          for (const img of imgs) this.grants.grant(token, img)
-          if (imgs.length) this.deps.grantServable(imgs)
-        }
-        return void json(res, 200, r)
-      }
-      // An office or ebook document as the sanitised HTML the PC's DocView
-      // renders; 404 with a reason when main could not convert it.
-      case ROUTE.doc: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const html = await this.deps.docHtml(path)
-        if (html === null)
-          return void json(res, 404, { error: 'Prism could not convert this document' })
-        return void json(res, 200, { html } satisfies DocAnswer)
-      }
-      // A comic book, read-only: unpacked once under userData by main, and
-      // the phone granted the WHOLE directory rather than each page (a book
-      // with chapters has pages a folder down, and a 200-page one would be
-      // 200 entries to keep in step with an eviction). Main's own wall
-      // already allows its comics directory, so nothing is added there.
-      // The kind gate is the IPC's (`comicOk`) and so is the failure shape:
-      // a phone asking to open a .txt as a comic gets the same `failed`.
-      case ROUTE.comic: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        if (!this.deps.isComic(path)) return void json(res, 200, { error: 'failed' })
-        const got = await this.deps.comicOpen(path, q.get('pw') ?? '')
-        if ('error' in got) return void json(res, 200, got)
-        this.grants.grantDir(token, got.dir)
-        return void json(res, 200, { pages: got.pages })
-      }
-      // An archive's listing, and one member extracted for viewing. Read
-      // only, by construction: there is no route for the panel's write verbs
-      // and the shim has no member for them. The extracted copy is main's
-      // own temp file, already in main's `extractedPaths`; the grant here is
-      // the one that lets THIS phone fetch it.
-      case ROUTE.archive: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
-        return void json(res, 200, await this.deps.archiveList(path, q.get('pw') || undefined))
-      }
-      case ROUTE.archiveExtract: {
-        if (!(await inside())) return void json(res, 403, { error: 'outside the folder' })
-        const entry = q.get('entry')
-        if (!entry) return void json(res, 400, { error: 'no entry' })
-        if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
-        const r = await this.deps.archiveExtract(path, entry, q.get('pw') || undefined)
-        if (r.ok) this.grants.grant(token, r.path)
-        return void json(res, 200, r)
-      }
-      default:
-        return void json(res, 404, { error: 'no such route' })
-    }
+    if (
+      route.walled &&
+      !(
+        this.grants.has(token, path) ||
+        (localPath(path) && this.deps.access.may(token, path) && (await this.deps.access.local(path)))
+      )
+    )
+      return void json(res, 403, { error: 'outside the folder' })
+    return await route.run({ phone, token, path, q, req, res })
   }
 
   /** Bytes through serveMedia: same handler as fsmedia://, same rules. */
