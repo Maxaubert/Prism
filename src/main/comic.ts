@@ -66,7 +66,7 @@ async function dirSize(dir: string): Promise<number> {
  * Read oldest-first by the marker file's mtime, which `openComic` touches on
  * every hit - so the book you are rereading is not the one that goes.
  */
-async function evict(root: string, maxBytes: number): Promise<void> {
+async function evict(root: string, maxBytes: number, keep: string): Promise<void> {
   const names = await readdir(root, { withFileTypes: true }).catch(() => [])
   const books: Array<{ dir: string; at: number; size: number }> = []
   for (const e of names) {
@@ -79,9 +79,11 @@ async function evict(root: string, maxBytes: number): Promise<void> {
   let total = books.reduce((n, b) => n + b.size, 0)
   for (const b of books) {
     if (total <= maxBytes) return
-    // Never the one just opened: it is the newest, so the sort has already
-    // put it last, but a cache that can evict what it just wrote is a cache
-    // that loops.
+    // Never the one just opened: a cache that can evict what it just wrote is
+    // a cache that loops, and a single book over the budget would be deleted
+    // right after `openComic` returns its dir. The sort puts it last, but the
+    // skip is explicit, not left to sort order (#537 item 26).
+    if (b.dir === keep) continue
     await rm(b.dir, { recursive: true, force: true }).catch(() => {})
     total -= b.size
   }
@@ -151,7 +153,7 @@ export async function openComic(
 
   const rels = await walk(dir)
   const pages = comicPages(rels.map((path) => ({ path })))
-  await evict(root, CACHE_MAX)
+  await evict(root, CACHE_MAX, dir)
   if (!pages.length) return { error: 'empty' }
   return { dir, pages: pages.map((p) => join(dir, ...p.split('/'))) }
 }
