@@ -381,6 +381,17 @@ export const KIND_TINTS: Record<string, string> = {
   folder: '#9aa0f0'
 }
 
+/** Step c toward black (light mode) or white until it holds min:1 on
+ *  ground, at most 14 steps of 10% (#537 item 14: one loop for the accent,
+ *  band, warn, folder and archive colours). */
+function liftUntil(c: string, ground: string, min: number, light: boolean): string {
+  let out = c
+  for (let i = 0; i < 14 && contrast(out, ground) < min; i += 1) {
+    out = light ? mix(out, '#000000', 0.1) : mix(out, '#ffffff', 0.1)
+  }
+  return out
+}
+
 /** Everything a style resolves to. Exported so the styles can be checked. */
 export function derive(input: Style): Record<string, string> {
   const style = seenStyle(input)
@@ -388,8 +399,8 @@ export function derive(input: Style): Record<string, string> {
   const accent = palette[0]
   // The one surface, flat: panel and viewer are the same colour now, so the
   // contrast maths reads it once.
-  const side = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
   const bg = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
+  const side = bg
   const light = style.mode === 'light'
   const kinds: Record<string, string> = {}
   for (const [k, v] of Object.entries(KIND_TINTS)) {
@@ -400,23 +411,19 @@ export function derive(input: Style): Record<string, string> {
   // hold (`pruneTable`); whatever is missing is derived as it always was.
   const table = style.table ?? {}
   if (table.kinds) for (const [k, v] of Object.entries(table.kinds)) kinds['--p-kind-' + k] = v
-  // The accent, taken far enough from the surface to be seen on it. A deep
-  // copper or navy is invisible against its own panel otherwise, which is what
-  // made the schematics vanish.
   // Far enough from the card (a ~5% wash over the page) that the schematic on
   // it doesn't read as white-on-white.
   const stage = mix(bg, style.text, light ? 0.16 : 0.13)
-  // The accent, unless the accent can't be read where it is used. Shifting it by
-  // habit - lighter on dark, darker on light - meant one accent looked like two
-  // different colours depending on the mode it was wearing.
+  // The accent, taken far enough from the surface to be seen on it. A deep
+  // copper or navy is invisible against its own panel otherwise, which is what
+  // made the schematics vanish. It is moved only when it can't be read where it
+  // is used: shifting it by habit (lighter on dark, darker on light) meant one
+  // accent looked like two different colours depending on the mode it wore.
   // The opacity is for FILLS only (#249; the owner's pick): --p-accent-hi is
   // text, links and rings, so it starts from the accent at full strength and a
   // see-through accent never fades a Reset link or a focus ring.
   const alpha = accentAlphaOf(style.accentAlpha)
-  let hi = accent
-  for (let i = 0; i < 14 && contrast(hi, stage) < 3; i += 1) {
-    hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
-  }
+  const hi = liftUntil(accent, stage, 3, light)
 
   const grounds = [...new Set([bg, sideGround(style), titleOf(style)].map((c) => c.toLowerCase()))]
   // THE DESIGNED FILL (#298): at alpha 1 a theme's accent fill and its ink
@@ -501,25 +508,14 @@ export function derive(input: Style): Record<string, string> {
   // nobody's band changes; picked, the pick, lifted off the stage for its edge
   // the way `hi` is lifted from the accent.
   const accentFill = alpha >= 1 ? solidFill : (flat ?? fillOf(selection.fill, alpha))
-  let bandHi = tintHue
-  if (picked) {
-    for (let i = 0; i < 14 && contrast(bandHi, stage) < 3; i += 1) {
-      bandHi = light ? mix(bandHi, '#000000', 0.1) : mix(bandHi, '#ffffff', 0.1)
-    }
-  }
+  const bandHi = picked ? liftUntil(tintHue, stage, 3, light) : tintHue
 
   // A DRIVE PAST 90% USED (#296; the drive row mockups, 2026-10-06): a warm
   // orange for its bar, ring or gauge, and a deeper or lighter one for its
   // number. The mockup's colours, each moved off the panel until it holds its
   // floor there (a mark 3:1, words 4.5:1), so a custom ground keeps them seen.
-  let warn = light ? '#d05a1c' : '#f0894a'
-  let warnInk = light ? '#b44d15' : '#f4a171'
-  for (let i = 0; i < 14 && contrast(warn, side) < 3; i += 1) {
-    warn = light ? mix(warn, '#000000', 0.1) : mix(warn, '#ffffff', 0.1)
-  }
-  for (let i = 0; i < 14 && contrast(warnInk, side) < 4.5; i += 1) {
-    warnInk = light ? mix(warnInk, '#000000', 0.1) : mix(warnInk, '#ffffff', 0.1)
-  }
+  const warn = liftUntil(light ? '#d05a1c' : '#f0894a', side, 3, light)
+  const warnInk = liftUntil(light ? '#b44d15' : '#f4a171', side, 4.5, light)
 
   return {
     '--p-bg': bg,
@@ -884,11 +880,7 @@ export const folderIconOf = (s: Style): string => {
   // `legibleOn`). An opaque pick is drawn exactly as picked.
   if (s.folderIcon) return alphaOf(s.folderIcon) < 1 ? legibleOn(s.folderIcon, sideGround(s), 3) : s.folderIcon
   const ground = sideGround(s)
-  let c = paletteOf(s.accent)[0]
-  for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
-    c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
-  }
-  return c
+  return liftUntil(paletteOf(s.accent)[0], ground, 3, s.mode === 'light')
 }
 
 /**
@@ -949,11 +941,7 @@ export const zipInkOn = (bg: string): string =>
 
 export const archiveIconOf = (s: Style): string => {
   const ground = sideGround(s)
-  let c = '#d9a53f'
-  for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
-    c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
-  }
-  return c
+  return liftUntil('#d9a53f', ground, 3, s.mode === 'light')
 }
 
 /* ---------- the code viewer's colours ---------- */
