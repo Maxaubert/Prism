@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { LAYER } from './layers'
 import { placeTip, type TipSide, type TipSpot } from '../lib/tipPlace'
-import { onTooltipDocuments, tooltipDocuments } from '../lib/tooltipWindows'
+import { onTooltipDocuments, titled, tooltipDocuments } from '../lib/tooltipWindows'
 
 /**
  * THE APP'S OWN TOOLTIPS, FOR EVERY `title` (owner, 2026-10-13: "make the
@@ -34,17 +34,6 @@ interface Shown {
   prefer: TipSide
   /** The document the item is in: the tip is drawn there. */
   doc: Document
-}
-
-/** The element whose title the pointer is on, or null. */
-export function titled(el: EventTarget | null): HTMLElement | null {
-  // Not instanceof: a node from the preview window is another window's Element (audit #95).
-  let n = (el as Node | null)?.nodeType === 1 ? (el as HTMLElement) : null
-  while (n && n !== n.ownerDocument.body) {
-    if (n.hasAttribute('title') || n.dataset.tipTitle !== undefined) return n
-    n = n.parentElement
-  }
-  return null
 }
 
 /**

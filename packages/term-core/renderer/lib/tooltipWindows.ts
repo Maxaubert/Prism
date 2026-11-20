@@ -29,3 +29,13 @@ export function onTooltipDocuments(fn: () => void): () => void {
     watchers.delete(fn)
   }
 }
+/** The element whose title the pointer is on, or null. */
+export function titled(el: EventTarget | null): HTMLElement | null {
+  // Not instanceof: a node from the preview window is another window's Element (audit #95).
+  let n = (el as Node | null)?.nodeType === 1 ? (el as HTMLElement) : null
+  while (n && n !== n.ownerDocument.body) {
+    if (n.hasAttribute('title') || n.dataset.tipTitle !== undefined) return n
+    n = n.parentElement
+  }
+  return null
+}
