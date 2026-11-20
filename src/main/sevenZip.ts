@@ -72,7 +72,8 @@ export function sevenFailReason(raw: string): 'password' | 'failed' {
 import { existsSync } from 'fs' // own-fs: the bundled 7z.exe, Prism's own file
 import { cp, mkdtemp, rename, rm } from './userFs'
 import { tmpdir } from 'os'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { vendorDirs } from './vendorDirs'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
 import { uniqueNameAsync } from './fileOps'
 import { exists } from './fsUtil'
@@ -111,15 +112,13 @@ export function isSevenArchive(ext: string): boolean {
 
 /** Where the bundled 7-Zip lives; the same walk-up rule as ffmpeg. */
 export function sevenDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
-  const dirs: string[] = []
-  if (packaged) dirs.push(join(resourcesPath, 'bin'))
-  let up = appPath
-  for (let i = 0; i < 4; i++) {
-    dirs.push(join(up, 'vendor', '7zip'))
-    const parent = dirname(up)
-    if (parent === up) break
-    up = parent
-  }
+  const dirs = vendorDirs(
+    '7zip',
+    'bin',
+    packaged,
+    resourcesPath,
+    appPath
+  )
   return dirs
 }
 

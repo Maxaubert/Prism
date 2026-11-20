@@ -1,6 +1,7 @@
 import { execFile } from './spawnWorker'
 import { existsSync } from 'fs'
-import { delimiter, dirname, join } from 'path'
+import { delimiter, join } from 'path'
+import { vendorDirs } from './vendorDirs'
 import { parseByteRange } from './byteRange'
 
 /**
@@ -281,18 +282,13 @@ function rotationOf(video: ProbeStream): number {
  * "Open in" menu and the 7-Zip lookup follow.
  */
 export function ffmpegDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
-  const dirs: string[] = []
-  if (packaged) dirs.push(join(resourcesPath, 'bin'))
-  // Unpackaged, appPath is wherever the main script sits - the repo root under
-  // `npm run dev`, out/main when e2e runs the built bundle - so walk up looking
-  // for the vendor folder rather than guessing which one it is today.
-  let up = appPath
-  for (let i = 0; i < 4; i++) {
-    dirs.push(join(up, 'vendor', 'ffmpeg'))
-    const parent = dirname(up)
-    if (parent === up) break
-    up = parent
-  }
+  const dirs = vendorDirs(
+    'ffmpeg',
+    'bin',
+    packaged,
+    resourcesPath,
+    appPath
+  )
   for (const p of (process.env.PATH ?? '').split(delimiter)) {
     if (p.trim()) dirs.push(p.trim())
   }

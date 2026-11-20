@@ -42,7 +42,8 @@
  * 34 DWMWA_BORDER_COLOR (a COLORREF 0x00BBGGRR, -1 default, -2 none).
  */
 import { existsSync } from 'fs'
-import { dirname, join } from 'path'
+import { join } from 'path'
+import { vendorDirs } from './vendorDirs'
 import { Worker } from 'worker_threads'
 
 let exe: string | null = null
@@ -86,15 +87,13 @@ function spawner(): Worker | null {
 /** Where the helper can be: the installed app's resources, else a vendor/
  *  folder at or above the app (a dev build, the e2e's out/ build). */
 export function dwmDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
-  const dirs: string[] = []
-  if (packaged) dirs.push(join(resourcesPath, 'dwm'))
-  let up = appPath
-  for (let i = 0; i < 4; i++) {
-    dirs.push(join(up, 'vendor', 'dwm'))
-    const parent = dirname(up)
-    if (parent === up) break
-    up = parent
-  }
+  const dirs = vendorDirs(
+    'dwm',
+    'dwm',
+    packaged,
+    resourcesPath,
+    appPath
+  )
   return dirs
 }
 
