@@ -1,5 +1,6 @@
-import { useEffect, useState, type JSX, type RefObject } from 'react'
+import { useEffect, useMemo, useState, type JSX, type RefObject } from 'react'
 import { matchRanges, stepMatch } from '../lib/findInText'
+import { slotPool } from '../lib/highlightSlots'
 import { FindBar } from './FindBar'
 import { listenOn, ownWindow, useViewerWindows, type OwnWindow } from '../lib/ownWindow'
 
@@ -26,22 +27,13 @@ import { listenOn, ownWindow, useViewerWindows, type OwnWindow } from '../lib/ow
  * repaint wiped the other's ranges. The stylesheet matches the prefix, so a
  * new instance needs no new CSS.
  */
-const SLOTS = 8
-const taken = new Set<number>()
+const slots = slotPool()
 
 /** A window's highlight registry, absent where the API is not. */
 function registry(w: OwnWindow): Map<string, unknown> | undefined {
   return (w.CSS as unknown as { highlights?: Map<string, unknown> } | undefined)?.highlights
 }
 
-/** The lowest free slot, so the numbers stay small and the CSS stays finite. */
-function claimSlot(): number {
-  for (let i = 1; i <= SLOTS; i += 1) if (!taken.has(i)) {
-    taken.add(i)
-    return i
-  }
-  return 1 // more find bars than panes can exist: share, rather than go unstyled
-}
 
 interface TextBit {
   node: Text
@@ -95,8 +87,12 @@ export function DocFind({
   scroller: RefObject<HTMLElement | null>
   onClose: () => void
 }): JSX.Element {
-  const [slot] = useState(claimSlot)
-  const hl = { all: `prism-find-${slot}`, current: `prism-find-current-${slot}` }
+  const [slot] = useState(slots.claim)
+  // Memoised: a new object each render re-ran the paint effect, and its scroll, on every render (audit #44).
+  const hl = useMemo(
+    () => ({ all: `prism-find-${slot}`, current: `prism-find-current-${slot}` }),
+    [slot]
+  )
   const [query, setQuery] = useState('')
   const [at, setAt] = useState(-1)
   // State rather than a ref: the paint effect has to re-run when they change,
@@ -174,7 +170,7 @@ export function DocFind({
   // Everything the highlight owns goes when the bar does, slot included.
   useEffect(() => {
     return () => {
-      taken.delete(slot)
+      slots.release(slot)
       for (const w of painted) {
         registry(w)?.delete(hl.all)
         registry(w)?.delete(hl.current)
