@@ -197,12 +197,15 @@
   padding: 0 8px;
   border: 0;
   border-radius: var(--p-radius-sm, 4px);
-  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   content-visibility: auto;
   contain-intrinsic-size: auto 26px;
+}
+/* Not on a marked row: the shorthand would beat selection.css's fill (#524). */
+.archive-card-row:not([data-selected]) {
+  background: transparent;
 }
 .archive-card-row:not([data-selected]):hover,
 .archive-card-row:not([data-selected]):focus-visible {
