@@ -19,6 +19,8 @@ export const PASTE_MESSAGES = {
   nothing: 'Nothing could be pasted here.',
   partly: (pasted: number, failed: number): string =>
     `Pasted ${pasted}, but ${failed} could not be copied.`,
+  leftover: (n: number): string =>
+    `${n} ${n === 1 ? 'item was' : 'items were'} copied, but could not be fully removed from where ${n === 1 ? 'it was' : 'they were'}.`,
   threw: 'The files could not be pasted. Try again.'
 } as const
 
@@ -29,6 +31,7 @@ export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.re
   if (r.refused) return refused
   if (!r.pasted) return PASTE_MESSAGES.nothing
   if (r.failed) return PASTE_MESSAGES.partly(r.pasted, r.failed)
+  if (r.left?.length) return PASTE_MESSAGES.leftover(r.left.length)
   return null
 }
 

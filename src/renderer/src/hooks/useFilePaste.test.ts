@@ -26,6 +26,14 @@ describe('pasteMessage: one table for the Explorer and the tree', () => {
   })
 })
 
+describe('pasteMessage: a cut that left part of its source (audit #51)', () => {
+  it('says so, apart from a failure, when the copy landed whole', () => {
+    const r = answer({ pasted: 1, moved: true, left: [{ name: 'a', reason: 'EBUSY' }] })
+    expect(pasteMessage(r)).toBe(PASTE_MESSAGES.leftover(1))
+    expect(pasteMessage(answer({ pasted: 1 }))).toBeNull()
+  })
+})
+
 describe('pasteMoves: a cut and paste, for the folder icons to follow', () => {
   it('pairs what main moved with where it landed, as main says', () => {
     expect(
