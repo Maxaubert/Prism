@@ -1,4 +1,5 @@
 import { execFile } from './spawnWorker'
+import { powershellExe } from './systemBin'
 import { fakeCopyFiles, fakeFiles } from './e2eClipboard'
 import type { ClipAttempt } from './clipWriter'
 import { PRISM_COPY_FORMAT } from './ownClipboard'
@@ -136,7 +137,7 @@ export function copyWindowsFiles(
   if (E2E) return e2eWrite(paths, cut, text, token, signal)
   return new Promise((done) => {
     execFile(
-      'powershell.exe',
+      powershellExe(),
       ['-NoProfile', '-NonInteractive', '-STA', '-Command', writeClipboard],
       {
         windowsHide: true,
@@ -187,7 +188,7 @@ export function readWindowsFiles(): Promise<WindowsFileClipboard> {
   }
   return new Promise((done) => {
     execFile(
-      'powershell.exe',
+      powershellExe(),
       ['-NoProfile', '-NonInteractive', '-STA', '-Command', `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)

@@ -11,6 +11,7 @@ import { pipeline } from 'node:stream/promises'
 import { MAX_BODY_CHARS } from 'prism-term-core/shared/releaseNotes'
 import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
 import { MAX_SIGNATURE_CHARS, UPDATE_PUBLIC_KEY, verifyInstaller } from './updateSignature'
+import { powershellExe } from './systemBin'
 
 // The in-app update check. Releases publish themselves on every push to main
 // (release.yml), so the app's half is small: notice a newer v<version> on
@@ -180,7 +181,7 @@ export async function installUpdate(
     // paths are ours (temp dir, execPath) but interpolation stays safe anyway.
     const q = (s: string): string => `'${s.replace(/'/g, "''")}'`
     spawn(
-      'powershell',
+      powershellExe(),
       [
         '-NoProfile',
         '-WindowStyle',

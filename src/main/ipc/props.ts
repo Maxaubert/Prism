@@ -3,6 +3,7 @@ import { CALL, PUSH } from '@shared/channels'
 import { basename, join } from 'path'
 import { open as openFile, readdir, stat, statfs } from '../userFs'
 import { launch } from '../spawnWorker'
+import { systemExe } from '../systemBin'
 import { insideDesktop } from '../desktopAccess'
 import { getIndexedFolderSizes } from '../everythingBrowse'
 import { photoInfo } from '../photoInfo'
@@ -146,7 +147,7 @@ export function registerPropsIpc(ctx: MainCtx): void {
   ipcMain.handle(CALL.driveCleanup, (_e, root: unknown): boolean => {
     if (typeof root !== 'string' || !DRIVE_ROOT.test(root)) return false
     try {
-      const exe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cleanmgr.exe')
+      const exe = systemExe('cleanmgr.exe')
       // A missing cleanmgr (some Server and LTSC builds) is a rejected launch.
       void launch(exe, ['/d', root[0].toUpperCase()]).catch(() => {})
       return true
