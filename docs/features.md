@@ -39,6 +39,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
   title and body break a name with no spaces. Held by `packages/term-core/renderer/components/dialogLook.test.ts`.
 - **The setup pages scroll in a short window** (audit #40): the step column scrolls, so the footer buttons stay
   reachable. Held by `components/Onboarding.test.ts` (a source check; no unit test can lay the page out).
+- **A popover in the preview window closes from that window** (audit #43): `useDismiss` listens on the window the
+  popover is drawn in, as well as the Explorer's. Held by `hooks/useDismiss.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
