@@ -158,4 +158,28 @@ describe('following a file that grows', () => {
     expect(text.startsWith('y')).toBe(true)
     expect(text.split('\n').slice(0, -2).every((l) => l.length === 1023)).toBe(true)
   }, 15_000)
-})
+
+  // Audit #49: the stop and the second start land while the first start is
+  // still awaiting its stat and open.
+  it('a stop that lands while a start is still opening wins', async () => {
+    const p = file('stoprace.log', 'first\n')
+    const seen: TailEvent[] = []
+    const started = startTail(p, 6, (e) => seen.push(e))
+    stopTail(p)
+    expect(await started).toBe(false)
+    appendFileSync(p, 'late\n')
+    await new Promise((r) => setTimeout(r, 1300))
+    expect(seen).toEqual([])
+  })
+
+  it('two overlapping starts follow once: a chunk is appended once', async () => {
+    const p = file('twostarts.log', 'first\n')
+    const seen: TailEvent[] = []
+    const one = startTail(p, 6, (e) => seen.push(e), 'w1')
+    const two = startTail(p, 6, (e) => seen.push(e), 'w1')
+    expect(await Promise.all([one, two])).toEqual([false, true])
+    appendFileSync(p, 'more\n')
+    await waitFor(seen, (s) => s.some((e) => e.text.includes('more')))
+    await new Promise((r) => setTimeout(r, 1300))
+    expect(seen.map((e) => e.text).join('')).toBe('more\n')
+  })})
