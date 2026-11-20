@@ -1,4 +1,20 @@
 import { useEffect, useState } from 'react'
+import type { MediaProbe } from '@shared/types'
+
+export interface DecodedSwap {
+  path: string
+  url: string | null
+  synth: boolean
+}
+
+/** What a probe answer (null when the probe rejected) turns the source into. A score the
+ *  probe cannot synthesise ends as FAILED (url null, not synth), never stuck on the
+ *  synthesising notice (audit #56). Anything else keeps the file's own url. */
+export function offerSwap(path: string, offer: Pick<MediaProbe, 'needed' | 'url' | 'synth'> | null, isScore: boolean): DecodedSwap | null {
+  if (offer?.synth) return { path, url: null, synth: true }
+  if (offer?.needed && offer.url) return { path, url: offer.url, synth: false }
+  return isScore ? { path, url: null, synth: false } : null
+}
 
 /**
  * The audio player's version of the sidecar.
@@ -25,23 +41,29 @@ export function useDecodedSource(
 
   useEffect(() => {
     let live = true
-    void window.prism.probeMedia(path).then((offer) => {
-      if (!live) return
-      // A score has to be SYNTHESISED, which takes seconds: say so and hold
-      // the element back, rather than pointing it at a .mid it will reject.
-      if (offer.synth) {
-        setSwap({ path, url: null, synth: true })
-        void window.prism.synthMidi(path).then((u) => {
-          if (live) setSwap({ path, url: u, synth: false })
-        })
-        return
+    void window.prism.probeMedia(path).then(
+      (offer) => {
+        if (!live) return
+        // A score has to be SYNTHESISED, which takes seconds: say so and hold
+        // the element back, rather than pointing it at a .mid it will reject.
+        const next = offerSwap(path, offer, isScore)
+        if (next) setSwap(next)
+        if (!offer.synth) return
+        void window.prism
+          .synthMidi(path)
+          .catch(() => null)
+          .then((u) => {
+            if (live) setSwap({ path, url: u, synth: false })
+          })
+      },
+      () => {
+        if (live) setSwap(offerSwap(path, null, isScore))
       }
-      if (offer.needed && offer.url) setSwap({ path, url: offer.url, synth: false })
-    })
+    )
     return () => {
       live = false
     }
-  }, [path])
+  }, [path, isScore])
 
   const synthesising = mine ? mine.synth : isScore
   return {
