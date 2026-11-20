@@ -294,3 +294,18 @@ describe('two folders of the same name merge', () => {
     expect(r.clashes.map((c) => c.name)).toEqual(['a.txt'])
   })
 })
+
+describe('moveEntries twins in one batch (audit #2)', () => {
+  it("'replace' keeps both of two same-named files from different folders", async () => {
+    mkdirSync(join(root, 'x'))
+    mkdirSync(join(root, 'y'))
+    writeFileSync(join(root, 'x', 'p.txt'), 'X')
+    writeFileSync(join(root, 'y', 'p.txt'), 'Y')
+    const r = await moveEntries([join(root, 'x', 'p.txt'), join(root, 'y', 'p.txt')], join(root, 'dest'), 'replace', trash)
+    expect(trash).not.toHaveBeenCalled()
+    expect(r.moved).toHaveLength(2)
+    expect(r.replaced).toEqual([])
+    expect(readFileSync(join(root, 'dest', 'p.txt'), 'utf8')).toBe('X')
+    expect(readFileSync(r.moved[1].to, 'utf8')).toBe('Y')
+  })
+})
