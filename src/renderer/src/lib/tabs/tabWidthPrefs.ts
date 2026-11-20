@@ -24,6 +24,12 @@ const pref = createPref<TabWidth>({
   fallback: 'dynamic'
 })
 
+/** The flex classes of one tab. Both modes keep a floor (audit #18): a tab squeezed under about 62px spilled its
+ * icon and X over the next tab, and the strip never scrolled. At the floor the strip overflows and scrolls. */
+export function tabWidthClass(width: TabWidth): string {
+  return width === 'fixed' ? 'min-w-[64px] flex-[0_1_114px]' : 'min-w-[64px] shrink'
+}
+
 export const tabWidth = pref.get
 export const setTabWidth = pref.set
 export const onTabWidthChange = pref.subscribe

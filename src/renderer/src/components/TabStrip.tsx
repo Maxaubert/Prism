@@ -25,7 +25,7 @@ import { createHoverSwitch, stillInside, type HoverSwitch } from '../lib/drag/ho
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
 import { TabKindIcon } from './icons/TabKindIcon'
-import { useTabWidth } from '../lib/tabs/tabWidthPrefs'
+import { tabWidthClass, useTabWidth } from '../lib/tabs/tabWidthPrefs'
 import { Icon } from './icons/Icon'
 import { PATHS } from './icons/paths'
 
@@ -755,7 +755,7 @@ export function TabStrip({
             data-tab-fixed={width === 'fixed' || undefined}
             data-tab-dynamic={width === 'dynamic' || undefined}
             className={`no-drag group relative flex items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
-              width === 'fixed' ? 'min-w-[64px] flex-[0_1_114px]' : 'min-w-0 shrink'
+              tabWidthClass(width)
             } ${
               on
                   ? // THE SECONDARY COLOUR (owner, 2026-09-03): the strip, the
