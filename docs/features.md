@@ -3,6 +3,12 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Phone and layout fixes, wave C (owner, 2026-11-20)
+
+- **A portrait film keeps its size on the phone** (audit #33): the HLS encode ceiling (1080) is the SHORT side
+  of the picture as shown, so a 1080x1920 film with no display matrix is no longer scaled to 608x1080.
+  Held by `src/main/phone/decide.test.ts` and `hls.test.ts`.
+
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry

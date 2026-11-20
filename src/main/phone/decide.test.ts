@@ -6,6 +6,8 @@ const info = (o: {
   videoCodec?: string | null
   audioCodec?: string | null
   height?: number
+  width?: number
+  rotation?: number
   transfer?: string
 }): MediaInfo => ({
   audio:
@@ -16,13 +18,28 @@ const info = (o: {
   videoCodec: o.videoCodec === undefined ? 'h264' : o.videoCodec,
   fps: 24,
   duration: 100,
-  video: o.videoCodec === null ? null : { width: 1920, height: o.height ?? 1080, pixFmt: 'yuv420p', transfer: o.transfer ?? 'bt709' }
+  video:
+    o.videoCodec === null
+      ? null
+      : {
+          width: o.width ?? 1920,
+          height: o.height ?? 1080,
+          pixFmt: 'yuv420p',
+          transfer: o.transfer ?? 'bt709',
+          ...(o.rotation ? { rotation: o.rotation } : {})
+        }
 })
 
 const iphone = parseCan('h264,hevc,aac,mp3,flac,ac3,eac3,mp4,webm,hls-native')
 const android = parseCan('h264,vp9,av1,aac,mp3,flac,opus,mp4,webm')
 
 describe('decide', () => {
+  it('the encode ceiling is the SHORT side as shown (audit #33)', () => {
+    expect(decide(info({ videoCodec: 'hevc', width: 1080, height: 1920 }), '.mkv', android)).toMatchObject({ height: null, portrait: true })
+    expect(decide(info({ videoCodec: 'hevc', width: 1920, height: 1080, rotation: -90 }), '.mkv', android)).toMatchObject({ height: null, portrait: true })
+    expect(decide(info({ videoCodec: 'hevc', width: 2160, height: 3840 }), '.mkv', android)).toMatchObject({ height: 1080, portrait: true })
+    expect(decide(info({ videoCodec: 'hevc', width: 3840, height: 2160 }), '.mkv', android)).toMatchObject({ height: 1080 })
+  })
   it('plays an mp4 of h264 + aac directly on anything', () => {
     expect(decide(info({}), '.mp4', iphone)).toEqual({ mode: 'direct' })
     expect(decide(info({}), '.mp4', android)).toEqual({ mode: 'direct' })
