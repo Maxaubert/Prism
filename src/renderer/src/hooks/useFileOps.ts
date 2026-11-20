@@ -641,9 +641,9 @@ export function useFileOps({
             }
           )
         )
-        .catch(() => {})
+        .catch(() => setAsk({ kind: 'failed', message: 'That did not work.', op: 'undo' }))
     },
-    [patchEntry, setUndoState, undoOps]
+    [patchEntry, setAsk, setUndoState, undoOps]
   )
   const undo = useCallback((): void => {
     const step = undone(undoState)
