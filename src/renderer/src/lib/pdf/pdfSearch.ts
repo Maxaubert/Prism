@@ -70,3 +70,51 @@ export function stepMatch(current: number, delta: number, total: number): number
   if (total <= 0) return -1
   return (((current + delta) % total) + total) % total
 }
+
+/** The part of a pdf.js document the finder and the size prefetch read. */
+export interface PageSource {
+  getPage(n: number): Promise<{
+    getTextContent(): Promise<{ items: ReadonlyArray<object> }>
+    getViewport(o: { scale: number }): { width: number; height: number }
+  }>
+}
+
+/**
+ * One page's text, cached by page. A page that cannot be read (a broken page
+ * object in a truncated file) counts as an empty page and is NOT cached, so it
+ * cannot sink every later search with the same rejection (audit #86).
+ */
+export function cachedPageText(
+  cache: Map<number, Promise<PageText>>,
+  doc: PageSource,
+  n: number
+): Promise<PageText> {
+  let p = cache.get(n)
+  if (!p) {
+    p = doc
+      .getPage(n)
+      .then((pg) => pg.getTextContent())
+      .then((tc) => ({
+        items: tc.items.map((i) => ('str' in i && typeof i.str === 'string' ? i.str : ''))
+      }))
+      .catch(() => {
+        cache.delete(n)
+        return { items: [] }
+      })
+    cache.set(n, p)
+  }
+  return p
+}
+
+/** A page's size at scale 1, or null when the page cannot be read (audit #87). */
+export async function pageSize(
+  doc: PageSource,
+  n: number
+): Promise<{ w: number; h: number } | null> {
+  try {
+    const vp = (await doc.getPage(n)).getViewport({ scale: 1 })
+    return { w: vp.width, h: vp.height }
+  } catch {
+    return null
+  }
+}

@@ -3,7 +3,15 @@ import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { IconFull } from '../icons/transport'
-import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdf/pdfSearch'
+import {
+  cachedPageText,
+  findMatches,
+  pageSize,
+  stepMatch,
+  type Match,
+  type PageText
+} from '../../lib/pdf/pdfSearch'
+import { slotPool } from '../../lib/highlightSlots'
 import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdf/pdfLinks'
 import { baseZoom, zoomPercent } from '../../lib/pdf/pdfZoom'
@@ -98,6 +106,8 @@ function FitWidthGlyph({ on }: { on: boolean }): JSX.Element {
     </svg>
   )
 }
+
+const pdfSlots = slotPool()
 
 export function PdfView({
   url,
@@ -457,16 +467,14 @@ export function PdfView({
 
   /* ---------- find ---------- */
 
+  // Highlight names are per viewer: up to four PDFs stay mounted, and one fixed
+  // name made each wipe the others' highlights (audit #55).
+  const [slot] = useState(pdfSlots.claim)
+  useEffect(() => () => pdfSlots.release(slot), [slot])
+  const hl = useMemo(() => ({ all: `p-find-${slot}`, here: `p-find-here-${slot}` }), [slot])
+
   const pageText = useCallback((d: PDFDocumentProxy, n: number): Promise<PageText> => {
-    let p = textCache.current.get(n)
-    if (!p) {
-      p = d
-        .getPage(n)
-        .then((pg) => pg.getTextContent())
-        .then((tc) => ({ items: tc.items.map((i) => ('str' in i ? i.str : '')) }))
-      textCache.current.set(n, p)
-    }
-    return p
+    return cachedPageText(textCache.current, d, n)
   }, [])
 
   // Re-search on query change, debounced a touch so typing doesn't extract the
@@ -572,13 +580,13 @@ export function PdfView({
         ;(idx === curMatch ? here : all).add(r)
       }
     })
-    own.CSS.highlights.set('p-find', all)
-    own.CSS.highlights.set('p-find-here', here)
+    own.CSS.highlights.set(hl.all, all)
+    own.CSS.highlights.set(hl.here, here)
     return () => {
-      own.CSS.highlights.delete('p-find')
-      own.CSS.highlights.delete('p-find-here')
+      own.CSS.highlights.delete(hl.all)
+      own.CSS.highlights.delete(hl.here)
     }
-  }, [matches, curMatch, layersVersion])
+  }, [matches, curMatch, layersVersion, hl])
 
   // Walking the matches follows them on screen: the exact span when its page is
   // rendered, the page itself until then (rendering brings the span, and the
@@ -783,21 +791,24 @@ export function PdfView({
       while (alive) {
         const n = next++
         if (n > total) return
-        const page = await doc.getPage(n)
+        const size = await pageSize(doc, n)
         if (!alive) return
-        const vp = page.getViewport({ scale: 1 })
-        batch.set(n, { w: vp.width, h: vp.height })
-        if (vp.width > maxW) maxW = vp.width
-        if (vp.height > maxH) maxH = vp.height
+        // A page that cannot be read keeps the size it had (audit #87).
+        if (!size) continue
+        batch.set(n, { w: size.w, h: size.h })
+        if (size.w > maxW) maxW = size.w
+        if (size.h > maxH) maxH = size.h
         if (batch.size >= 32) flush()
       }
     }
     void Promise.all(
       Array.from({ length: Math.min(8, Math.max(0, total - 1)) }, () => worker())
-    ).then(() => {
-      flush()
-      if (alive && maxW > 0 && maxH > 0) setPageBox({ w: maxW, h: maxH })
-    })
+    )
+      .catch(() => {})
+      .then(() => {
+        flush()
+        if (alive && maxW > 0 && maxH > 0) setPageBox({ w: maxW, h: maxH })
+      })
     return () => {
       alive = false
     }

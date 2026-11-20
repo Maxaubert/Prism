@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMatches, stepMatch, type PageText } from './pdfSearch'
+import { cachedPageText, findMatches, pageSize, stepMatch, type PageSource, type PageText } from './pdfSearch'
 
 const page = (...items: string[]): PageText => ({ items })
 
@@ -70,5 +70,41 @@ describe('findMatches with a letter whose lower case is longer (audit #67)', () 
     const m = findMatches([page('İstanbul foo')], 'foo')
     expect(m).toHaveLength(1)
     expect(m[0]).toMatchObject({ item: 0, start: 9, end: 12 })
+  })
+})
+
+/** A document whose listed pages fail to load. */
+function doc(broken: number[], calls: number[] = []): PageSource {
+  return {
+    getPage: async (n) => {
+      calls.push(n)
+      if (broken.includes(n)) throw new Error('bad page')
+      return {
+        getTextContent: async () => ({ items: [{ str: `text ${n}` }, {}] }),
+        getViewport: () => ({ width: 100 + n, height: 200 + n })
+      }
+    }
+  }
+}
+
+describe('a damaged page does not sink the find (audit #86)', () => {
+  it('reads a broken page as empty and does not cache the failure', async () => {
+    const cache = new Map<number, Promise<PageText>>()
+    const calls: number[] = []
+    const d = doc([2], calls)
+    expect(await cachedPageText(cache, d, 1)).toEqual({ items: ['text 1', ''] })
+    expect(await cachedPageText(cache, d, 2)).toEqual({ items: [] })
+    expect(cache.has(2)).toBe(false)
+    expect(cache.has(1)).toBe(true)
+    await cachedPageText(cache, d, 2)
+    expect(calls.filter((n) => n === 2)).toHaveLength(2)
+  })
+})
+
+describe('a damaged page does not stop the size prefetch (audit #87)', () => {
+  it('answers null for a broken page and the size for the rest', async () => {
+    const d = doc([3])
+    expect(await pageSize(d, 2)).toEqual({ w: 102, h: 202 })
+    expect(await pageSize(d, 3)).toBeNull()
   })
 })
