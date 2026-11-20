@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { LAYER } from '../components/layers'
+import { opensAbove } from '../lib/listFlip'
 
 // THE SETTINGS FIELDS, shared by both hosts (#15). The owner's rule: the two
 // apps' terminal settings are the same settings, "the setting names, types, how
@@ -188,7 +189,27 @@ export function Select({
   disabled?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [above, setAbove] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  // Measured as it opens, before paint (audit #85): up when the pane would clip it below.
+  useLayoutEffect(() => {
+    const el = list.current
+    const host = box.current
+    if (!open || !el || !host) return
+    const b = host.getBoundingClientRect()
+    const bounds = { top: 0, bottom: window.innerHeight }
+    for (let n = host.parentElement; n; n = n.parentElement) {
+      const oy = getComputedStyle(n).overflowY
+      if (oy === 'auto' || oy === 'scroll' || oy === 'hidden') {
+        const r = n.getBoundingClientRect()
+        bounds.top = Math.max(bounds.top, r.top)
+        bounds.bottom = Math.min(bounds.bottom, r.bottom)
+        break
+      }
+    }
+    setAbove(opensAbove(b, el.offsetHeight, bounds))
+  }, [open])
   useEffect(() => {
     if (!open) return
     const close = (): void => setOpen(false)
@@ -230,9 +251,10 @@ export function Select({
       </button>
       {open && !disabled && (
         <div
+          ref={list}
           role="listbox"
           aria-labelledby={id}
-          className={`absolute right-0 ${LAYER.pop} mt-1 max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]`}
+          className={`absolute right-0 ${LAYER.pop} ${above ? 'bottom-full mb-1' : 'mt-1'} max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]`}
         >
           {options.map((o) => {
             const on = o.id === value
