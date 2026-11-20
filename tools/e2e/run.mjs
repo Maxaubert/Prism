@@ -18865,6 +18865,10 @@ async function phoneDocsScenario(fixtures) {
       await page.locator('[data-phone-viewer] img').first().evaluate(decodes),
       'a member viewed out of the zip decodes (the extract grant)'
     )
+    ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'the archive view does not run past the phone screen (audit #90)'
+    )
     await page.screenshot({ path: join(SHOTS, 'phone-archive.png') })
 
     // Search (2026-09-07). The folder you are in and everything below it

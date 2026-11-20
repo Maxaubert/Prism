@@ -24,6 +24,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   drawn as the answer, or narrowed into the preview, in folder B. Held by `browse.test.ts` (`answerFor`).
 - **The phone page keeps clear of a landscape notch** (audit #52): the page root, the drawer and the player's
   fixed menu pad the left and right with `env(safe-area-inset-*)`. Held by `phone/safeArea.test.ts`.
+- **A long archive name or crumb no longer runs off a phone screen** (audit #90): the name is capped by its
+  column and the crumbs shrink and truncate. Held by `components/archiveNarrow.test.ts` and the phone archive
+  scenario in `tools/e2e/run.mjs` (page not wider than the screen; not run here).
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
