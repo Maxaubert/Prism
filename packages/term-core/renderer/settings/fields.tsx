@@ -97,7 +97,7 @@ export function Slider({
         onChange={(e) => onChange(Number(e.currentTarget.value))}
         onDoubleClick={onReset}
         className={menu ? SLIDER.replace('w-[168px]', 'w-full') : SLIDER}
-        style={{ background: `linear-gradient(to right, var(--p-sel-bg) ${pct}%, var(--p-track) ${pct}%)` }}
+        style={{ ['--slider-fill' as string]: `linear-gradient(to right, var(--p-sel-bg) ${pct}%, var(--p-track) ${pct}%)` }}
       />
       {!menu && (
         <span
@@ -110,7 +110,7 @@ export function Slider({
     </span>
   )
 }const SLIDER =
-  'h-[6px] w-[168px] cursor-pointer appearance-none rounded-full outline-none disabled:cursor-default disabled:opacity-50 ' +
+  'h-[6px] w-[168px] cursor-pointer appearance-none rounded-full outline-none [background-image:var(--slider-fill)] disabled:cursor-default disabled:opacity-50 ' +
   '[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:appearance-none ' +
   '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.45)]'
 
