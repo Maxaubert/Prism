@@ -3,6 +3,13 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
+
+mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
+(`^0.8.15`), so mammoth and electron-builder resolve the fixed copy. Held by
+`src/main/xmldomVersion.test.ts` (version and override) and `src/main/docxConvertXmldom.test.ts`
+(a real `.docx` still converts).
+
 ## Zip members are bounded, adm-zip 0.6.1 (owner, 2026-11-20, audit #25)
 
 `adm-zip` is 0.6.1, which limits what a member may inflate to. Prism's own in-process reader

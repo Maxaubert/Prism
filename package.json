@@ -50,6 +50,9 @@
     "rehype-stringify": "^10.0.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.15"
+  },
   "devDependencies": {
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-cpp": "^6.0.3",
