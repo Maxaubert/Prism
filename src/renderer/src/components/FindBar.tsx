@@ -36,7 +36,7 @@ export function FindBar({
       // Opaque on purpose (side-flat: --p-title is translucent on glass
       // styles): the bar floats over white pages, and anything see-through
       // there smears the page edge into a smudge.
-      className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 shadow-[0_10px_28px_rgba(0,0,0,.45)]"
+      className="absolute right-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 shadow-[0_10px_28px_rgba(0,0,0,.45)]"
     >
       <input
         ref={input}
@@ -44,7 +44,7 @@ export function FindBar({
         spellCheck={false}
         placeholder="Find"
         aria-label="Find in document"
-        className="w-[180px] bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
+        className="w-[180px] min-w-0 flex-1 bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
         onChange={(e) => onQuery(e.target.value)}
         onKeyDown={(e) => findKey(e, onStep, onClose)}
       />
