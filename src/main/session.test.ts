@@ -161,3 +161,27 @@ describe('the session file, one entry per window (2026-10-29)', () => {
     expect(validBounds(null)).toBeNull()
   })
 })
+
+describe('a window made from the kept entry (audit #5)', () => {
+  it('takes the old entry over, so no stale one outranks a later window', () => {
+    const m = createSessionModel()
+    m.report(1, strip('C:\\old'))
+    m.closed(1, { others: false, quitting: false }) // standby keeps A
+    m.adopt(2) // the wake makes B
+    m.minor(3) // Win+E opens W
+    m.report(3, strip('D:\\wine'))
+    m.closed(2, { others: true, quitting: false })
+    m.closed(3, { others: false, quitting: false })
+    expect(m.doc()!.tabs.map((t) => t.root)).toEqual(['D:\\wine'])
+    expect(m.doc()!.windows).toHaveLength(1)
+  })
+
+  it('the new window starts from the strip it was opened with', () => {
+    const m = createSessionModel()
+    m.report(1, strip('C:\\old'))
+    m.closed(1, { others: false, quitting: false })
+    m.adopt(2)
+    expect(m.doc()!.tabs.map((t) => t.root)).toEqual(['C:\\old'])
+    expect(m.doc()!.windows).toHaveLength(1)
+  })
+})
