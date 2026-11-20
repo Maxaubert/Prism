@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { keyTarget, previewWindowKey, previewWindowStep } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
 import { addPageDocument } from '../../lib/pageDocuments'
+import { addTooltipDocument } from 'prism-term-core/renderer/lib/tooltipWindows'
 import { previewClass } from '../../lib/previewWindowLook'
 import './previewWindow.css'
 
@@ -72,6 +73,8 @@ export function PreviewWindow({
         // Its keys go on BEFORE any viewer is drawn into it (see `ownKeys`).
         const unkey = ownKeys(win, () => close.current(), () => filmStep.current)
         const unpage = addPageDocument(win.document)
+        // Its titles get the app's own tips too (audit #95).
+        const untip = addTooltipDocument(win.document)
         const root = win.document.createElement('div')
         root.className = 'preview-window-host'
         win.document.body.appendChild(root)
@@ -81,6 +84,7 @@ export function PreviewWindow({
             undress()
             unkey()
             unpage()
+            untip()
           }
         }
         // The e2e reads the window's own document (under --e2e only, where

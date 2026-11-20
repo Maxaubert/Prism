@@ -41,6 +41,10 @@ changing a feature: each entry records what the owner decided, why, and what hol
   reachable. Held by `components/Onboarding.test.ts` (a source check; no unit test can lay the page out).
 - **A popover in the preview window closes from that window** (audit #43): `useDismiss` listens on the window the
   popover is drawn in, as well as the Explorer's. Held by `hooks/useDismiss.test.ts`.
+- **The preview window shows its scrollbars and the app's tooltips** (audit #60, #95): the window no longer
+  copies `p-overlay-scrollbars` (nothing drew the overlay bar there), and `Tooltips` listens in every document the
+  host registers (`addTooltipDocument`), drawing the tip in the item's own window. Held by
+  `lib/previewWindowLook.test.ts` and `packages/term-core/renderer/lib/tooltipWindows.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
