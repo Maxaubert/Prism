@@ -28104,7 +28104,7 @@ async function caretTracksScenario(fixtures) {
         box: !!box
       }
     }, field)
-  const probe = async (field, name, what) => {
+  const probe = async (field, name, what, caretAt) => {
     await win.evaluate(() => {
       window.__selCalls = 0
       for (const m of ['select', 'setSelectionRange']) {
@@ -28119,7 +28119,9 @@ async function caretTracksScenario(fixtures) {
     await sleep(300)
     const d = await inside(field)
     ok(d.focused, `${what}: the field has the focus`)
-    ok(d.start === d.end && d.end === d.len, `${what}: the caret is collapsed at the end of the text (${d.start}-${d.end} of ${d.len})`)
+    // A rename opens with the stem selected, so typing replaces the stem and the caret sits after it (#523).
+    const want = caretAt ?? d.len
+    ok(d.start === d.end && d.end === want, `${what}: the caret is collapsed after what was typed (${d.start}-${d.end} of ${d.len}, wanted ${want})`)
     ok((await win.evaluate(() => window.__selCalls)) === 0, `${what}: no select() or setSelectionRange() on a keystroke (${await win.evaluate(() => window.__selCalls)})`)
     ok(d.transformed === '', `${what}: no transform, zoom or animation on the box or above it (${d.transformed})`)
     const text = await win.evaluate((sel) => document.querySelector(sel).value, field)
@@ -28163,7 +28165,7 @@ async function caretTracksScenario(fixtures) {
     await win.keyboard.press('F2')
     ok(await until(async () => (await win.locator('.browse-list input').count()) === 1, 5000), 'the rename field is up')
     await sleep(600)
-    await probe('.browse-list input', 'New name', 'rename')
+    await probe('.browse-list input', 'New name', 'rename', 3)
     await win.keyboard.press('Escape')
     await sleep(400)
     // The address field and the search popup, the other boxes of the Explorer.
