@@ -12,7 +12,7 @@ import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useMediaLook } from '../lib/viz/mediaLook'
 import { useDecodedSource } from '../hooks/useDecodedSource'
-import { wasPlaying, whenIntended } from '../lib/playState'
+import { startsOnIntent, wasPlaying, whenIntended } from '../lib/playState'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
 
 const SYNTH_FAILED = 'Prism could not synthesise this score.'
@@ -146,7 +146,7 @@ export function AudioView({
     () =>
       whenIntended(url, () => {
         const el = audioRef.current
-        if (el && el.paused) void el.play().catch(() => undefined)
+        if (startsOnIntent(el)) void el.play().catch(() => undefined)
       }),
     [url]
   )

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forgetPaused, intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying, whenIntended, carriesOn, heldPaused, pauseQuietly, wasQuietPause } from './playState'
+import { forgetPaused, intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying, whenIntended, carriesOn, heldPaused, pauseQuietly, wasQuietPause, startsOnIntent } from './playState'
 
 beforeEach(() => {
   forgetPaused('a')
@@ -148,5 +148,19 @@ describe('what starts playing on its own', () => {
     off()
     intendToPlay('c')
     expect(heard).toBe(1)
+  })
+})
+
+describe('startsOnIntent (audit #22)', () => {
+  const player = (paused: boolean, hidden: boolean): HTMLMediaElement =>
+    ({ paused, closest: (sel: string) => (hidden && sel === '[aria-hidden="true"]' ? {} : null) }) as unknown as HTMLMediaElement
+  it('starts a paused player in view', () => {
+    expect(startsOnIntent(player(true, false))).toBe(true)
+  })
+  it('leaves a player in a hidden tab, a shut one and a playing one alone', () => {
+    expect(startsOnIntent(player(true, true))).toBe(false)
+    expect(startsOnIntent(player(true, false), true)).toBe(false)
+    expect(startsOnIntent(player(false, false))).toBe(false)
+    expect(startsOnIntent(null)).toBe(false)
   })
 })
