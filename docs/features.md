@@ -22,6 +22,36 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A stop that lands while a follow is starting wins** (audit #49): a stop, or a newer start for the same
   file and window, cancels the older start, so no poll timer leaks and no chunk is appended twice. Held by
   `src/main/fileTail.test.ts`.
+- **Open with reads the default app on any Windows language** (audit #13): the default value is asked
+  for with `/ve` and read by type, not by the English name. Held by `src/main/openWith.test.ts`.
+- **Subtitle files are decoded by BOM, then UTF-8, then Windows-1252** (audit #17). Held by
+  `src/main/subtitles.test.ts`.
+- **A right press on the progress bar does not seek** (audit #19): only the main button does. Held by
+  `src/renderer/src/lib/scrubPress.test.ts`.
+- **A film inside a zip honours the shut preview** (audit #4): `preview` and `shut` reach the member's
+  viewer. Held by `src/renderer/src/components/stage/Viewer.test.ts`.
+- **A hidden tab's player does not start on a repeat pick** (audit #22), for audio as for video. Held by
+  `src/renderer/src/lib/playState.test.ts`.
+- **A folder already in memory is read once** (audit #20): `navigate` and the location effect key the
+  read the same way. Held by `src/renderer/src/lib/visitedDirectories.test.ts`.
+- **A redo or undo that Windows refuses says so** (audit #35): a locked file on redo of a delete is
+  counted and said, and only what the bin took stays in the entry. Held by
+  `src/renderer/src/lib/undoApply.test.ts`.
+- **A file or folder dropped from Windows onto the window opens even outside the granted folders**
+  (audit #23). Held by `src/renderer/src/lib/droppedKind.test.ts`.
+- **Copying out of a zip says when members would not come out** (audit #32). Held by
+  `src/renderer/src/lib/archiveCopyNote.test.ts`.
+- **A zip that is gone before a drop or move answers "failed"** (audit #34). Held by
+  `src/main/archive.test.ts`.
+- **A cut whose copy landed counts as pasted when part of the source cannot be removed** (audit #51):
+  the leftover is said apart ("copied, but could not be fully removed"). Held by
+  `src/main/pasteLeft.test.ts` and `src/renderer/src/hooks/useFilePaste.test.ts`.
+- **A folder-verb request for an access-denied folder opens Home** (audit #88). Held by
+  `src/renderer/src/lib/readableDirectory.test.ts`.
+- **Quick access is read ahead even if the first idle turn was cancelled** (audit #89). Held by
+  `src/renderer/src/hooks/useListingPrefetch.test.ts`.
+- **A resume place is applied only to the film it was asked for** (audit #91). Held by
+  `src/renderer/src/lib/resumePoint.test.ts`.
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry
