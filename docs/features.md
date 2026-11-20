@@ -27,6 +27,10 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A long archive name or crumb no longer runs off a phone screen** (audit #90): the name is capped by its
   column and the crumbs shrink and truncate. Held by `components/archiveNarrow.test.ts` and the phone archive
   scenario in `tools/e2e/run.mjs` (page not wider than the screen; not run here).
+- **Dynamic tabs keep a 64px floor** (audit #18): the strip scrolls instead of tabs overlapping and a click on one
+  tab's X landing on its neighbour. Held by `lib/tabs/tabWidthPrefs.test.ts` (`tabWidthClass`).
+- **The find bar fits a narrow pane** (audit #84): capped at the pane's width less 24px, the field shrinks. Held by
+  `components/FindBar.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
