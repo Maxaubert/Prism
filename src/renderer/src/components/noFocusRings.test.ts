@@ -72,7 +72,7 @@ describe('focus still shows where the ring went', () => {
 
   it('a slider gets the stronger fill, its box is a thin track', () => {
     expect(src('index.css')).toMatch(
-      /:where\(input\[type='range'\]\):focus-visible \{\s*background-image: linear-gradient\(var\(--p-hover-hi\)/
+      /input\[type='range'\]:focus-visible \{\s*background-image: linear-gradient\(var\(--p-hover-hi\), var\(--p-hover-hi\)\), var\(--slider-fill/
     )
   })
 

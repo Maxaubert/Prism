@@ -42,9 +42,10 @@
   /* A slider's box IS its track, a thin one, so the fill is the stronger
      hover step or it would not read at that size (#272 review: a focused
      slider measured identical to an unfocused one). */
-  :where(input[type='range']):focus-visible {
-    background-image: linear-gradient(var(--p-hover-hi), var(--p-hover-hi));
-  }
+}
+/* The Slider paints its fill from --slider-fill (a utility, in a layer), so the focus layer goes on top of it here, unlayered. */
+input[type='range']:focus-visible {
+  background-image: linear-gradient(var(--p-hover-hi), var(--p-hover-hi)), var(--slider-fill, none);
 }
 /* A text field's focus is its EDGE, a step lighter, no ring. In the UTILITIES
    layer and with the element in the selector (0,1,1), not in base: a field
