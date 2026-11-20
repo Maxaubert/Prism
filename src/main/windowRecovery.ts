@@ -132,13 +132,16 @@ export function createWindowRecovery(deps: WindowRecoveryDeps): {
     // released them for good (releaseDesktop), so the same ids could never
     // be granted their folders again. The restore mints new ones.
     const tabs = last && remember ? last.tabs.map((t) => ({ ...t, id: undefined })) : []
-    return createWindow({
+    const win = createWindow({
       first: true,
       seed: tabs.length ? { kind: 'tabs', tabs: { tabs, active: last!.active } } : { kind: 'none' },
       bounds: last?.bounds ? readWindowState(last.bounds) : undefined,
       showNow: !!opts.winE,
       launch: opts.launch
     })
+    // The old entry moves to this window; no stale one stays behind (audit #5).
+    sessionFile.adopt(win.webContents.id)
+    return win
   }
 
   return { logWindow, recreateWindow, giveUpWindow, ensureLivePage, openAsFirst }

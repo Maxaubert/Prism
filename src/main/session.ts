@@ -72,6 +72,10 @@ export interface SessionModel {
   /** A crash rebuild: the new window's page takes the old one's entry. */
   rekey(from: number, to: number): void
   closed(key: number, how: { others: boolean; quitting: boolean }): void
+  /** A window made from the kept entry (a wake from standby, a handoff to a
+   *  windowless Prism): it takes the primary's strip and every other kept
+   *  entry goes, so a stale one cannot outrank it later (audit #5). */
+  adopt(key: number): void
   /** The entry a cold start (or a window made when none is left) opens. */
   primary(): SessionEntry | null
   /** What to write; null while nothing has been reported. */
@@ -145,6 +149,17 @@ export function createSessionModel(): SessionModel {
       // Quitting keeps every window; the last one standing keeps its own.
       if (quitting || !others) return
       entries.delete(key)
+    },
+    adopt(key) {
+      const p = primaryEntry()
+      if (!p) return
+      const mine = entry(key)
+      if (mine !== p) {
+        mine.tabs = p.tabs
+        mine.active = p.active
+        if (p.bounds && !mine.bounds) mine.bounds = p.bounds
+      }
+      for (const [k, e] of [...entries]) if (e !== mine && k !== key) entries.delete(k)
     },
     primary() {
       const p = primaryEntry()
