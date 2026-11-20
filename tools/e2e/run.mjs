@@ -17965,9 +17965,17 @@ function phoneAuth(token) {
 /** Hand a phone window the cookie a paired phone would hold. Open on `/pair`
  *  first: the cookie is for that origin. */
 async function givePhoneCookie(page, token) {
-  await page.evaluate((t) => {
-    document.cookie = `prism_phone=${t}; path=/`
-  }, token)
+  // Through the browser, not document.cookie: an HttpOnly prism_phone left by
+  // an earlier scenario on 127.0.0.1 (cookies ignore the port) cannot be
+  // overwritten from a script, and the page would sit on the pairing screen.
+  const url = new URL(page.url()).origin
+  try {
+    await page.context().addCookies([{ name: 'prism_phone', value: token, url, httpOnly: true, sameSite: 'Strict' }])
+  } catch {
+    await page.evaluate((t) => {
+      document.cookie = `prism_phone=${t}; path=/`
+    }, token)
+  }
 }
 
 async function phoneScenario(fixtures) {
