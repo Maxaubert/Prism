@@ -232,17 +232,22 @@ export function useFileOps({
    * asked after a beat and with retries, because Chromium closes the stream
    * on its own clock rather than on ours. Returns whether anything had it.
    */
+  const latestTabs = useRef(tabs)
+  useLayoutEffect(() => {
+    latestTabs.current = tabs
+  }, [tabs])
   const releaseFiles = useCallback(
     (paths: string[]): boolean => {
-      let held = false
+      // Whether a tab has it is read from the committed tabs: a state updater
+      // can run after this returns, which left `held` false (audit #76).
+      const showing = (t: Tab): boolean => {
+        const cur = t.index >= 0 ? t.files[t.index]?.path : undefined
+        return !!cur && paths.some((p) => within(cur, p))
+      }
+      const held = latestTabs.current.some(showing)
       setTabState((s) => {
-        const tabs = s.tabs.map((t) => {
-          const cur = t.index >= 0 ? t.files[t.index]?.path : undefined
-          if (!cur || !paths.some((p) => within(cur, p))) return t
-          held = true
-          return { ...t, index: -1 }
-        })
-        return held ? { ...s, tabs } : s
+        if (!s.tabs.some(showing)) return s
+        return { ...s, tabs: s.tabs.map((t) => (showing(t) ? { ...t, index: -1 } : t)) }
       })
       return held
     },
