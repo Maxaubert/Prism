@@ -219,7 +219,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
   if (step < 0) {
     return (
       <Shell>
-        <div className="grid h-full place-items-center px-10 text-center">
+        <div className="grid h-full place-items-center overflow-y-auto px-10 text-center">
           <div className="flex flex-col items-center">
             {/* The app's own icon, not a coloured square standing in for it:
                 this is the first thing anyone sees of Prism, and it should be
@@ -250,7 +250,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
       {step === 1 && <TreeArt />}
       {step === 2 && <FilesArt />}
 
-      <div className={`ob-deal absolute inset-0 z-20 flex flex-col px-[62px] py-[52px] ${step === 1 ? 'pl-[372px]' : ''}`}>
+      <div className={`ob-deal absolute inset-0 z-20 flex flex-col overflow-y-auto px-[62px] py-[52px] [&>*]:shrink-0 ${step === 1 ? 'pl-[372px]' : ''}`}>
         <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[var(--p-accent-hi)]">{c.kicker}</div>
         <h1 className="mt-3.5 max-w-[15ch] text-[58px] font-extrabold leading-[.98] tracking-[-.045em] text-[var(--p-text)]">
           {c.head.map((part, i) => (
