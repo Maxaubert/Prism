@@ -1,7 +1,7 @@
-import { ipcMain } from 'electron'
 import { CALL } from '@shared/channels'
 import { isWebUrl } from 'prism-term-core/shared/webUrl'
 import type { MainCtx } from './context'
+import { on } from './typed'
 
 /**
  * PRISM'S OWN "OPEN THIS LINK" (2026-10-26, explorer-only strip). The PDF view's
@@ -12,7 +12,7 @@ import type { MainCtx } from './context'
  */
 export function registerLinkIpc(ctx: MainCtx): void {
   const { openLink } = ctx
-  ipcMain.on(CALL.openExternal, (_e, url: unknown) => {
+  on(CALL.openExternal, (_e, url: unknown) => {
     if (isWebUrl(url)) openLink(url)
   })
 }

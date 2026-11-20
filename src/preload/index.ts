@@ -1,5 +1,6 @@
 import type { WindowPreferenceChange, WindowPreferencesSnapshot } from '@shared/windowPreferences'
 import { CALL, PUSH, SWEEP_CHANNELS } from '@shared/channels'
+import type { InvokeChannel, InvokeContract, SendChannel, SendContract } from '@shared/ipcContract'
 import type {
   BrowseDirectory,
   BrowseDriveUsage,
@@ -102,6 +103,20 @@ function subscribe<T = void>(channel: PushChannel): (cb: (payload: T) => void) =
   }
 }
 
+/** `ipcRenderer.invoke` for a channel in the shared contract: the arguments
+ *  and the answer are the contract's (`shared/ipcContract.ts`). */
+function invoke<C extends InvokeChannel>(
+  channel: C,
+  ...args: InvokeContract[C]['args']
+): Promise<InvokeContract[C]['result']> {
+  return ipcRenderer.invoke(channel, ...args)
+}
+
+/** `ipcRenderer.send` for a channel in the shared contract. */
+function send<C extends SendChannel>(channel: C, ...args: SendContract[C]['args']): void {
+  ipcRenderer.send(channel, ...args)
+}
+
 /** A synchronous ask (`sendSync`) that answers `fallback` when main cannot
  *  answer at all, rather than throwing into the page. */
 function syncOr<T>(channel: CallChannel, fallback: T, ...args: unknown[]): T {
@@ -177,9 +192,9 @@ const api = {
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 
   /** Choose a folder without opening it: the Settings picker. */
-  pickFolder: (): Promise<string | null> => ipcRenderer.invoke(CALL.dialogPickFolder),
+  pickFolder: (): Promise<string | null> => invoke(CALL.dialogPickFolder),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
-  pickFiles: (): Promise<string[]> => ipcRenderer.invoke(CALL.dialogPickFiles),
+  pickFiles: (): Promise<string[]> => invoke(CALL.dialogPickFiles),
   /** Folder icons from a file (2026-10-31): the picked picture's bytes (never
    *  its path), null when cancelled, or why it cannot be one. */
   /** The desktop's tile pictures (thumbs.ts, Stage 2 of the zoom grid): `want` the tiles on
@@ -187,9 +202,9 @@ const api = {
    *  say whether a film plays here (the desktop then makes one thumbnail at a time). */
   thumbs: {
     want: (tabId: string, gen: number, items: ThumbWant[]): Promise<ThumbsWantReply> =>
-      ipcRenderer.invoke(CALL.thumbsWant, tabId, gen, items),
-    cancel: (tabId: string): void => ipcRenderer.send(CALL.thumbsCancel, tabId),
-    film: (playing: boolean): void => ipcRenderer.send(CALL.thumbsFilm, playing),
+      invoke(CALL.thumbsWant, tabId, gen, items),
+    cancel: (tabId: string): void => send(CALL.thumbsCancel, tabId),
+    film: (playing: boolean): void => send(CALL.thumbsFilm, playing),
     onReady: subscribe<ThumbsReady>(PUSH.thumbsReady)
   },
   pickFolderIcon: (): Promise<IconPick> => ipcRenderer.invoke(CALL.folderIconPick),
@@ -713,7 +728,7 @@ const api = {
   /** A web link to the system browser. http(s) only, here and again in main
    *  (2026-10-26: Prism's own channel, `link:open-external`). */
   openExternal: (url: string): void => {
-    if (isWebUrl(url)) ipcRenderer.send(CALL.openExternal, url)
+    if (isWebUrl(url)) send(CALL.openExternal, url)
   },
 
   // frameless window controls
@@ -749,10 +764,10 @@ const api = {
   cancelUpdate: (): void => ipcRenderer.send(CALL.updateCancel),
   /** The running app's version (package.json's), for the update window's
    *  "You have" line. */
-  appVersion: (): Promise<string> => ipcRenderer.invoke(CALL.appVersion),
+  appVersion: (): Promise<string> => invoke(CALL.appVersion),
   /** E2E only (#322): main registers the channel under --e2e alone, so
    *  anywhere else this rejects. */
-  e2eSlowIpc: (): Promise<boolean> => ipcRenderer.invoke(CALL.e2eSlowIpc),
+  e2eSlowIpc: (): Promise<boolean> => invoke(CALL.e2eSlowIpc),
   /** E2E only (#356): the page's clipboard, routed to main's in-memory one so
    *  a test run never touches the owner's. Absent outside --e2e. */
   e2eClipboard: E2E_RUN
