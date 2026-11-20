@@ -17,6 +17,7 @@ import { pageAtLine } from './pageAtLine'
 import '../../assets/pdf.css'
 import { ownResizeObserver } from '../../lib/ownResizeObserver'
 import { listenOn, ownDocument, ownWindow, useViewerWindows } from '../../lib/ownWindow'
+import { CENTRED_PILL } from '../../lib/pillLook'
 
 // Prism's own PDF viewer: pdf.js pages in a continuous scroll, the app's chrome
 // and nobody else's. No Chromium toolbar, no built-in sidebar; zoom and paging
@@ -899,7 +900,7 @@ export function PdfView({
           and a z-auto pill under a big page sat BELOW them - visible through
           the transparent text, but swallowing no clicks. */}
       {doc && (
-        <div data-pdf-chrome className="pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover/pdf-viewer:opacity-100">
+        <div data-pdf-chrome className={`pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 ${CENTRED_PILL} items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover/pdf-viewer:opacity-100`}>
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {

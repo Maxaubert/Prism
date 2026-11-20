@@ -51,6 +51,10 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **The drive ring's hover scrolls only its legend, and its tip stays in the window** (audit #79, #80): a hovered
   slice no longer scrolls the dialog under the pointer, and the tip flips or is held inside the window edges.
   Held by `lib/donut.test.ts` (`legendScrollFor`, `placeDonutTip`).
+- **Centred pills keep their own width, and the editor's two pills do not overlap** (audit #81, #82): the image,
+  PDF, video and code pills use `w-max` with a cap (`CENTRED_PILL`), so they no longer squash to half the pane; in
+  a narrow code viewer the line/column pill rises above Save. A layout bug, held by `lib/pillLook.test.ts` (the
+  classes); the e2e does not measure it.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
