@@ -48,6 +48,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **The scrubber's time label stays on the bar and the wave seeks where the pointer is** (audit #69, #70): the
   label is clamped half its width inside both ends, and the bold wave's side padding moved to a wrapper so the
   seek maps over the bars. Held by `lib/scrubTip.test.ts` and `components/Transport.test.ts`.
+- **The drive ring's hover scrolls only its legend, and its tip stays in the window** (audit #79, #80): a hovered
+  slice no longer scrolls the dialog under the pointer, and the tip flips or is held inside the window edges.
+  Held by `lib/donut.test.ts` (`legendScrollFor`, `placeDonutTip`).
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 

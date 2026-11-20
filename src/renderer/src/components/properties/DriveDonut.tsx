@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { DriveDetails, FolderBreakdown } from '@shared/props'
 import {
   donutBytes,
   donutSlices,
   folderRing,
+  legendScrollFor,
+  placeDonutTip,
   sharePercent,
   usedFraction,
   type DonutSlice
@@ -154,7 +156,15 @@ export function DriveDonut(props: {
   const enterSlice = (index: number, x: number, y: number): void => {
     setHot({ index, from: 'slice' })
     setTip({ index, x, y })
-    rowRefs.current[index]?.scrollIntoView({ block: 'nearest' })
+    // Only the legend scrolls (audit #79): scrollIntoView moved the dialog under the pointer too.
+    const row = rowRefs.current[index]
+    const legend = legendRef.current
+    if (row && legend) {
+      const box = legend.getBoundingClientRect()
+      const r = row.getBoundingClientRect()
+      const top = r.top - box.top + legend.scrollTop
+      legend.scrollTop = legendScrollFor(legend.scrollTop, legend.clientHeight, top, top + r.height)
+    }
   }
   const leaveSlice = (): void => {
     setHot(null)
@@ -344,8 +354,22 @@ export function DriveDonut(props: {
 /** Fixed at the pointer's bottom right, never in the pointer's way. */
 function DonutTip(props: { slice: DonutSlice; tip: Tip; total: number | undefined }): JSX.Element {
   const { slice, tip, total } = props
+  // Measured, then flipped or held inside the window (audit #80); hidden until it is placed.
+  const ref = useRef<HTMLDivElement>(null)
+  const [spot, setSpot] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setSpot(placeDonutTip(tip.x, tip.y, r, { width: window.innerWidth, height: window.innerHeight }))
+  }, [tip.x, tip.y, slice.name, slice.bytes])
   return (
-    <div className="donut-tip" style={{ left: tip.x + 12, top: tip.y + 18 }} role="tooltip">
+    <div
+      ref={ref}
+      className="donut-tip"
+      style={spot ? { left: spot.left, top: spot.top } : { left: 0, top: 0, visibility: 'hidden' }}
+      role="tooltip"
+    >
       <i className="donut-dot" style={{ background: slice.color }} />
       <b>{slice.name}</b>
       <span>{donutBytes(slice.bytes)}</span>
