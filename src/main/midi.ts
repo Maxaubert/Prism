@@ -1,7 +1,8 @@
 import { execFile } from './spawnWorker'
 import { createHash } from 'crypto'
 import { mkdir, stat } from './userFs'
-import { dirname, extname, join } from 'path'
+import { extname, join } from 'path'
+import { vendorDirs } from './vendorDirs'
 import { exists } from './fsUtil'
 
 /**
@@ -26,15 +27,13 @@ export function isMidi(path: string): boolean {
 
 /** Where the bundled synthesiser lives; the same walk-up rule as ffmpeg. */
 export function fluidDirs(packaged: boolean, resourcesPath: string, appPath: string): string[] {
-  const dirs: string[] = []
-  if (packaged) dirs.push(join(resourcesPath, 'bin'))
-  let up = appPath
-  for (let i = 0; i < 4; i++) {
-    dirs.push(join(up, 'vendor', 'fluidsynth'))
-    const parent = dirname(up)
-    if (parent === up) break
-    up = parent
-  }
+  const dirs = vendorDirs(
+    'fluidsynth',
+    'bin',
+    packaged,
+    resourcesPath,
+    appPath
+  )
   return dirs
 }
 
