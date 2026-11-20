@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { dialogButton } from 'prism-term-core/renderer/components/dialogLook'
 import { shortHash } from '../../lib/propsFormat'
 import { CopyButton, FactRow } from './parts'
 
@@ -10,7 +11,7 @@ type State =
 
 /**
  * THE CHECKSUM ROW (owner, 2026-10-12, checksum option A: "a row that fills
- * in"). On every file: Compute, then a thin bar with a percentage and Stop
+ * in"). On every file: Compute, then a thin bar with a percentage and Cancel
  * while main streams the file (a 35 GB film takes a while, and nothing
  * freezes), then the SHA-256 shortened in the middle with a copy button.
  * Closing the window stops a read still running.
@@ -56,7 +57,7 @@ export function ChecksumRow({ path }: { path: string }): JSX.Element {
             <button
               type="button"
               onClick={start}
-              className="rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2.5 py-1 text-[12.5px] font-semibold leading-none text-[var(--p-text-soft)] transition-colors hover:text-[var(--p-text)] focus-visible:text-[var(--p-text)] focus-visible:outline-none"
+              className={dialogButton({ compact: true })}
             >
               Compute
             </button>
@@ -77,9 +78,9 @@ export function ChecksumRow({ path }: { path: string }): JSX.Element {
             <button
               type="button"
               onClick={stop}
-              className="font-semibold text-[var(--p-accent)] hover:brightness-110 focus-visible:outline-none"
+              className={dialogButton({ compact: true })}
             >
-              Stop
+              Cancel
             </button>
           </>
         ) : (

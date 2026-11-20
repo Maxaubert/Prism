@@ -52,19 +52,6 @@
   background: var(--p-hover-hi);
   color: var(--p-text);
 }
-.folder-icon-search {
-  width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--p-divider);
-  background: var(--p-bg);
-  color: var(--p-text);
-  padding: 6px 10px;
-  font-size: 12.5px;
-  outline: none;
-}
-.folder-icon-search:focus {
-  border-color: var(--p-text-soft);
-}
 .folder-icon-status {
   margin-top: 6px;
   font-size: 11.5px;

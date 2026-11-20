@@ -1,6 +1,7 @@
 import type { FileKind } from '@shared/types'
 import { parentDir } from '@shared/path'
-import { formatBytes, formatTime } from './format'
+import { contents, count } from './emptyText'
+import { formatBytes, formatTime, formatWhen } from './format'
 
 // What the Properties popup shows: label/value rows assembled per kind. The
 // cheap facts come from a stat; the interesting ones come from actually opening
@@ -100,7 +101,7 @@ async function probeArchive(path: string, sizeOnDisk: number): Promise<PropRow[]
   const rows: PropRow[] = [
     {
       label: 'Contents',
-      value: `${st.files} file${st.files === 1 ? '' : 's'}${st.folders ? `, ${st.folders} folder${st.folders === 1 ? '' : 's'}` : ''}`
+      value: contents(st.files, st.folders)
     },
     { label: 'Uncompressed', value: formatBytes(st.uncompressed) }
   ]
@@ -128,9 +129,9 @@ async function probeText(path: string): Promise<PropRow[]> {
   const text = read.text
   const words = text.split(/\s+/).filter(Boolean).length
   return [
-    { label: 'Lines', value: String(text.split('\n').length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') },
-    { label: 'Words', value: String(words).replace(/\B(?=(\d{3})+(?!\d))/g, ',') },
-    { label: 'Characters', value: String(text.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }
+    { label: 'Lines', value: count(text.split('\n').length) },
+    { label: 'Words', value: count(words) },
+    { label: 'Characters', value: count(text.length) }
   ]
 }
 
@@ -147,7 +148,7 @@ export async function propsFor(root: string, path: string, name: string, kind: F
     isFolder
       ? window.prism.listDir(root, path).then((l): PropRow[] =>
           l && !l.unreadable
-            ? [{ label: 'Contents', value: `${l.folders.length} folders, ${l.files.length} files` }]
+            ? [{ label: 'Contents', value: contents(l.files.length, l.folders.length) }]
             : []
         )
       : kind === 'image'
@@ -179,6 +180,6 @@ export async function propsFor(root: string, path: string, name: string, kind: F
     }
   }
   rows.push({ label: 'Location', value: parentDir(path) })
-  if (stat) rows.push({ label: 'Modified', value: new Date(stat.mtimeMs).toLocaleString() })
+  if (stat && formatWhen(stat.mtimeMs)) rows.push({ label: 'Modified', value: formatWhen(stat.mtimeMs, { comma: true }) })
   return rows
 }

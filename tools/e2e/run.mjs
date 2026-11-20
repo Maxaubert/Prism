@@ -50,6 +50,8 @@ const SHOTS = join(ROOT, '.e2e', 'shots')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let failures = 0
+// The edges a marked row draws: a joined side is a transparent shadow now (selection.css, #524).
+const drawnEdges = (shadow) => (shadow.match(/rgba?\([^)]*\)[^,]*inset/g) ?? []).filter((s) => !/^rgba\(0, 0, 0, 0\)/.test(s)).length
 
 /** An Explorer tab as tabs.json stores it, on `path` under `root`, with
  *  `history` walked to its end. */
@@ -598,11 +600,11 @@ async function pdfScenario(fixtures) {
       { timeout: 10000 }
     )
     const counter = await win.textContent('[data-owns-escape] span')
-    ok(counter?.trim() === '1 / 5', `find counts five matches (got "${counter?.trim()}")`)
+    ok(counter?.trim() === '1 of 5', `find counts five matches (got "${counter?.trim()}")`)
     await win.keyboard.press('Enter')
-    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '2 / 5', 'Enter steps to 2 / 5')
+    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '2 of 5', 'Enter steps to 2 of 5')
     await win.keyboard.press('Shift+Enter')
-    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '1 / 5', 'Shift+Enter steps back')
+    ok((await win.textContent('[data-owns-escape] span'))?.trim() === '1 of 5', 'Shift+Enter steps back')
     await win.screenshot({ path: join(SHOTS, 'pdf-find.png') })
 
     await win.keyboard.press('Escape')
@@ -1680,7 +1682,7 @@ async function pasteTabsScenario(fixtures) {
     await win.keyboard.press('Home')
     await sleep(200)
     await win.keyboard.press('F2')
-    ok(await until(async () => (await win.locator('[role="dialog"] input[aria-label="New name"]').count()) === 1, 3000), 'and F2 asks for a name')
+    ok(await until(async () => (await win.locator('.browse-list input[aria-label="New name"]').count()) === 1, 3000), 'and F2 asks for a name')
     const before = treeOf(dir).join('|')
 
     // Never while typing, never under a question, never into a tab not on show.
@@ -2357,7 +2359,8 @@ async function deleteFocusScenario(fixtures) {
       window.addEventListener(
         'focusout',
         (e) => {
-          if (e.target.closest?.('.browse-list') && !e.relatedTarget) window.__rowDropped++
+          // The rename field stands in the row (#523): its own blur is the field closing, not the row dropping.
+          if (e.target.closest?.('.browse-list') && e.target.tagName !== 'INPUT' && !e.relatedTarget) window.__rowDropped++
         },
         true
       )
@@ -2387,9 +2390,10 @@ async function deleteFocusScenario(fixtures) {
     await win.keyboard.press('ArrowUp')
     ok(await onRow('f03.txt'), 'both ways')
     await win.keyboard.press('F2')
-    ok(await asks(), 'F2 works at once too')
+    const renameBox = win.locator('.browse-list input[aria-label="New name"]')
+    ok(await until(async () => (await renameBox.count()) === 1, 4000), 'F2 works at once too (the field stands in the row, #523)')
     await win.keyboard.press('Escape')
-    await closed()
+    ok(await until(async () => (await renameBox.count()) === 0, 4000), 'Escape ends it')
     ok(await onRow('f03.txt'), `and leaving the rename puts the keyboard back (${await said()})`)
 
     // Cancel, three ways: nothing goes and the keyboard comes back.
@@ -2415,7 +2419,7 @@ async function deleteFocusScenario(fixtures) {
 
     // The other things a press outside closes, each on the same road.
     await win.keyboard.press('F2')
-    ok(await asks(), 'F2 asks after a press outside')
+    ok(await until(async () => (await renameBox.count()) === 1, 4000), 'F2 opens the field after a press outside')
     await pressOutside('the rename')
     await listRow(win, 'f03.txt').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
@@ -2806,7 +2810,7 @@ async function extractWindowScenario(fixtures) {
       rmSync(join(picked, 'Collection'), { recursive: true, force: true })
       await throughTheWindow(win, 'zip, Extract folder to…', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'Collection')
-        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
       })
       ok(
         existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
@@ -2826,7 +2830,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, 'zip, Extract to… on a member', 'wrapped.zip', async () => {
         await openMemberMenu(win, 'one.txt')
-        await win.locator('[role="menu"] >> text="Extract this file to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this file to…"').click()
       })
       ok(existsSync(join(picked, 'one.txt')), 'and in the picked folder')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -2881,7 +2885,7 @@ async function extractWindowScenario(fixtures) {
       )
       await throughTheWindow(win, '7z, Extract folder to…', 'read-only.7z', async () => {
         await openMemberMenu(win, 'sub')
-        await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+        await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
       })
       ok(existsSync(join(picked, 'sub', 'deep.txt')), 'and a folder in the picked one')
       ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
@@ -3229,7 +3233,7 @@ async function extractCancelScenario() {
 
     // ---- Cancel: staging inside the picked folder (Extract folder to…) ----
     await openMemberMenu(win, 'Big')
-    await win.locator('[role="menu"] >> text="Extract this folder to..."').click()
+    await win.locator('[role="menu"] >> text="Extract this folder to…"').click()
     await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
     ok(
       (await until(
@@ -7493,7 +7497,7 @@ async function escapeKeepsOpenScenario(fixtures) {
     // A RENAME: Escape cancels it, and the name stays.
     await row('two.txt').locator('.browse-name-text').click()
     await win.keyboard.press('F2')
-    const name = win.locator('[role="dialog"] input[aria-label="New name"]')
+    const name = win.locator('.browse-list input[aria-label="New name"]')
     ok(await until(async () => (await name.count()) === 1, 5000), 'F2 asks for a new name')
     await name.fill('renamed.txt')
     await press(1)
@@ -10216,7 +10220,7 @@ async function hotkeysScenario(fixtures) {
     await click('alpha.txt')
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'New folder')), 8000), 'explorer: Ctrl+Shift+N makes "New folder" in the folder shown')
-    const exNew = win.locator('input[aria-label="Name"]')
+    const exNew = win.locator('input[aria-label="New name"]')
     const exRename = win.locator('input[aria-label="New name"]')
     ok(await until(async () => (await exNew.count()) === 1, 5000), 'explorer: and asks for its name')
     ok((await exNew.inputValue()) === 'New folder', 'explorer: starting from "New folder"')
@@ -10392,7 +10396,7 @@ async function hotkeysScenario(fixtures) {
       await member.focus()
       await win.keyboard.press(k)
       await sleep(500)
-      ok((await dialogs()) === 0 && (await win.locator('input[aria-label="Name"]').count()) === 0, `zip: ${k} does nothing`)
+      ok((await dialogs()) === 0 && (await win.locator('input[aria-label="New name"]').count()) === 0, `zip: ${k} does nothing`)
     }
     ok(!existsSync(join(dir, 'New folder')) && new AdmZip(join(dir, 'kilo.zip')).getEntries().length === 1, 'zip: no folder was made and the member is still there')
   } finally {
@@ -10501,7 +10505,7 @@ async function markTintScenario(fixtures) {
       return { first: r(1)?.hasAttribute('data-join-down'), second: r(2)?.hasAttribute('data-join-up'), shadow: r(2) ? getComputedStyle(r(2)).boxShadow : '' }
     })
     ok(join2.first && join2.second, 'two marked neighbours join into one block')
-    ok((join2.shadow.match(/inset/g) ?? []).length === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
+    ok(drawnEdges(join2.shadow) === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
     await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
 
     /* ---------- the Explorer, light ---------- */
@@ -10602,7 +10606,7 @@ async function markTintScenario(fixtures) {
     const a = alphaOf(arc.bg)
     ok(a >= 0.18 && a <= 0.25, `a marked row in a zip is the same light tint (${arc.bg})`)
     ok(arc.names[0] === arc.names[1], `and keeps the plain row's name colour (${arc.names.join(' / ')})`)
-    ok((arc.joined.match(/inset/g) ?? []).length === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
+    ok(drawnEdges(arc.joined) === 3, `two marked neighbours in a zip are one block (${arc.joined})`)
     await z.win.screenshot({ path: join(SHOTS, 'marktint-archive-dark.png') })
   } finally {
     await kept.restore(z.win)
@@ -13161,7 +13165,7 @@ async function gridRenameScenario(fixtures) {
   const { dir, app, win } = await gridEnter(fixtures, 'gridrename', (d) => {
     for (let i = 1; i <= 8; i++) writeFileSync(join(d, `r0${i}.txt`), `r${i}\n`)
   })
-  const dialog = '[role="dialog"]'
+  const dialog = '.browse-list'
   try {
     await gridToStep6(win)
     await gridTile(win, 'r03.txt').click()
@@ -13169,16 +13173,16 @@ async function gridRenameScenario(fixtures) {
     const before = await gridGeo(win)
     await win.keyboard.press('F2')
     ok(await until(async () => (await win.locator(`${dialog} input[aria-label="New name"]`).count()) === 1, 4000), 'F2 on a picked tile opens the rename field')
-    const sel = await win.evaluate(() => { const i = document.querySelector('[role="dialog"] input[aria-label="New name"]'); return { v: i.value, a: i.selectionStart, b: i.selectionEnd, focus: document.activeElement === i } })
+    const sel = await win.evaluate(() => { const i = document.querySelector('.browse-tile input[aria-label="New name"]'); return { v: i.value, a: i.selectionStart, b: i.selectionEnd, focus: document.activeElement === i } })
     ok(sel.v === 'r03.txt' && sel.focus, `it holds the tile's name and has the focus (${sel.v})`)
-    // The Explorer's rename selects the whole name (BrowseRename, 'all'): same in a grid.
-    ok(sel.a === 0 && sel.b === sel.v.length, `with the whole name selected, as the list does (${sel.a}-${sel.b})`)
+    // Inline everywhere (#523): the stem is selected, as in the zip tab, in a grid too.
+    ok(sel.a === 0 && sel.b === sel.v.lastIndexOf('.'), `with the stem selected, as the list does (${sel.a}-${sel.b})`)
     const open = await gridGeo(win)
     ok(JSON.stringify(open.tiles) === JSON.stringify(before.tiles), 'no tile moves while it is open')
     await win.screenshot({ path: join(SHOTS, 'grid-rename.png') })
     await win.keyboard.press('Escape')
     await sleep(250)
-    ok((await win.locator(dialog).count()) === 0 && existsSync(join(dir, 'r03.txt')), 'Escape cancels and renames nothing')
+    ok((await win.locator(` input[aria-label="New name"]`).count()) === 0 && existsSync(join(dir, 'r03.txt')), 'Escape cancels and renames nothing')
 
     // A name that sorts in the same place: the tile keeps its place, picked.
     await win.keyboard.press('F2')
@@ -15758,7 +15762,7 @@ async function explorerVerbsScenario(fixtures) {
     // F2 renames.
     await row('beta.txt').locator('.browse-name-text').click()
     await win.keyboard.press('F2')
-    const name = win.locator('[role="dialog"] input[aria-label="New name"]')
+    const name = win.locator('.browse-list input[aria-label="New name"]')
     ok(await until(async () => (await name.count()) === 1, 5000), 'F2 asks for a new name')
     await name.fill('gamma.txt')
     await name.press('Enter')
@@ -23961,19 +23965,19 @@ async function zipPreviewClicksScenario(fixtures) {
 
     // RIGHT-CLICK: the zip's member verbs, on the selection.
     const fileMenu = await menuRowsOf('.node-version')
-    ok(fileMenu.join('|') === ['Open', 'Extract this file', 'Extract this file to...', 'Copy file'].join('|'), `a file row's menu (${fileMenu.join(', ')})`)
+    ok(fileMenu.join('|') === ['Open', 'Extract this file', 'Extract this file to…', 'Copy file'].join('|'), `a file row's menu (${fileMenu.join(', ')})`)
     ok((await picked()).join('|') === '.node-version', 'a right-click selects the row it is on')
     await win.locator('[role="menu"] [role="menuitem"]', { hasText: 'Extract this file' }).first().click()
     ok(await until(async () => existsSync(join(dir, '.node-version')), 20000, 150), 'Extract this file lands beside the zip')
     await until(async () => (await win.locator('[role="dialog"]').count()) === 0, 30000)
     await pickZip('after the menu')
     const folderMenu = await menuRowsOf('docs')
-    ok(folderMenu.join('|') === ['Open', 'Extract this folder', 'Extract this folder to...', 'Copy folder'].join('|'), `a folder row's menu (${folderMenu.join(', ')})`)
+    ok(folderMenu.join('|') === ['Open', 'Extract this folder', 'Extract this folder to…', 'Copy folder'].join('|'), `a folder row's menu (${folderMenu.join(', ')})`)
     await closeMenu()
     await cardRow('docs').click()
     await cardRow('app').click({ modifiers: ['Control'] })
     const manyMenu = await menuRowsOf('app')
-    ok(manyMenu.join('|') === ['Copy 2 items', 'Extract 2 items here', 'Extract 2 items to...'].join('|'), `several rows' menu (${manyMenu.join(', ')})`)
+    ok(manyMenu.join('|') === ['Copy 2 items', 'Extract 2 items here', 'Extract 2 items to…'].join('|'), `several rows' menu (${manyMenu.join(', ')})`)
     ok((await picked()).join('|') === 'app|docs', 'a right-click inside the selection keeps it')
     await closeMenu()
     // Open from the menu goes into a folder in the card.
@@ -24599,7 +24603,7 @@ async function folderIconsScenario(fixtures) {
     // 10. A rename in Prism takes the icon along, and its undo brings it back.
     await row('trips').locator('.browse-name-text').click()
     await win.keyboard.press('F2')
-    const field = win.locator('[role="dialog"] input[aria-label="New name"]')
+    const field = win.locator('.browse-list input[aria-label="New name"]')
     ok(await until(async () => (await field.count()) === 1, 5000), 'F2 asks for a new name')
     await field.fill('journeys')
     await field.press('Enter')
@@ -24876,8 +24880,8 @@ async function folderIconFileScenario(fixtures) {
     ok(await until(async () => (await notice().count()) === 1, 8000), 'a text file brings up a notice')
     const said = await notice().textContent()
     ok(said?.includes("That file isn't a picture Prism can use."), `it says why (${said})`)
-    await notice().getByRole('button', { name: 'OK', exact: true }).click()
-    ok(await until(async () => (await notice().count()) === 0, 3000), 'OK closes it')
+    await notice().getByRole('button', { name: 'Close', exact: true }).click()
+    ok(await until(async () => (await notice().count()) === 0, 3000), 'Close closes it')
     ok((await pictureOf('other').getAttribute('src')) === svgSrc, 'and the folder keeps its picture')
     ok(Object.keys(await stored()).length === 2, 'nothing else changed')
 
@@ -24890,7 +24894,7 @@ async function folderIconFileScenario(fixtures) {
       if (!done) return 'nothing happened'
       if ((await notice().count()) === 0) return null
       const text = await notice().textContent()
-      await notice().getByRole('button', { name: 'OK', exact: true }).click()
+      await notice().getByRole('button', { name: 'Close', exact: true }).click()
       await until(async () => (await notice().count()) === 0, 3000)
       return text ?? ''
     }
@@ -25451,15 +25455,15 @@ async function zipMenusScenario(fixtures) {
   try {
     await explorerAt(win, dir)
     const outside = await rowMenu(win, 'Wind-0.2.2.zip')
-    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to...', 'Add files...', 'Copy', 'Copy path', 'Rename', 'Show in File Explorer', 'Properties', 'Delete']
+    const wantOutside = ['Open', 'Open in new tab', 'Extract here', 'Extract to…', 'Add files…', 'Copy', 'Copy path', 'Rename', 'Show in File Explorer', 'Properties', 'Delete']
     ok(outside.join('|') === wantOutside.join('|'), `a zip outside has the archive's rows (${outside.join(', ')})`)
     await zipGo(win, `${zipPath}\\Wind`, async () => (await zipRows(win)).some((p) => p.endsWith('package.json')))
     const folder = await rowMenu(win, 'Wind\\src')
-    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to...', 'Add files here...', 'Copy folder', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
+    const wantFolder = ['Open', 'Open in new tab', 'Extract this folder', 'Extract this folder to…', 'Add files here…', 'Copy folder', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from archive']
     ok(folder.join('|') === wantFolder.join('|'), `a folder inside has its rows (${folder.join(', ')})`)
     ok(!folder.includes('Rename'), 'and no Rename: a folder inside a zip is not renamed')
     const file = await rowMenu(win, 'package.json')
-    const wantFile = ['Open', 'Extract this file', 'Extract this file to...', 'Copy file', 'Rename', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from zip']
+    const wantFile = ['Open', 'Extract this file', 'Extract this file to…', 'Copy file', 'Rename', 'Show Wind-0.2.2.zip in File Explorer', 'Properties', 'Delete from archive']
     ok(file.join('|') === wantFile.join('|'), `a file inside has its rows (${file.join(', ')})`)
     ok(!file.some((l) => /^Open (with|in)/.test(l)), 'and no Open with: a temp copy would lose its saves')
     // The empty space's own menu.
@@ -25468,7 +25472,7 @@ async function zipMenusScenario(fixtures) {
     await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
     const empty = await menuLabels(win)
     await win.keyboard.press('Escape')
-    ok(empty.join('|') === ['Extract here', 'Extract to...', 'Add files here...', 'Copy address', 'Show Wind-0.2.2.zip in File Explorer'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
+    ok(empty.join('|') === ['Extract here', 'Extract to…', 'Add files here…', 'Copy address', 'Show Wind-0.2.2.zip in File Explorer'].join('|'), `the empty space inside has its rows (${empty.join(', ')})`)
     await win.screenshot({ path: join(SHOTS, 'zip-menu.png') })
     // A 7z is read-only: no Add, Rename or Delete anywhere.
     await zipGo(win, join(dir, 'locked.7z'), async () => /locked\.7z/.test((await win.locator('[data-archive-strip]').textContent().catch(() => '')) ?? ''))
@@ -25534,7 +25538,7 @@ async function zipWritesScenario(fixtures) {
     ok(await until(() => !names().some((n) => n.startsWith('Wind/docs/'))), 'deleting a folder takes its subtree')
     // Add files here lands in that folder.
     await zipRow(win, 'Wind\\src').click({ button: 'right' })
-    await win.locator('[role="menuitem"]', { hasText: 'Add files here...' }).click()
+    await win.locator('[role="menuitem"]', { hasText: 'Add files here…' }).click()
     ok(await until(() => names().includes('Wind/src/add-me.txt')), 'Add files here put the file in that folder')
     ok(existsSync(addMe), 'and left the original where it was')
     // A Prism row dragged into the zip: added, its original binned, undoable.
@@ -27101,7 +27105,7 @@ async function imageSaveCopyScenario(fixtures) {
       process.env.PRISM_E2E_SAVE_TO = to
     }, p)
   const asked = () => app.evaluate(() => globalThis.__e2eSaveDialog?.defaultPath ?? null)
-  const note = () => win.locator('[data-copy-note]').first().textContent({ timeout: 200 }).catch(() => null)
+  const note = () => win.locator('[data-toast]').first().textContent({ timeout: 200 }).catch(() => null)
   const save = async (format) => {
     await app.evaluate(() => {
       globalThis.__e2eSaveDialog = undefined
@@ -27890,14 +27894,15 @@ function collectStalls(scenario) {
 }
 
 /**
- * THE NEW FOLDER SAYS "NEW FOLDER" (owner, 2026-11-10: "when you ctrl shift n
- * to create a new folder it says rename"). Ctrl+Shift+N makes the folder and
- * asks for its name in the dialog F2 uses, but worded for what it is: the
- * title "New folder", the field "Name", the button "Done". Cancel and Escape
- * keep the folder named "New folder", as File Explorer does. F2 stays Rename.
+ * THE NEW FOLDER IS NAMED IN ITS ROW (owner, 2026-11-10: "when you ctrl shift n
+ * to create a new folder it says rename"; owner 2026-11-19, #523: rename is
+ * inline everywhere, so no dialog says anything). Ctrl+Shift+N makes the folder
+ * and the field stands in its row with "New folder" in it. Escape keeps the
+ * folder named "New folder", as File Explorer does; Enter gives the typed name;
+ * an unchanged name is a Cancel. F2 on a file opens the same field.
  */
 async function newFolderTitleScenario(fixtures) {
-  console.log('the new folder dialog says New folder')
+  console.log('the new folder is named in its row')
   const dir = join(fixtures, 'nftitle')
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
@@ -27905,18 +27910,7 @@ async function newFolderTitleScenario(fixtures) {
   const { app, win } = await launch(join(dir, 'alpha.txt'))
   const cdp = await win.context().newCDPSession(win)
   await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
-  const dialog = win.locator('[role="dialog"]')
-  const words = () =>
-    win.evaluate(() => {
-      const d = document.querySelector('[role="dialog"]')
-      return {
-        title: d?.querySelector('h2')?.textContent ?? '',
-        label: d?.querySelector('label')?.firstChild?.textContent?.trim() ?? '',
-        field: d?.querySelector('input')?.getAttribute('aria-label') ?? '',
-        buttons: [...(d?.querySelectorAll('button') ?? [])].map((b) => b.textContent),
-        primary: d?.querySelector('button[data-primary="true"]')?.textContent ?? ''
-      }
-    })
+  const field = win.locator('.browse-list input[aria-label="New name"]')
   try {
     await toList(win, 45000)
     await win.waitForSelector('[data-testid="browse-list"] .browse-row[data-browse-path]', { timeout: 45000 })
@@ -27926,31 +27920,30 @@ async function newFolderTitleScenario(fixtures) {
 
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'New folder')), 8000), 'Ctrl+Shift+N makes "New folder"')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and asks for its name')
-    let w = await words()
-    ok(w.title === 'New folder', `the title is "New folder" (${w.title})`)
-    ok(w.label === 'Name' && w.field === 'Name', `the field is "Name" (${w.label} / ${w.field})`)
-    ok(JSON.stringify(w.buttons) === JSON.stringify(['Cancel', 'Done']) && w.primary === 'Done', `the buttons are Cancel and Done, Done primary (${w.buttons})`)
+    ok(await until(async () => (await field.count()) === 1, 5000), 'and its row holds the name field')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'no dialog')
+    ok((await field.inputValue()) === 'New folder', 'it starts from "New folder"')
     await win.keyboard.press('Escape')
-    ok(await until(async () => (await dialog.count()) === 0, 4000), 'Escape closes it')
+    ok(await until(async () => (await field.count()) === 0, 4000), 'Escape ends it')
     ok(existsSync(join(dir, 'New folder')), 'and the folder stays named "New folder"')
 
     await listRow(win, 'alpha.txt').click()
     await sleep(300)
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'New folder (2)')), 8000), 'again makes "New folder (2)"')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and asks')
-    await dialog.locator('input').fill('made-title')
-    await win.locator('[role="dialog"] button:has-text("Done")').click()
-    ok(await until(async () => existsSync(join(dir, 'made-title')) && !existsSync(join(dir, 'New folder (2)')), 8000), 'Done gives it the typed name')
+    ok(await until(async () => (await field.count()) === 1, 5000), 'and asks')
+    await field.fill('made-title')
+    await win.keyboard.press('Enter')
+    ok(await until(async () => existsSync(join(dir, 'made-title')) && !existsSync(join(dir, 'New folder (2)')), 8000), 'Enter gives it the typed name')
 
     await listRow(win, 'bravo.txt').click()
     await sleep(300)
     await win.keyboard.press('F2')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'F2 asks')
-    w = await words()
-    ok(w.title === 'Rename' && w.field === 'New name' && w.primary === 'Rename', `F2 stays Rename (${JSON.stringify(w)})`)
-    await win.keyboard.press('Escape')
+    ok(await until(async () => (await field.count()) === 1, 5000), 'F2 opens the same field')
+    await field.fill('  bravo.txt  ')
+    await win.keyboard.press('Enter')
+    await sleep(500)
+    ok(existsSync(join(dir, 'bravo.txt')) && (await field.count()) === 0, 'an unchanged name (once trimmed) is a Cancel')
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -28017,11 +28010,12 @@ async function newFolderSidebarScenario(fixtures) {
 
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'pinme', 'New folder')), 8000), 'Ctrl+Shift+N from the sidebar makes "New folder" in the folder shown')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'and opens the name panel')
-    await dialog.locator('input').fill('side-made')
+    const nameField = win.locator('.browse-list input[aria-label="New name"]')
+    ok(await until(async () => (await nameField.count()) === 1, 5000), 'and opens the name field in the new folder\'s row')
+    await nameField.fill('side-made')
     await win.keyboard.press('Enter')
     ok(await until(async () => existsSync(join(dir, 'pinme', 'side-made')), 8000), 'the name lands')
-    ok(await until(async () => (await dialog.count()) === 0, 4000), 'the panel closes')
+    ok(await until(async () => (await nameField.count()) === 0, 4000), 'the field closes')
     ok(
       await until(async () => {
         const at = await where()
@@ -28034,7 +28028,7 @@ async function newFolderSidebarScenario(fixtures) {
     await win.locator('.folder-browser [aria-label="Preview pane"]').click()
     await win.keyboard.press('Control+Shift+N')
     ok(await until(async () => existsSync(join(dir, 'pinme', 'New folder')), 8000), 'from a toolbar button too')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'it asks')
+    ok(await until(async () => (await nameField.count()) === 1, 5000), 'it asks')
     await win.keyboard.press('Escape')
     await win.locator('.folder-browser [aria-label="Preview pane"]').click()
 
@@ -28073,7 +28067,6 @@ async function caretTracksScenario(fixtures) {
   const { app, win } = await launch(join(dir, 'alpha.txt'))
   const cdp = await win.context().newCDPSession(win)
   await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
-  const dialog = win.locator('[role="dialog"]')
   const hwnd = await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigInt64LE(0).toString()
   )
@@ -28111,7 +28104,7 @@ async function caretTracksScenario(fixtures) {
         box: !!box
       }
     }, field)
-  const probe = async (field, name, what) => {
+  const probe = async (field, name, what, caretAt) => {
     await win.evaluate(() => {
       window.__selCalls = 0
       for (const m of ['select', 'setSelectionRange']) {
@@ -28126,7 +28119,9 @@ async function caretTracksScenario(fixtures) {
     await sleep(300)
     const d = await inside(field)
     ok(d.focused, `${what}: the field has the focus`)
-    ok(d.start === d.end && d.end === d.len, `${what}: the caret is collapsed at the end of the text (${d.start}-${d.end} of ${d.len})`)
+    // A rename opens with the stem selected, so typing replaces the stem and the caret sits after it (#523).
+    const want = caretAt ?? d.len
+    ok(d.start === d.end && d.end === want, `${what}: the caret is collapsed after what was typed (${d.start}-${d.end} of ${d.len}, wanted ${want})`)
     ok((await win.evaluate(() => window.__selCalls)) === 0, `${what}: no select() or setSelectionRange() on a keystroke (${await win.evaluate(() => window.__selCalls)})`)
     ok(d.transformed === '', `${what}: no transform, zoom or animation on the box or above it (${d.transformed})`)
     const text = await win.evaluate((sel) => document.querySelector(sel).value, field)
@@ -28160,17 +28155,17 @@ async function caretTracksScenario(fixtures) {
     await listRow(win, 'alpha.txt').click()
     await sleep(300)
     await win.keyboard.press('Control+Shift+N')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'the new folder dialog is up')
+    ok(await until(async () => (await win.locator('.browse-list input').count()) === 1, 5000), 'the new folder field is up')
     await sleep(600)
-    await probe('[role="dialog"] input', 'Name', 'new folder')
+    await probe('.browse-list input', 'New name', 'new folder')
     await win.keyboard.press('Escape')
     await sleep(400)
     await listRow(win, 'alpha.txt').click()
     await sleep(300)
     await win.keyboard.press('F2')
-    ok(await until(async () => (await dialog.count()) === 1, 5000), 'the rename dialog is up')
+    ok(await until(async () => (await win.locator('.browse-list input').count()) === 1, 5000), 'the rename field is up')
     await sleep(600)
-    await probe('[role="dialog"] input', 'New name', 'rename')
+    await probe('.browse-list input', 'New name', 'rename', 3)
     await win.keyboard.press('Escape')
     await sleep(400)
     // The address field and the search popup, the other boxes of the Explorer.
@@ -29452,7 +29447,7 @@ async function binClashScenario(fixtures) {
     // ONE CLASH: the question names the item; Cancel changes nothing.
     await binRowOf(win, 'c.txt').click()
     await binVerb(win, 'restore').click()
-    ok(await binDialogUp(win, /"c\.txt" is already there/), `the move question names the item (${await binDialogText(win)})`)
+    ok(await binDialogUp(win, /c\.txt is already there/), `the move question names the item (${await binDialogText(win)})`)
     const buttons = await binDialog(win).locator('button').allTextContents()
     ok(JSON.stringify(buttons) === JSON.stringify(['Cancel', 'Keep both', 'Replace']), `with Cancel, Keep both, Replace (${JSON.stringify(buttons)})`)
     await win.screenshot({ path: join(SHOTS, 'bin-clash.png') })
@@ -29465,7 +29460,7 @@ async function binClashScenario(fixtures) {
 
     // KEEP BOTH: name (2).
     await binVerb(win, 'restore').click()
-    ok(await binDialogUp(win, /"c\.txt" is already there/), 'asked again')
+    ok(await binDialogUp(win, /c\.txt is already there/), 'asked again')
     await binAnswer(win, 'Keep both')
     ok(await until(() => existsSync(join(orig, 'c (2).txt')), 8000, 100), 'Keep both lands it as c (2).txt')
     ok(readFileSync(join(orig, 'c (2).txt'), 'utf8') === 'binned c' && readFileSync(join(orig, 'c.txt'), 'utf8') === 'existing c', 'both files keep their contents')
@@ -30427,7 +30422,7 @@ async function binBytesScenario(fixtures) {
       .evaluate((e) => ({
         count: e.getAttribute('data-bin-count'),
         bytes: e.getAttribute('data-bin-bytes'),
-        text: e.querySelector('.browse-archive-strip-facts')?.textContent ?? ''
+        text: e.querySelector('.browse-place-strip-facts')?.textContent ?? ''
       }))
       .catch(() => ({ count: null, bytes: null, text: '' }))
   const stripIs = (win, count, bytes) =>

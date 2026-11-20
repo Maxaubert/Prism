@@ -50,6 +50,8 @@ export type ArchiveMenuContext =
   /** The list's empty space inside an archive. */
   | { kind: 'empty'; writable: boolean; zip: string }
 
+const items = (n: number): string => `${n} item${n === 1 ? '' : 's'}`
+
 export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
   const w = context.writable
   const rows: Array<ArchiveRow | false> = (() => {
@@ -59,8 +61,8 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'open', label: 'Open', hint: 'Enter' },
           { id: 'open-new-tab', label: 'Open in new tab' },
           { id: 'extract-here', label: 'Extract here' },
-          { id: 'extract-to', label: 'Extract to...' },
-          w && { id: 'add-files', label: 'Add files...' },
+          { id: 'extract-to', label: 'Extract to…' },
+          w && { id: 'add-files', label: 'Add files…' },
           { id: 'copy', label: 'Copy', hint: 'Ctrl+C' },
           { id: 'copy-path', label: 'Copy path' },
           { id: 'rename', label: 'Rename', hint: 'F2' },
@@ -73,32 +75,32 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
           { id: 'open', label: 'Open', hint: 'Enter' },
           { id: 'open-new-tab', label: 'Open in new tab' },
           { id: 'extract-here', label: 'Extract this folder' },
-          { id: 'extract-to', label: 'Extract this folder to...' },
-          w && { id: 'add-files', label: 'Add files here...' },
+          { id: 'extract-to', label: 'Extract this folder to…' },
+          w && { id: 'add-files', label: 'Add files here…' },
           { id: 'copy', label: 'Copy folder', hint: 'Ctrl+C' },
           { id: 'show', label: `Show ${context.zip} in File Explorer` },
           { id: 'properties', label: 'Properties' },
-          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true }
+          w && { id: 'delete', label: 'Delete from archive', hint: 'Del', danger: true }
         ]
       case 'file':
         return [
           { id: 'open', label: 'Open', hint: 'Enter' },
           { id: 'extract-here', label: 'Extract this file' },
-          { id: 'extract-to', label: 'Extract this file to...' },
+          { id: 'extract-to', label: 'Extract this file to…' },
           { id: 'copy', label: 'Copy file', hint: 'Ctrl+C' },
           w && { id: 'rename', label: 'Rename', hint: 'F2' },
           { id: 'show', label: `Show ${context.zip} in File Explorer` },
           { id: 'properties', label: 'Properties' },
-          w && { id: 'delete', label: 'Delete from zip', hint: 'Del', danger: true }
+          w && { id: 'delete', label: 'Delete from archive', hint: 'Del', danger: true }
         ]
       case 'many':
         return [
-          { id: 'copy', label: `Copy ${context.count} items`, hint: 'Ctrl+C' },
-          { id: 'extract-here', label: `Extract ${context.count} items here` },
-          { id: 'extract-to', label: `Extract ${context.count} items to...` },
+          { id: 'copy', label: `Copy ${items(context.count)}`, hint: 'Ctrl+C' },
+          { id: 'extract-here', label: `Extract ${items(context.count)} here` },
+          { id: 'extract-to', label: `Extract ${items(context.count)} to…` },
           w && {
             id: 'delete',
-            label: `Delete ${context.count} items from zip`,
+            label: `Delete ${items(context.count)} from archive`,
             hint: 'Del',
             danger: true
           }
@@ -106,8 +108,8 @@ export function archiveMenuRows(context: ArchiveMenuContext): ArchiveRow[] {
       case 'empty':
         return [
           { id: 'extract-here', label: 'Extract here' },
-          { id: 'extract-to', label: 'Extract to...' },
-          w && { id: 'add-files', label: 'Add files here...' },
+          { id: 'extract-to', label: 'Extract to…' },
+          w && { id: 'add-files', label: 'Add files here…' },
           { id: 'copy-path', label: 'Copy address' },
           { id: 'show', label: `Show ${context.zip} in File Explorer` }
         ]

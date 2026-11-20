@@ -18,6 +18,7 @@ import { LoadingState } from './LoadingState'
 import { imageMenu } from '../menus/viewers/image'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { saveCopyNote } from '../lib/saveCopyNote'
+import { say } from '../lib/say'
 import type { CopyFormat } from '@shared/imageCopy'
 import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
@@ -118,7 +119,6 @@ export function ImageView({
    * a bare `zoom`). The element knows, once it has loaded.
    */
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  const [copyNote, setCopyNote] = useState<string | null>(null)
   /** The photo info card (#78): on or off for every photo, remembered across
    *  launches (D5). Offered only where a file can be read for it. */
   const infoOn = photoInfoPref.use()
@@ -458,18 +458,14 @@ export function ImageView({
       // WebP, AVIF and JPEG XL are made in main from a lossless PNG (#474).
       const bytes = await encodeCopy(img?.blob ?? null, format === 'jpeg' ? 'jpeg' : 'png')
       if (!bytes) {
-        setCopyNote('That image is too large to save a copy of')
-        window.setTimeout(() => setCopyNote(null), 2200)
+        say('That image is too large to save a copy of', { op: 'save-copy', level: 'warn' })
         return
       }
       // #78 (owner, 2026-11-01): the dialog opens in the photo's folder, the
       // note names what was saved, and a failure says so. A cancel is silent.
       const r = await window.prism.saveImageCopy(bytes, name, format, path)
       const note = saveCopyNote(r)
-      if (note) {
-        setCopyNote(note)
-        window.setTimeout(() => setCopyNote(null), 'saved' in r ? 1800 : 2600)
-      }
+      if (note) say(note, { op: 'save-copy', level: 'saved' in r ? 'info' : 'warn' })
     },
     [img, name, path]
   )
@@ -477,8 +473,8 @@ export function ImageView({
   const copyImage = useCallback(async (): Promise<void> => {
     const png = await pngFromBlob(img?.blob ?? null)
     const ok = !!png && window.prism.copyImageToClipboard(png)
-    setCopyNote(ok ? 'Image copied' : 'That image is too large to copy')
-    window.setTimeout(() => setCopyNote(null), 1800)
+    if (ok) say('Image copied', { op: 'copy-image', level: 'info' })
+    else say('That image is too large to copy', { op: 'copy-image', level: 'warn' })
   }, [img])
 
   // Image-specific keys (arrows stay with the app for folder nav).
@@ -570,11 +566,6 @@ export function ImageView({
       {/* A multi-page TIFF shows its first page and used to say nothing about
           the rest. ffmpeg cannot reach page 2, so this is honest about what
           it is: a note, not a picker. Scans and faxes arrive this way. */}
-      {copyNote && (
-        <div data-copy-note className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
-          {copyNote}
-        </div>
-      )}
       {infoPath && infoOn && (
         <PhotoInfoCard
           path={infoPath}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneState } from '@shared/types'
 import { Switch } from 'prism-term-core/renderer/settings/fields'
-import { Dialog } from './Dialog'
+import { formatWhen } from '../lib/format'
+import { closeOnly, Dialog } from './Dialog'
 
 /**
  * More > Phone (2026-09-06, #104, Tools > Phone until #272): the one home of "Prism on your phone".
@@ -52,7 +53,7 @@ export function PhoneDialog({
   }
 
   const body = !state ? (
-    <p>Reading...</p>
+    <p>Reading…</p>
   ) : (
     <div className="flex flex-col gap-3" data-phone-dialog>
       <label className="flex items-center justify-between gap-3 text-[var(--p-text)]">
@@ -124,7 +125,7 @@ export function PhoneDialog({
               <span data-phone-here>in {p.here ?? 'This PC'},</span>{' '}
               {state.watching.includes(p.token)
                 ? 'watching now'
-                : `seen ${new Date(p.seen).toLocaleString()}`}
+                : `seen ${formatWhen(p.seen, { comma: true, empty: 'never' })}`}
             </span>
             <button
               className="shrink-0 rounded px-2 py-0.5 text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
@@ -142,7 +143,7 @@ export function PhoneDialog({
     <Dialog
       title="Prism on your phone"
       body={body}
-      choices={[{ label: 'Close', onPick: onClose, primary: true }]}
+      choices={closeOnly(onClose)}
       onCancel={onClose}
     />
   )

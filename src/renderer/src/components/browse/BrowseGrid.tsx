@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from 'react'
 import { GRID_PAD, cellRect, type GridLayout } from '../../lib/gridLayout'
+import { layerShift } from '../../lib/layerShift'
 import './grid.css'
 
 /**
@@ -22,6 +23,7 @@ export function BrowseGrid<T extends { path: string }>({
   firstItem,
   entries,
   translateY,
+  shiftByTop,
   tile
 }: {
   layout: GridLayout
@@ -29,13 +31,15 @@ export function BrowseGrid<T extends { path: string }>({
   firstItem: number
   entries: ReadonlyArray<T | null | undefined>
   translateY: number
+  /** A rename field is open: move by top, not a transform (see layerShift). */
+  shiftByTop?: boolean
   tile: (entry: T, index: number, rect: { x: number; y: number; w: number; h: number }) => ReactNode
 }): JSX.Element {
   // The first mounted line's top within the space, taken off every cell so the
   // tiles are placed in the translated layer's own coordinates.
   const origin = GRID_PAD + firstRow * layout.pitch
   return (
-    <div className="browse-row-layer browse-grid-layer" style={{ transform: `translateY(${translateY}px)` }}>
+    <div className="browse-row-layer browse-grid-layer" style={layerShift(translateY, !!shiftByTop)}>
       {entries.map((entry, offset) => {
         if (!entry) return null
         const index = firstItem + offset

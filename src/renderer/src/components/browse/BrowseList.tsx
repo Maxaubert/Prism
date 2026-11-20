@@ -24,7 +24,7 @@ import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
 import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { BusyBar } from './BusyBar'
-import { FolderIcon, KindIcon, iconColour } from '../icons/FileIcons'
+import { EntryIcon } from '../icons/EntryIcon'
 import { FolderGlyph } from '../icons/FolderGlyph'
 import { folderIconOf, useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
@@ -64,9 +64,11 @@ import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { ThumbImage } from './ThumbImage'
 import { BrowseGrid } from './BrowseGrid'
 import { GridTile } from './GridTile'
-import { ProgressBar } from '../ProgressBar'
+import { RenameField } from '../RenameField'
+import { layerShift } from '../../lib/layerShift'
+import { landingTile } from '../../lib/landingGrid'
+import { LandingBar } from './LandingBar'
 import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
-import { FolderFill } from '../icons/Icon'
 
 const OVERSCAN = 12
 /** How long after the hand's last input (a wheel notch, a sweep's step) a
@@ -133,6 +135,9 @@ type Props = Pick<
   | 'onSortChange'
   | 'onContextMenu'
   | 'onRename'
+  | 'renamingPath'
+  | 'onRenameSubmit'
+  | 'onRenameCancel'
   | 'onCopy'
   | 'query'
   | 'searchState'
@@ -1365,6 +1370,35 @@ export function BrowseList(props: Props): JSX.Element {
     focusRow(next)
   }
 
+  /** The inline rename field (#523) for the entry being renamed. */
+  const renameField = (entry: BrowseEntry, where: 'row' | 'tile'): JSX.Element => {
+    // The keyboard goes back to the list, unless the field closed because the
+    // hand went somewhere else (a click on a button, the address field).
+    const back = (): void => {
+      requestAnimationFrame(() => {
+        const list = scroller.current
+        const at = document.activeElement
+        if (!list || (at && at !== document.body && !list.contains(at))) return
+        const row = list.querySelector<HTMLElement>('[data-browse-path][tabindex="0"]')
+        ;(row ?? list).focus({ preventScroll: true })
+      })
+    }
+    return (
+      <RenameField
+        name={entry.name}
+        className={`browse-rename-field ${where === 'tile' ? 'browse-rename-tile' : ''}`}
+        onSubmit={(name) => {
+          props.onRenameSubmit?.(name)
+          back()
+        }}
+        onCancel={() => {
+          props.onRenameCancel?.()
+          back()
+        }}
+      />
+    )
+  }
+
   /**
    * WHAT A PRESS, A DRAG, A DROP, A DOUBLE CLICK AND A RIGHT-CLICK ON AN ENTRY
    * DO: one set for a row and a tile alike (Stage 4 pulled it out of the row,
@@ -1466,14 +1500,7 @@ export function BrowseList(props: Props): JSX.Element {
     const src =
       thumbsOn && !props.landing?.has(entry.path.toLowerCase()) ? thumbSource(entry) : null
     const kind = (size: number): JSX.Element => (
-      <KindIcon
-        kind={entry.file!.kind}
-        ext={entry.file!.ext}
-        name={entry.name}
-        color={iconColour(entry.file!.kind)}
-        size={size}
-        bg={selected ? 'var(--sel-seen, var(--p-sel-tint-seen))' : 'var(--p-bg)'}
-      />
+      <EntryIcon kind={entry.file!.kind} ext={entry.file!.ext} name={entry.name} size={size} selected={selected} />
     )
     if (entry.file && src)
       return (
@@ -1489,7 +1516,7 @@ export function BrowseList(props: Props): JSX.Element {
     let icon: JSX.Element
     if (entry.isFolder) {
       const own = folderIconOf(folderIcons, entry.path)
-      const folder = <FolderFill size={iconSize} color="var(--p-tree-folder)" />
+      const folder = <EntryIcon kind="folder" size={iconSize} />
       icon = own ? (
         <FolderGlyph icon={own} size={iconSize} color="var(--p-tree-folder)" fallback={folder} />
       ) : (
@@ -1670,6 +1697,7 @@ export function BrowseList(props: Props): JSX.Element {
                   firstItem={firstItem}
                   entries={rendered}
                   translateY={liveTop + first * rowHeight - logicalTop}
+                  shiftByTop={props.renamingPath != null}
                   tile={(entry, index, rect) => {
                     const key = entry.path.toLowerCase()
                     const selected = isMarked(entry.path)
@@ -1689,6 +1717,7 @@ export function BrowseList(props: Props): JSX.Element {
                         posInSet={index + 1}
                         setSize={count}
                         handlers={entryHandlers(entry, selected)}
+                        renameField={props.renamingPath === entry.path ? renameField(entry, 'tile') : undefined}
                       />
                     )
                   }}
@@ -1697,9 +1726,7 @@ export function BrowseList(props: Props): JSX.Element {
               {!layout && (
                 <div
                   className="browse-row-layer"
-                  style={{
-                    transform: `translateY(${liveTop + first * rowHeight - logicalTop}px)`
-                  }}
+                  style={layerShift(liveTop + first * rowHeight - logicalTop, props.renamingPath != null)}
                 >
                   {rendered.map((entry, offset) => {
                     const divider = divided?.divider(firstItem + offset)
@@ -1738,8 +1765,12 @@ export function BrowseList(props: Props): JSX.Element {
                     const below = rendered[offset + 1]
                     const joinUp = selected && !!above && isMarked(above.path)
                     const joinDown = selected && !!below && isMarked(below.path)
+                    // Being renamed (#523): the row is a plain box with the field in it,
+                    // no press, drag or drop of its own (the field's mouse is the field's).
+                    const renamingHere = props.renamingPath === entry.path
+                    const Row = renamingHere ? 'div' : 'button'
                     return (
-                      <button
+                      <Row
                         key={entry.path}
                         role="option"
                         aria-selected={selected}
@@ -1771,7 +1802,7 @@ export function BrowseList(props: Props): JSX.Element {
                         data-join-up={joinUp || undefined}
                         data-join-down={joinDown || undefined}
                         title={searching ? entry.path : undefined}
-                        {...entryHandlers(entry, selected)}
+                        {...(renamingHere ? {} : entryHandlers(entry, selected))}
                       >
                         <span className="browse-column-name browse-name">
                           {entry.isFolder
@@ -1779,9 +1810,7 @@ export function BrowseList(props: Props): JSX.Element {
                                 const own = folderIconOf(folderIcons, entry.path)
                                 // At the picture steps (3, 4) a folder is as big as a file's
                                 // icon (owner, 2026-11-10); steps 0 to 2 keep the row icon.
-                                const folder = (
-                                  <FolderIcon color="var(--p-tree-folder)" size={look.thumb ? look.icon : undefined} />
-                                )
+                                const folder = <EntryIcon kind="folder" size={look.thumb ? look.icon : undefined} />
                                 // A picked glyph wears the folder colour (D4).
                                 const glyph = own ? (
                                   <FolderGlyph
@@ -1812,17 +1841,12 @@ export function BrowseList(props: Props): JSX.Element {
                                 // colours; its knockouts are the tint as seen
                                 // (dimmed or not: browse.css sets --sel-seen).
                                 const kind = (size: number): JSX.Element => (
-                                  <KindIcon
+                                  <EntryIcon
                                     kind={entry.file!.kind}
                                     ext={entry.file!.ext}
                                     name={entry.name}
-                                    color={iconColour(entry.file!.kind)}
                                     size={size}
-                                    bg={
-                                      selected
-                                        ? 'var(--sel-seen, var(--p-sel-tint-seen))'
-                                        : 'var(--p-bg)'
-                                    }
+                                    selected={selected}
                                   />
                                 )
                                 if (src)
@@ -1842,11 +1866,15 @@ export function BrowseList(props: Props): JSX.Element {
                                   kind(look.icon)
                                 )
                               })()}
-                          <span className="browse-name-text">
-                            <span {...(searching ? {} : hiddenTitle(entry.name))}>
-                              {entry.name}
+                          {renamingHere ? (
+                            renameField(entry, 'row')
+                          ) : (
+                            <span className="browse-name-text">
+                              <span {...(searching ? {} : hiddenTitle(entry.name))}>
+                                {entry.name}
+                              </span>
                             </span>
-                          </span>
+                          )}
                         </span>
                         {/* THE BIN'S TWO COLUMNS (D7): where it was and when it was
                             deleted, right after the name. The full original path
@@ -1875,7 +1903,7 @@ export function BrowseList(props: Props): JSX.Element {
                             {searching
                               ? (browseParent(entry.path) ?? entry.path)
                               : props.landing?.has(entry.path.toLowerCase())
-                                ? 'Copying…'
+                                ? landingTile(props.landing.get(entry.path.toLowerCase())).caption
                                 : typeLabel(entry.name, entry.isFolder)}
                           </span>
                         )}
@@ -1887,12 +1915,7 @@ export function BrowseList(props: Props): JSX.Element {
                         >
                           {/* No size yet is a blank cell, never "0 B" (#271). */}
                           {props.landing?.has(entry.path.toLowerCase()) ? (
-                            <ProgressBar
-                              size="thin"
-                              className="browse-landing"
-                              pct={props.landing.get(entry.path.toLowerCase()) ?? 0}
-                              label="Copying"
-                            />
+                            <LandingBar pct={props.landing.get(entry.path.toLowerCase())} />
                           ) : entry.file ? (
                             entry.file.size === undefined ? (
                               ''
@@ -1917,7 +1940,7 @@ export function BrowseList(props: Props): JSX.Element {
                             {formatWhen(entry.file ? entry.file.mtimeMs : entry.mtimeMs)}
                           </span>
                         )}
-                      </button>
+                      </Row>
                     )
                   })}
                 </div>

@@ -2,7 +2,7 @@ import type { HTMLAttributes, JSX, ReactNode } from 'react'
 import { hiddenTitle } from 'prism-term-core/renderer/lib/hiddenTitle'
 import { TILE_PAD, type Rect } from '../../lib/gridLayout'
 import { landingTile } from '../../lib/landingGrid'
-import { ProgressBar } from '../ProgressBar'
+import { LandingBar } from './LandingBar'
 
 /**
  * ONE TILE OF THE GRID (zoom steps 5 to 9, Stage 4, 2026-11-09; spec 4.6 and
@@ -29,7 +29,8 @@ export function GridTile({
   landing,
   posInSet,
   setSize,
-  handlers
+  handlers,
+  renameField
 }: {
   name: string
   path: string
@@ -45,9 +46,31 @@ export function GridTile({
   posInSet: number
   setSize: number
   handlers: HTMLAttributes<HTMLButtonElement> & { draggable?: boolean }
+  /** The tile is being renamed (#523): the field stands where the name is. The
+   *  tile is then a plain box with no press, drag or drop of its own, so the
+   *  mouse in the field is the field's. */
+  renameField?: ReactNode
 }): JSX.Element {
   const copying = landing !== undefined
   const bar = copying ? landingTile(landing) : null
+  if (renameField)
+    return (
+      <div
+        role="option"
+        aria-selected={selected}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
+        className="browse-tile"
+        style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+        data-browse-path={path}
+        data-browse-index={index}
+        data-selected={selected || undefined}
+        data-renaming="true"
+      >
+        {media}
+        <span className="browse-tile-name">{renameField}</span>
+      </div>
+    )
   return (
     <button
       role="option"
@@ -72,11 +95,9 @@ export function GridTile({
       {bar && (
         // The rows' fill bar, across the bottom of the picture box: a percent
         // tick redraws this and nothing else (landingGrid.ts).
-        <ProgressBar
-          size="thin"
-          className="browse-landing browse-tile-landing"
+        <LandingBar
+          className="browse-tile-landing"
           pct={bar.pct}
-          label="Copying"
           style={{ left: TILE_PAD, top: TILE_PAD + rect.w - 2 * TILE_PAD - 4, width: rect.w - 2 * TILE_PAD }}
         />
       )}

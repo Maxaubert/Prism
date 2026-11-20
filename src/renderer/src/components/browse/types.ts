@@ -140,6 +140,13 @@ export interface FolderBrowserProps {
     folders?: string[]
   ) => void
   onRename?: (entry: BrowseEntry) => void
+  /** The row or tile being renamed in place (#523, inline everywhere): the
+   *  field stands where the name is. `onRenameSubmit` gets the new name,
+   *  already trimmed and never the old one; every other end (Escape, empty,
+   *  unchanged) is `onRenameCancel`. */
+  renamingPath?: string | null
+  onRenameSubmit?: (name: string) => void
+  onRenameCancel?: () => void
   onCopy?: (entry: BrowseEntry) => void
   onCut?: (entry: BrowseEntry) => void
   onPaste?: (directory: string) => void

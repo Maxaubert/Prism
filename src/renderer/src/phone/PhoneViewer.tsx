@@ -170,7 +170,7 @@ function usePlayAnswer(file: ViewerFile, want: boolean, audio: number | null): P
     }
   }, [file.path, want, audio])
   // A pick keeps the LAST answer up until the new one lands: the player
-  // stays mounted at its place rather than dropping to "Preparing...".
+  // stays mounted at its place rather than dropping to "Preparing…".
   return answer?.path === file.path ? answer.answer : null
 }
 
@@ -339,7 +339,7 @@ export function PhoneViewer({
   if (media && !answer)
     view = (
       <p className="p-6 text-center opacity-70" data-phone-preparing>
-        Preparing...
+        Preparing…
       </p>
     )
   else if (media && answer?.mode === 'none')

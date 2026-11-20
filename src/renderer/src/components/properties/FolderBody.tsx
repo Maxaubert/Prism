@@ -1,5 +1,6 @@
 import { useMemo, type JSX } from 'react'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
+import { contents } from '../../lib/emptyText'
 import { folderSizeCoverage, folderSizeLabel, folderSizePartial } from '../../lib/folderSize'
 import { count, dateFacts } from '../../lib/propsFormat'
 import type { BodyProps } from './bodyProps'
@@ -28,7 +29,7 @@ export function FolderBody({ path, name, onClose }: BodyProps): JSX.Element {
       ? [
           {
             label: 'Contents',
-            value: `${count(size.files)} files, ${count(size.folders)} folders (including subfolders)`
+            value: `${contents(size.files, size.folders)} (including subfolders)`
           }
         ]
       : []),

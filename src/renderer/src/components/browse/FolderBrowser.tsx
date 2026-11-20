@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { EMPTY_FOLDER, NO_MATCHES, NO_MATCHES_STOPPED, plural } from '../../lib/emptyText'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon, PreviewGlyph } from '../icons/BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -456,11 +457,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             ? props.searchState?.running
               ? 'Searching this folder and subfolders…'
               : props.searchState?.cancelled || props.searchState?.truncated
-                ? 'No matches found before the search stopped. Refine your search and try again.'
-                : 'No matching items in this folder or its subfolders.'
+                ? NO_MATCHES_STOPPED
+                : NO_MATCHES
             : bin
               ? BIN_EMPTY
-              : 'This folder is empty.'
+              : EMPTY_FOLDER
           : null)
 
   // SIDEBAR POSITION (#304; owner, 2026-10-07): on the right the places
@@ -540,6 +541,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       // Where the user last acted (useActiveArea): the side not acted in
       // draws its mark dimmed, File Explorer's inactive selection.
       data-active-area={area}
+      data-inactive={area === 'places' || undefined}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
         const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
@@ -810,7 +812,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             ? 'Reading folder'
             : props.pending === 'quiet' && !props.listing
               ? ''
-              : `${total} ${total === 1 ? 'item' : 'items'}`}
+              : plural(total, 'item')}
         </span>
         {many ? (
           <span>

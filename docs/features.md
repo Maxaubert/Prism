@@ -42,6 +42,258 @@ Same PR (#534 #20, #21): `SECURITY.md` and private vulnerability reporting, `.gi
 - `package.json` says `"license": "SEE LICENSE IN LICENSE"` and `"private": true`: it said MIT,
   which the proprietary licence (v0.80.0 on) contradicts.
 
+## Shared look: the zip panel wears the Explorer's header and band (owner, 2026-11-19, #519)
+
+- **The issue's premise is half stale.** On the desktop a zip already runs on `BrowseList` in archive mode (#300,
+  `props.archive`): it sorts, zooms and selects like any folder, and there is no "zip tab" panel. The old panel
+  (`ArchiveView`) is the PHONE's alone (and a nested archive opened from it), and the phone page has no browse IPC,
+  no native sweep box and no thumbnails, so `BrowseList` cannot be mounted there. The panel stays, and takes the
+  parts of the Explorer that can be shared.
+- **Its header sorts.** `archive/ArchiveHeader.tsx`: Name, Type, Size, Packed and Modified are buttons with the
+  Explorer's keys, first click ascending, second click turns it round (`nextSort`), and the Explorer's fading arrow on
+  every column. Order is `lib/archiveSort.ts`: folders first in either direction, then the column, then the natural
+  name. The default is Name ascending, what it showed before.
+- **Its drag-select band is the Explorer's:** one `SWEEP_BAND_LOOK` (`browse/sweepLook.ts`) feeds `SweepBand` and the
+  panel's band (fill 16 %, light edge, 2 px corners; it was 22 % with a 3 px corner). The panel keeps its own pointer
+  code: the native Windows 11 box needs main, which the phone page does not have.
+- **Kept on purpose:** the verb row, the crumbs, the item count a folder row shows in Size ("3 items", "empty"; the
+  Explorer shows no size for a zip folder), the lock badge, the Packed percentage, every key and both menus.
+  The panel's inactive dim already follows the one selection look (#524). Zoom, thumbnails and the cut dim do not
+  apply: the phone has no zoom steps, a member has no thumbnail and nothing is cut inside a zip.
+- **The phone's own folder list (`phone/Browser.tsx`) has no sort and no date column, on purpose** (review item 25,
+  recorded as a choice, not built): a phone list is touch-sized, the PC already sorts what it serves (name order,
+  folders first), and the listing the phone gets fills no modified time (phone/browse.ts sets mtimeMs: 0). A sort or a date column there
+  is a new feature; ask first.
+- Held by `lib/archiveSort.test.ts` and `components/archiveTabParity.test.ts`.
+## Shared behaviour: one say() for every notice (owner, 2026-11-19, #517)
+
+- **`say(text, { op, level, kind })` (`lib/say.ts`) is the one way to tell the user** a thing finished or failed. It
+  ALWAYS writes the diagnostics log (a `note` line, owner 2026-11-06), then shows the text by `kind`: `toast` (the
+  default, a quick action: "Image copied", "Saved a.jpg", "Undid moving a.txt"), `chip` (the end of a long job, a line
+  on the jobs chip) or `dialog` (an error the user must read, the one NoticeDialog).
+- **One toast, `components/Toast.tsx`,** mounted once in App. It replaces the image viewer's black pill and App's undo
+  line. A new toast replaces the old one and gets its whole time.
+- **One wording and one set of times, `lib/sayCore.ts`:** `TOAST_MS` 1800, `TOAST_LONG_MS` 2600 (a toast that says
+  something failed), `NOTE_MS` 5000 (the chip), and the title `SAY_TITLE` "That didn't work". The archive notice used
+  to be titled "Archive"; it is "That didn't work" now. The hand-set 1800, 2200 and 2600 in `ImageView` are gone; the
+  "Extracted" button flash, the Properties copy tick and the theme wall line use the same constants.
+- **Stage notices log too:** a viewer's own error line (audio, video, code editor) writes its words to the log.
+- **Kept on purpose:** a failed action still raises a dialog (it needs reading, a 2 s toast is too short for it). The
+  fatal "Prism's window stopped working" box in `src/main/index.ts` stays a native box: no page exists to show it.
+  `ExtractWindow` keeps its own failure line and its log line (it is a window, not a notice).
+- Held by `lib/say.test.ts`; e2e `saveCopy` reads the toast by `[data-toast]`.
+## Shared behaviour: rename is inline everywhere (owner, 2026-11-19, #523)
+
+- **Rename happens in the row.** F2 or the menu's Rename on an Explorer row, a grid tile, a zip member in the
+  Explorer, a member in the zip tab, and the archive's own Rename verb (its name in the panel header) all turn the
+  name into one `RenameField`: the stem selected, Enter or leaving the field commits, Escape cancels. The Explorer
+  used to ask in a dialog with the whole name selected, and the zip tab renamed in place; now there is one pattern.
+- **Ctrl+Shift+N names the new folder the same way**, in its row, starting from "New folder". Escape keeps the
+  name "New folder" (File Explorer's way). The dialog titles "Rename" and "New folder" and `dialogs/renameWording.ts`
+  are gone.
+- **One normaliser, `lib/renameName.ts` (`renamedTo`):** the name is trimmed, and an empty or unchanged name is a
+  Cancel. Every path goes through it (it was only some).
+- **A rename never outlives its place:** a folder, tab or archive change ends it.
+- **Kept on purpose:** F2 on a file open in full view has no row on screen to hold a field, so it still asks in the
+  small Rename dialog (`browse/BrowseRename.tsx`), now with the stem selected and the same normaliser. Whether that
+  case should edit the name in the title bar is the owner's call.
+- Held by `lib/renameName.test.ts` and `components/renameInline.test.ts`; e2e `deleteFocus`, `newFolderTitle`,
+  `gridRename`, the Explorer and zip rename steps drive the field in the row.
+## Shared look: the player menu wears the context menu's panel and rows (owner, 2026-11-19, #522)
+
+- **One popup look, components/menuLook.ts** (MENU_PANEL, MENU_ROW, MENU_ROW_INK): the right-click menu's
+  radius 2, 28 px rows, 12 px type and a divider above every row. The player's cog menu used radius 6, 30 px rows,
+  12.5 px type and no dividers; it now takes the same classes. Its group rule is gone: the rows carry the dividers.
+  The drill-down stays (the phone needs it), and phone.css still turns the panel into a bottom sheet.
+- **Keyboard in the cog menu:** it had no arrow keys, and a pick or a back row dropped the focus on the page when its
+  row unmounted. Up and Down now walk the rows (wrapping, like the right-click menu) and the new level's first row
+  takes the focus.
+- Held by components/menuLook.test.ts.
+## Shared look: one EntryIcon for folders and files (owner, 2026-11-19, #521)
+
+- **`components/icons/EntryIcon.tsx` draws the icon of every folder and file row** (kind, size, selected,
+  dimmed, and the colour behind an unmarked row). A folder is the filled folder (`FolderFill`) in the folder
+  colour, a file is `KindIcon` in the file colour. `FolderIcon` and the inline folder svg of the archive panel are
+  gone: a folder in a zip is now the Explorer's folder shape. Callers: the Explorer list and tiles, search popup,
+  Places, the archive card and panel, and the phone's folder and file rows, tiles and search hits.
+- **The knockout of a marked row is one rule** (`entryGround`): the tint as seen, dimmed when the list has lost
+  focus. A pinned file in Places now wears the file colour like every other file (it was a softer grey).
+- **The phone shows real file glyphs** in its list, grid and search rows instead of a bare extension text.
+- Held by `components/icons/EntryIcon.test.ts`.
+## Shared menu: the archive menus use one row table (owner, 2026-11-19, #518)
+
+- **One table, `menus/archiveMenus.ts`,** gives the rows, words and order of every right-click menu of an
+  archive: the Explorer's, the zip card's and the panel of an opened archive (`viewers/archivePanel.tsx`, the
+  phone's and a nested zip's). The panel only maps a row id to what it does; a row it has no handler for, or the
+  host cannot do, is left out. The owner's 2026-10-12 order (clipboard rows together, Show in File Explorer and
+  Properties near the end, Delete last) is now the panel's too.
+- **The ellipsis is the single character "…"** in every archive menu row and in the Extract to… buttons of the
+  archive strip and the zip card (it was "..." in some, "…" in others).
+- **"Delete from archive"**, not "from zip": the verb applies to a 7z or any other kind. Several marked rows say
+  "Delete N items from archive", and a count of one says "1 item".
+- **What the panel lost, on purpose:** "Select all" (Ctrl+A still does it), "Copy archive" and the "Copy N files
+  inside" and "Delete N files" counts (a folder's Delete now says "Delete from archive" and removes the files
+  inside). **What it gained:** Extract here and Extract to… on several marked rows.
+- Held by menus/archiveMenus.test.ts (the words) and menus/viewers/archivePanel.test.ts (the panel is the
+  table's rows, in its order); e2e `tools/e2e/run.mjs` compares the Explorer's menus against the same words.
+## Shared dialog: one name clash question (owner, 2026-11-19, #515)
+
+- **One ClashDialog** asks every "that name is taken": a move, a paste, a Restore from the bin, a rename and
+  files added to a zip. Its buttons are always **Cancel, Keep both (primary, accent), Replace (red)**, in that
+  order. Replace is left out only where the place cannot replace (inside a zip, where nothing is written until
+  Keep both). The rename used to put Replace before Keep both, which moved the accent.
+- The name is shown one way: the title says "<name> is already there" (or "N names are already taken", or
+  "... already in the archive"); a rename's body adds what Keep both saves it as.
+- **Unsaved and FileChanged keep their own shape, on purpose.** A question gets Cancel when "do nothing" is a
+  separate answer from the others: Unsaved changes has Cancel, Discard (plain, not red: it drops typing, not a
+  file) and Save all changes (accent). FileChanged has no Cancel: the file already changed, so there is nothing
+  to back out of, only a pick between two versions. "Keep mine" is its safe answer and what Escape does, and
+  "Reload from disk" is red because it throws your edits away. A new either-or question follows FileChanged;
+  a new question with a way out follows Unsaved.
+- Held by dialogs/ClashDialog.test.ts (all clash wording and order, one place) and AskDialogs.test.ts
+  (which ask draws it); UnsavedDialog.test.ts and FileChangedDialog.test.ts pin the two shapes.
+## Shared look: one Close, one footer (owner, 2026-11-19, #520)
+
+- **A dialog with nothing to answer says "Close"**, never "OK": the notice (App's "That didn't work", the
+  archive notes), a zip member's facts, the phone window and both Properties windows. `NoticeDialog` lost its
+  OK/Close option. The update window already said Close for a notice and Cancel for a stop.
+- **One footer.** `components/Dialog.tsx` exports `DialogFooter` (buttons on the right, 20px under the body; the
+  Properties footer was 18px) and `closeOnly`. `Dialog` also takes a `label` instead of a title, a `box`, extra
+  box classes and attributes, so Properties of a file or drive is a `Dialog` whose body draws its own header and
+  the shared footer. A zip member's Properties uses the file window's `Facts` list. Focus rings stay off (#272).
+- Held by `dialogs/closeOnly.test.ts`, `NoticeDialog.test.ts`, `ArchiveFactsDialog.test.ts`,
+  `PropertiesDialog.test.ts` and the `folderIcon` e2e (its notice closes with Close).
+## Shared look: one dialog text field (owner, 2026-11-19, #516, first step)
+
+Every text field inside a dialog is `components/DialogInput.tsx`, the password field's box (`DIALOG_INPUT` in the core's
+dialogLook.ts: rounded, divider border, accent-hi border on focus, 12.5px) and its keys (`dialogInputKey`: every key stops
+at the field, Enter answers when the value is allowed). The password, rename and folder icon search fields use it; the
+rename field and the icon search were other looks (the search's 8px radius and grey focus border are gone) and the
+rename field now stops keys too. The Modal no longer moves the focus to the primary button when a field already has it
+(`fieldHasFocus`), so the field is not fought over. Left as they were, on purpose: the inline `RenameField` (a row, not a
+dialog; the Explorer now renames in it too, #523), the toolbar and search popup fields (`.browse-field`, bars), the Settings and colour picker fields (the core's
+own frame) and the phone pages (their own page, own look). The wider TextField on `.browse-field` is the issue's
+later step. Held by `components/DialogInput.test.ts`.
+
+## Shared look: one dialog button, one box width (owner, 2026-11-19, #514)
+
+Every dialog button, the update window's two, the progress card's and the Properties row's wear dialogButton, now in the
+settings core (packages/term-core/renderer/components/dialogLook.ts, deep import 
+enderer/components/dialogLook). It has a
+disabled state (45 percent, no pointer, no hover; the update window wrote 45 and others 50 or 55), a selected variant
+(--p-sel-bg, the progress card's Open) next to primary (--p-accent), and a compact size for a control inside a row. No
+button has a focus ring (#272): the update window's had one, and loses it. The box takes its size as dialogBox({ width, pad })
+(420, 456, 520 or 580 px; normal, sheet or roomy padding); DIALOG_BOX is the default. Nothing patches a class string with
+.replace() any more. A stop control says "Cancel": the checksum row's "Stop" and the search bar's "Cancel search" now read
+"Cancel" (the progress cards already did). A close-only dialog says "Close". Held by the core's dialogLook.test.ts and
+components/dialogButtons.test.ts.
+## Shared shell: one Modal, one scrim (owner, 2026-11-19, #513)
+
+Every dialog is the settings core's `Modal` (`packages/term-core/renderer/components/Modal.tsx`); Prism's own Modal is deleted.
+So Tab now stays inside every question (it could leave Prism's and land in the list behind), and the focus goes back to where
+it was when the dialog closes. `Dialog`, `PropertiesDialog` and the delete question pass `DIALOG_BOX` as `boxClassName`.
+The extraction window is the same Modal, `locked` (Escape, a press outside, a menu and a dropped file do nothing), on
+`LAYER.busy` (`z-[90]`, in `layers.ts`, no string replace). There is ONE scrim: `SCRIM` in `layers.ts`, tinted by
+`--p-scrim` (50 percent black, `index.css`) and blurred 2px. Dialogs were 55 percent and no blur; the search popup
+takes the same `--p-scrim` tint and keeps its own 6px blur. Held by `components/modalShell.test.ts` and the core's
+`Modal.test.ts`.
+
+## Shared view: the place strip (owner, 2026-11-19, #524)
+
+The zip's strip and the Recycle Bin's strip above the column header are one shell, `components/browse/PlaceStrip.tsx`:
+the name block (icon, name, dim facts) and the verbs, each place keeping its own words, buttons and `data-*` hooks.
+The classes are `browse-place-strip*` and `browse-place-button` (`place-strip.css`); the bin no longer wears
+`browse-archive-*` names. Nothing changes on screen. Held by `components/browse/PlaceStrip.test.ts`.
+## Shared view: a landing row and a landing tile (owner, 2026-11-19, #524)
+
+A file still being copied in shows the same on a row and on a tile, and nothing differs for the user. Both read the
+percent and the caption through `lib/landingGrid.ts` `landingTile` (clamped to 0-100, whole percents, "Copying…"
+written once), and both draw the fill with `components/browse/LandingBar.tsx`, the thin ProgressBar (#501) named
+"Copying". The list no longer redoes the math or writes the caption inline. Held by
+`components/browse/LandingBar.test.ts`.
+## Shared look: the slider (owner, 2026-11-19, #524)
+
+There is one slider, `Slider` in the settings core (`settings/fields.tsx`): a native range worn in the switch's colours,
+an accent fill up to a white thumb. The Settings page's "Control band opacity" uses it (step 5, its value said at the
+right), and so does the player menu's custom speed, in its `menu` variant: full width, no value beside it, a double
+click puts it back (`onReset`). Neither draws a native range of its own any more. Held by `components/slider.test.ts`.
+## Shared look: the phone's drive row (owner, 2026-11-19, #524)
+
+The phone's This PC page does the Explorer's drive sums, from `lib/driveUsage.ts` (`usedFraction`, `usedWidth`,
+`freeLine`, `nearlyFull`) and nothing of its own: the same "X free of Y" text and the same bar share. From 90 percent
+used the bar turns to `--p-warn` and the line to `--p-warn-ink`, as the Explorer's rows do (`data-warn` on the row).
+A drive with no sizes shows its name alone. Held by `phone/Places.test.ts`.
+## Shared look: the find bar (owner, 2026-11-19, #524)
+
+Ctrl+F in a PDF and in a markdown, office or ebook document draws one bar, `components/FindBar.tsx`, in DocFind's
+words and box: the field says "Find" (a screen reader still hears "Find in document"), the counter reads "2 of 5",
+"none" when nothing matches and nothing with no query, and the buttons carry their key in the tooltip. The PDF's pill
+and its "2 / 5", "0 / 0" are gone (`PdfFindBar.tsx` is deleted). The bar eats EVERY key typed in its field, so a
+letter never reaches an app shortcut behind it (the PDF's bar let all but Enter and Escape through); F3 steps like
+Enter. The words and keys are `lib/findBarKeys.ts`. Held by `components/FindBar.test.ts`.
+## Shared look: the spinner and loading hints (owner, 2026-11-19, #524)
+
+There is one spinner, `Spinner` in `components/LoadingState.tsx`: an accent arc on a divider ring, a small 16px
+variant beside text. It fades in after a moment (`delayed-loader`) and turns slowly under reduced motion, wherever
+it shows. The search popup uses it too; its own CSS spinner is gone. A loading hint is written with the single
+character "…", never three dots ("Searching…", "Preparing…", "Reading…", "Connecting…", "Opening name…"). A
+folder shows NO loading text, the #271 rule: the phone's folder and its place list, a zip's contents and the icon
+picker's status line stay empty until the answer comes. Held by `components/loadingHints.test.ts`.
+## Shared look: the selection (owner, 2026-11-19, #524)
+
+A marked row or tile has one look, one CSS file: `assets/selection.css`, on `[data-selected]`. The Explorer's list
+and grid, the archive card and the zip tab all use it; `lib/markedLook.ts` and the three copies in `browse.css`,
+`archive.css` and `grid.css` are gone. The tint and its faint edge are the same as before. A run of marked rows is one
+block (`data-join-up` / `data-join-down`). The marks DIM under a parent `[data-inactive]` and on a cut row: the
+Explorer sets it while the user acts in the sidebar, the archive card while the keys are elsewhere, and now the zip
+tab too (its marks stayed bright when focus left the list). Held by `components/selectionLook.test.ts`.
+## Shared text: file names in dialogs (owner, 2026-11-19, #512)
+
+A file name in a question is drawn one way. In a body it is a `DialogName` (`components/DialogName.tsx`): the
+theme's own text colour (`--p-text`, so it reads on a light theme), a step brighter than the line around it.
+In a title, in a notice message and in any plain string it is plain text. No dialog puts a name in quotes: the
+quotes in the move, archive clash, password, archive error and notice wording are gone, and the password,
+name-taken, unsaved and file-changed bodies use `DialogName`. `dialogs/dialogName.ts` holds the title helper
+`nameOrCount` (the name for one item, "N items" for more; the delete title uses it). Held by
+`dialogs/dialogName.test.ts`, which also fails if a dialog source writes a name between quotes.
+## Shared text: counts, plurals and empty lists (owner, 2026-11-19, #509)
+
+One module, `lib/emptyText.ts`, words every count and every empty list. Before it, the Recycle Bin strip said
+"12000 items" while the Empty dialog said "12,000 items", the search status used the machine's locale, the
+no-match text had three wordings (and the phone said "Nothing matches."), and Properties listed folders before
+files in one path and files before folders in another.
+
+- **Counts** are always grouped the en-US way ("12,000 items"), never by the machine's locale (`count`).
+- **Plurals** go through `plural(n, 'item')` ("1 item", "12,000 items"; a third argument for "match" and
+  "matches"). The status bar, the bin strip and its menu, the delete and Empty dialogs, the archive strip and card,
+  the search popup and status, and the icon picker all use it.
+- **Contents** read "files, then folders" everywhere (`contents(files, folders)`): "3 files, 1 folder". The
+  folder part is left out when there is none, so an archive and a folder both say "5 files".
+- **No match** is one string, `NO_MATCHES` ("No matching items in this folder or its subfolders."), for the list,
+  the search popup and the phone. The stopped-search and empty-folder strings are `NO_MATCHES_STOPPED` and
+  `EMPTY_FOLDER`. The archive panel's empty line says "This folder is empty." or "This archive is empty."
+  instead of the lower-case "empty folder" and "empty archive".
+- Held by `lib/emptyText.test.ts`, `lib/binView.test.ts`, `dialogs/deleteCopy.test.ts` and
+  `components/iconGrid/pickerText.test.ts`.
+
+## Shared text: sizes and dates (owner, 2026-11-19, #510)
+
+`lib/format.ts` is the one place a size in bytes and a date become text. The same size printed as "47 MB" in one
+place and "47.0 MB" in another, the code banner said "5 MB" where the list said "5.0 MB", and Properties printed
+Modified with the machine's `toLocaleString()` for an unknown file type but "4 Jul 2026, 17:14" for text (with
+`whenLabel` fixing the comma by regex).
+
+- **`formatBytes(n, options)`**: the default is unchanged ("2.4 KB", "25.0 MB", "512 MB"). `decimals` sets the
+  decimals per unit, `trim` drops a trailing zero ("47 MB") and `empty` is the word for zero or nonsense. The drive
+  donut's `donutBytes` is now a thin caller (TB to two places, MB and KB whole, trimmed, "Empty" for nothing), and the
+  code banner's "N in all" calls `formatBytes` instead of its own rounding, so it reads "5.0 MB" like the list.
+- **`formatWhen(ms, options)`**: `comma` writes "4 Jul 2026, 17:14" and `empty` is the word for a time nobody
+  gave. `whenLabel` is `formatWhen` with `comma`, with no regex. Properties' Modified row for any file type and the
+  phone dialog's "seen ..." line go through it, so no date on screen follows the machine's locale. A phone never
+  seen reads "seen never".
+- Held by `lib/format.test.ts` and `lib/donut.test.ts` (the donut's strings did not change) and
+  `lib/propsFormat.test.ts`.
+
 ## An .asar is a file: the user's files go through `original-fs` (owner, 2026-11-11)
 
 The owner, with a screenshot: Delete permanently on 4 binned folders said "4 of 4 could not be deleted" (diag
@@ -2575,7 +2827,7 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
   where a name would fall under 4.5:1 or a quiet column under 3.2:1) with a faint
-  `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
+  `--p-sel-line` edge round the BLOCK (`assets/selection.css`, `data-join-up/down`), and keep
   their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
   chosen card uses `--p-accent-solid`, which does not move with the accent's alpha; the
   Settings rail's chosen page is a GREY fill since #292 (`--p-sel-solid` went with it). Quick access's current place wears the tint too. `theme.selection.test.ts`,

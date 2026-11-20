@@ -74,6 +74,13 @@ describe('PropertiesDialog', () => {
     expect(buttons(html)).toEqual(['Compute', 'Close'])
   })
 
+  it('wears the shared Dialog and its footer (#520)', () => {
+    const html = render({ path: 'C:\\Users\\Admin\\Pics', name: 'Pics', isFolder: true })
+    expect(html).toContain('data-props-window')
+    expect(html).toContain('mt-5 flex items-center justify-end gap-2')
+    expect(html).not.toContain('mt-[18px]')
+  })
+
   it('picks the body for each file kind', () => {
     const body = (kind: FileKind, name: string): string | undefined =>
       /data-props-body="(\w+)"/.exec(render({ path: `C:\\Users\\${name}`, name, kind }))?.[1]

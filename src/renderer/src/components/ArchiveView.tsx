@@ -1,17 +1,23 @@
 import { copyFilePaths } from '../lib/fileClipboard'
+import { TOAST_MS } from '../lib/sayCore'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { FileKind, ViewerFile } from '@shared/types'
+import { contents, EMPTY_ARCHIVE, EMPTY_FOLDER, plural } from '../lib/emptyText'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf, naturalCompare, parentDir } from '@shared/path'
+import { baseName, extOf, parentDir } from '@shared/path'
+import type { BrowseSort } from '@shared/browse'
+import { ARCHIVE_DEFAULT_SORT, sortMembers } from '../lib/archiveSort'
+import { SWEEP_BAND_LOOK } from './browse/sweepLook'
+import { ArchiveHeader } from './archive/ArchiveHeader'
 import { ContextMenu } from './ContextMenu'
 import { archivePanelMenu, archiveRowMenu } from '../menus/viewers/archivePanel'
 import { KindIcon, iconColour } from './icons/FileIcons'
+import { EntryIcon, GROUND_SIDE } from './icons/EntryIcon'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
-import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { dropVerb, effectOf, type DropTarget } from '../lib/drag/dropVerb'
@@ -25,7 +31,7 @@ import { RenameInput } from './archive/RenameInput'
 import { ArcVerb } from './archive/ArcVerb'
 import { useArchiveListing } from './archive/useArchiveListing'
 import { useBandSelect } from './archive/useBandSelect'
-import { BrowseRename } from './browse/BrowseRename'
+import { RenameField } from './RenameField'
 import type { UndoEntry } from '../lib/undo'
 import { isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
@@ -156,6 +162,7 @@ function ArchiveInner({
     null
   )
   const [editing, setEditing] = useState<string | null>(null)
+  const [listFocused, setListFocused] = useState(false)
   // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
   // itself (meaning "this folder you are looking at").
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -187,7 +194,7 @@ function ArchiveInner({
   const [justDone, setJustDone] = useState(false)
   useEffect(() => {
     if (!justDone) return
-    const t = window.setTimeout(() => setJustDone(false), 2200)
+    const t = window.setTimeout(() => setJustDone(false), TOAST_MS)
     return () => window.clearTimeout(t)
   }, [justDone])
   /**
@@ -218,20 +225,22 @@ function ArchiveInner({
     say: setOops
   } = ops
 
-  // The rows of the CURRENT folder only: folders first, names ordered.
+  /** The column the rows are ordered by (#519); a header click changes it. */
+  const [sort, setSort] = useState<BrowseSort>(ARCHIVE_DEFAULT_SORT)
+  // The rows of the CURRENT folder only: folders first, then by the sort.
   const rows = useMemo((): Entry[] => {
     if (!entries || entries === 'error' || entries === 'locked') return []
-    return entries
-      .filter((e) => parentDir(e.path) === cwd)
-      .sort((a, b) => (a.dir === b.dir ? naturalCompare(a.name, b.name) : a.dir ? -1 : 1))
-  }, [entries, cwd])
+    return sortMembers(
+      entries.filter((e) => parentDir(e.path) === cwd),
+      sort
+    )
+  }, [entries, cwd, sort])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
     if (!entries || entries === 'error' || entries === 'locked') return ''
     const folders = entries.filter((e) => e.dir).length
     const files = entries.length - folders
-    const parts = [`${files} file${files === 1 ? '' : 's'}`]
-    if (folders) parts.push(`${folders} folder${folders === 1 ? '' : 's'}`)
+    const parts = [contents(files, folders)]
     if (file.size) parts.push(`${formatBytes(file.size)} compressed`)
     return parts.join(' · ')
   }, [entries, file.size])
@@ -396,7 +405,7 @@ function ArchiveInner({
     (path: string): string => {
       if (!entries || entries === 'error' || entries === 'locked') return ''
       const n = entries.filter((e) => e.path.startsWith(path + '/')).length
-      return n ? `${n} item${n === 1 ? '' : 's'}` : 'empty'
+      return n ? plural(n, 'item') : 'empty'
     },
     [entries]
   )
@@ -610,7 +619,22 @@ function ArchiveInner({
           )}
         </span>
         <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">
-          {file.name}
+          {renamingSelf ? (
+            // Renaming the archive itself, in place like every rename (#523). The
+            // answer goes to App, which owns renaming (taken names, following the
+            // open file, the undo stack).
+            <RenameField
+              name={file.name}
+              onSubmit={(next) => {
+                setRenamingSelf(false)
+                onRenameSelf?.(next)
+              }}
+              onCancel={() => setRenamingSelf(false)}
+              className="w-[30rem] max-w-full rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-center text-[14px] font-semibold text-[var(--p-text)] outline-none"
+            />
+          ) : (
+            file.name
+          )}
         </div>
         <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
@@ -756,25 +780,27 @@ function ArchiveInner({
           >
             {/* The column header sits ABOVE the list rather than sticky inside
                 it, so a name never slides under it. */}
-            <div className="flex h-7 shrink-0 items-center gap-2 border-b border-[color:var(--p-divider)] px-4 text-[10.5px] font-medium uppercase tracking-[0.06em] text-[var(--p-dim2)]">
-              <span className="min-w-0 flex-1">Name</span>
-              <span className={COL_TYPE}>Type</span>
-              <span className={COL_SIZE}>Size</span>
-              <span className={COL_PACKED}>Packed</span>
-              <span className={COL_WHEN}>Modified</span>
-            </div>
+            <ArchiveHeader sort={sort} onSort={setSort} />
             {/* No horizontal padding: the rows run EDGE TO EDGE, so the zebra
                 stripes and the selection fill reach both borders instead of
                 floating as rounded tiles inside a gutter (owner pick,
                 2026-08-31). The rows carry the text inset themselves, at the
                 same px-4 the column header uses, so the columns still line
                 up. */}
-            <div data-arc-list className="min-h-0 flex-1 overflow-y-auto pb-1.5">
-              {entries === null ? (
-                <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
-              ) : rows.length === 0 ? (
+            <div
+              data-arc-list
+              // The marks dim while the keys are elsewhere (selection.css), File
+              // Explorer's inactive selection (#524).
+              data-inactive={!listFocused || undefined}
+              onFocus={() => setListFocused(true)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setListFocused(false)
+              }}
+              className="min-h-0 flex-1 overflow-y-auto pb-1.5"
+            >
+              {entries === null ? null : rows.length === 0 ? (
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">
-                  {cwd ? 'empty folder' : 'empty archive'}
+                  {cwd ? EMPTY_FOLDER : EMPTY_ARCHIVE}
                 </div>
               ) : (
                 <ul
@@ -802,23 +828,25 @@ function ArchiveInner({
                           tabIndex={0}
                           data-arc-row={r.path}
                           aria-selected={sel.items.has(r.path)}
-                          data-selected={sel.items.has(r.path) || undefined}
+                          data-selected={(sel.items.has(r.path) && dropTarget !== r.path) || undefined}
                           className={`flex h-[28px] w-full cursor-pointer items-center gap-2 px-4 text-left text-[12.5px] outline-none ${
                             dropTarget === r.path
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
-                                ? // The tint is in `style`: a zip's list is a
+                                ? // The tint is selection.css's: a zip's list is a
                                   // file selection like the Explorer's (#257).
                                   'text-[var(--p-text-soft)]'
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
-                          style={
-                            dropTarget !== r.path && sel.items.has(r.path)
-                              ? markedLook({
-                                  top: rowIndex > 0 && sel.items.has(rows[rowIndex - 1].path),
-                                  bottom: rowIndex < rows.length - 1 && sel.items.has(rows[rowIndex + 1].path)
-                                })
-                              : undefined
+                          data-join-up={
+                            (rowIndex > 0 && sel.items.has(r.path) && sel.items.has(rows[rowIndex - 1].path)) ||
+                            undefined
+                          }
+                          data-join-down={
+                            (rowIndex < rows.length - 1 &&
+                              sel.items.has(r.path) &&
+                              sel.items.has(rows[rowIndex + 1].path)) ||
+                            undefined
                           }
                           // A drag out is a move or an extraction and a drop in
                           // is a write, and the phone has neither (#106).
@@ -856,29 +884,15 @@ function ArchiveInner({
                             }
                           }}
                         >
-                          {r.dir ? (
-                            <svg
-                              viewBox="0 0 24 24"
-                              width={14}
-                              height={14}
-                              fill="var(--p-tree-folder)"
-                              className="shrink-0"
-                              aria-hidden
-                            >
-                              <path d="M2.8 6.2A1.8 1.8 0 0 1 4.6 4.4h4.3l2 2h8.5a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8z" />
-                            </svg>
-                          ) : (
-                            <KindIcon
-                              kind={fileKind(extOf(r.name), r.name)}
-                              // A marked row is a tint, so the icon keeps its
-                              // colours, as in the tree and the Explorer; its
-                              // knockouts are the tint as seen over the viewer.
-                              color={iconColour(fileKind(extOf(r.name), r.name))}
-                              bg={sel.items.has(r.path) ? 'var(--p-sel-tint-seen)' : undefined}
-                              ext={extOf(r.name)}
-                              name={r.name}
-                            />
-                          )}
+                          {/* A marked row is a tint, so the icon keeps its colours,
+                              as in the tree and the Explorer. */}
+                          <EntryIcon
+                            kind={r.dir ? 'folder' : fileKind(extOf(r.name), r.name)}
+                            ext={extOf(r.name)}
+                            name={r.name}
+                            selected={sel.items.has(r.path)}
+                            ground={GROUND_SIDE}
+                          />
                           <span className="min-w-0 flex-1 truncate">{r.name}</span>
                           {r.encrypted && <LockBadge />}
                           <span className={`${COL_TYPE} text-[11px] ${colTone(r.path)}`}>
@@ -917,13 +931,13 @@ function ArchiveInner({
             {band && (
               <div
                 data-arc-band
-                className="pointer-events-none absolute rounded-[3px] border border-[color:var(--p-sel-hue-hi)]"
+                className="pointer-events-none absolute"
                 style={{
+                  ...SWEEP_BAND_LOOK,
                   left: band.x,
                   top: band.y,
                   width: band.w,
-                  height: band.h,
-                  background: 'color-mix(in srgb, var(--p-sel-hue) 22%, transparent)'
+                  height: band.h
                 }}
               />
             )}
@@ -935,7 +949,7 @@ function ArchiveInner({
         <div className="absolute inset-0 z-20 grid place-items-center bg-[var(--p-bg)]/70">
           <div className="flex items-center gap-3 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-4 py-3 text-[13px] text-[var(--p-text)]">
             <Spinner small />
-            <span className="min-w-0 truncate">Opening {opening}...</span>
+            <span className="min-w-0 truncate">Opening {opening}…</span>
           </div>
         </div>
       )}
@@ -1002,6 +1016,7 @@ function ArchiveInner({
           onClose={() => setPanelMenu(null)}
           items={archivePanelMenu({
             archivePath: file.path,
+            zip: file.name,
             caps,
             writable,
             busy: busy !== null,
@@ -1023,6 +1038,7 @@ function ArchiveInner({
             multi: menu.multi,
             caps,
             writable,
+            zip: file.name,
             membersUnder: under,
             filesOf,
             setCwd,
@@ -1040,21 +1056,6 @@ function ArchiveInner({
         />
       )}
       {ops.dialogs}
-      {renamingSelf && (
-        // Renaming the archive itself. The answer goes to App, which owns
-        // renaming (taken names, following the open file, the undo stack).
-        <BrowseRename
-          title="Rename archive"
-          select="stem"
-          name={file.name}
-          onCancel={() => setRenamingSelf(false)}
-          onSave={(v) => {
-            setRenamingSelf(false)
-            const next = v.trim()
-            if (next && next !== file.name) onRenameSelf?.(next)
-          }}
-        />
-      )}
 
     </div>
   )

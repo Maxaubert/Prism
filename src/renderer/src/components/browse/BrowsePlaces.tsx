@@ -1,7 +1,7 @@
 import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
 import { baseName, extOf } from '@shared/path'
-import { FolderIcon, KindIcon } from '../icons/FileIcons'
+import { EntryIcon, GROUND_SIDE } from '../icons/EntryIcon'
 import { ContextMenu } from '../ContextMenu'
 import { placesMenu } from '../../menus/places'
 import { setDrag } from '../../lib/drag/dragDrop'
@@ -315,15 +315,13 @@ export function BrowsePlaces({
               {(() => {
                 const fallback = known ? (
                   <PlaceIcon name={known} />
-                ) : pin.isFolder ? (
-                  <FolderIcon color="var(--p-tree-folder)" />
                 ) : (
-                  <KindIcon
-                    kind={fileKind(ext, pin.label)}
+                  <EntryIcon
+                    kind={pin.isFolder ? 'folder' : fileKind(ext, pin.label)}
                     ext={ext}
                     name={pin.label}
-                    size={18}
-                    color="var(--p-text-soft)"
+                    size={pin.isFolder ? undefined : 18}
+                    ground={GROUND_SIDE}
                   />
                 )
                 // A pin's own icon wears the row's ink, as the Known Folder

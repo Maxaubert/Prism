@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
-import { SWITCH_KNOB_ON, SWITCH_ON } from 'prism-term-core/renderer/settings/fields'
+import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
+import { SWITCH_KNOB_ON, SWITCH_ON, Slider } from 'prism-term-core/renderer/settings/fields'
 import type { MediaControls } from '../hooks/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { useDismiss } from '../hooks/useDismiss'
 import type { SubTrackInfo } from '../hooks/useSubtitles'
 import { Gear, Icon } from './icons/Icon'
+import { MENU_PANEL, MENU_ROW, MENU_ROW_INK, stepRow } from './menuLook'
 
 // The cog at the right of both transports, where the speed button used to be.
 // SUBMENUS since #122 (owner: "things should be split into sub menus, not all
@@ -32,7 +33,7 @@ function Toggle({
       aria-checked={on}
       title={hint}
       onClick={() => onChange(!on)}
-      className="flex h-[30px] w-full items-center justify-between px-3 text-[12.5px] text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+      className={`${MENU_ROW} ${MENU_ROW_INK}`}
     >
       {label}
       <span
@@ -58,8 +59,6 @@ function Toggle({
   )
 }
 
-const Rule = (): JSX.Element => <div className="my-1 h-px bg-[var(--p-divider)]" />
-
 const Chevron = ({ back = false }: { back?: boolean }): JSX.Element => (
   <Icon name="chevronRight" size={12} weight="2.2" className={back ? 'rotate-180' : ''} />
 )
@@ -82,7 +81,7 @@ function MenuRow({
       aria-haspopup="menu"
       data-menu-row={id}
       onClick={onOpen}
-      className="flex h-[30px] w-full items-center justify-between gap-2 px-3 text-[12.5px] text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+      className={`gap-2 ${MENU_ROW} ${MENU_ROW_INK}`}
     >
       <span className="shrink-0">{label}</span>
       <span className="flex min-w-0 items-center gap-1.5 text-[var(--p-dim2)]">
@@ -102,13 +101,17 @@ function BackRow({ label, onBack }: { label: string; onBack: () => void }): JSX.
       role="menuitem"
       data-menu-back
       onClick={onBack}
-      className="flex h-[30px] w-full items-center gap-2 border-b border-[color:var(--p-divider)] px-3 text-[12.5px] font-semibold text-[var(--p-text)] transition-colors hover:bg-[var(--p-hover)]"
+      className={`justify-start gap-2 font-semibold ${MENU_ROW} text-[var(--p-text)] hover:bg-[var(--p-hover)]`}
     >
       <Chevron back />
       {label}
     </button>
   )
 }
+
+/** The menu's focusable rows, in order (the Custom reset and the slider are Tab's). */
+const menuRows = (el: HTMLElement | null): HTMLElement[] =>
+  [...(el?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
 
 type Level = 'top' | 'speed' | 'audio' | 'subtitles' | 'picture'
 
@@ -158,6 +161,7 @@ export function PlayerMenu({
   const [level, setLevel] = useState<Level>('top')
   const prefs = usePlayerPrefs()
   const box = useRef<HTMLDivElement>(null)
+  const sheet = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     onOpenChange?.(open)
@@ -184,6 +188,27 @@ export function PlayerMenu({
         })
     }
   )
+
+  // Keyboard (#522): moving between levels unmounts the row that had the
+  // focus, which dropped it on the page. The new level's first row takes it
+  // back (not on the first open: the cog keeps the focus then).
+  const lastLevel = useRef<Level>('top')
+  useEffect(() => {
+    if (!open || lastLevel.current === level) return
+    lastLevel.current = level
+    menuRows(sheet.current)[0]?.focus()
+  }, [open, level])
+  useEffect(() => {
+    if (!open) lastLevel.current = 'top'
+  }, [open])
+  /** Up and Down walk the rows, wrapping, like the right-click menu. */
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const list = menuRows(sheet.current)
+    if (list.length === 0) return
+    e.preventDefault()
+    list[stepRow(list.length, list.indexOf(document.activeElement as HTMLElement), e.key)].focus()
+  }
 
   const audioValue = audio ? (audio.tracks.find((t) => t.index === audio.active)?.label ?? 'Default') : ''
   const subsValue = subtitles ? (subtitles.tracks.find((t) => t.path === subtitles.active)?.label ?? 'Off') : ''
@@ -213,6 +238,8 @@ export function PlayerMenu({
 
       {open && (
         <div
+          ref={sheet}
+          onKeyDown={onKeyDown}
           role="menu"
           aria-label="Player settings"
           data-menu-level={level}
@@ -221,7 +248,7 @@ export function PlayerMenu({
           data-player-menu
           // max-h + scroll: short windows would otherwise clip the menu against
           // the viewer pane's overflow-hidden with no way to reach the bottom.
-          className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
+          className={`absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto font-normal [scrollbar-width:thin] ${MENU_PANEL}`}
         >
           {level === 'top' && (
             <>
@@ -233,7 +260,6 @@ export function PlayerMenu({
               {picture && (
                 <MenuRow id="picture" label="Aspect ratio" value={pictureValue} onOpen={() => setLevel('picture')} />
               )}
-              <Rule />
               <Toggle
                 label="Loop"
                 hint="Start this file over when it ends."
@@ -277,18 +303,17 @@ export function PlayerMenu({
                 </button>
               </div>
               <div className="px-3 pb-2">
-                <input
-                  type="range"
+                <Slider
+                  variant="menu"
                   min={0.25}
                   max={2}
                   step={0.05}
                   value={c.rate}
-                  onChange={(e) => c.setRate(Number(e.target.value))}
-                  onDoubleClick={() => c.setRate(1)}
-                  aria-label="Playback speed"
-                  data-menu-slider
-                  className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                  style={{ accentColor: 'var(--p-accent-solid)' }}
+                  onChange={c.setRate}
+                  onReset={() => c.setRate(1)}
+                  label="Playback speed"
+                  format={speedLabel}
+                  data={{ 'data-menu-slider': '' }}
                 />
               </div>
             </div>
@@ -347,8 +372,8 @@ function SubRow({ label, active, onPick }: { label: string; active: boolean; onP
       role="menuitemradio"
       aria-checked={active}
       onClick={onPick}
-      className={`flex h-[28px] w-full items-center justify-between px-3 text-[12.5px] transition-colors hover:bg-[var(--p-hover)] ${
-        active ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+      className={`${MENU_ROW} hover:bg-[var(--p-hover)] ${
+        active ? 'text-[var(--p-accent-hi)]' : MENU_ROW_INK
       }`}
     >
       <span className="truncate">{label}</span>

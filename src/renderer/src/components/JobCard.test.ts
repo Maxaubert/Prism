@@ -79,8 +79,10 @@ describe('every long file job draws the one component', () => {
   it('the hold, the extract window and the landing rows and tiles import ProgressBar or JobCard', () => {
     expect(read('./browse/BusyBar.tsx')).toContain('JobCard')
     expect(read('./ExtractWindow.tsx')).toContain('JobCard')
-    expect(read('./browse/BrowseList.tsx')).toContain('ProgressBar')
-    expect(read('./browse/GridTile.tsx')).toContain('ProgressBar')
+    // Both draw LandingBar (#524), which is the ProgressBar.
+    expect(read('./browse/BrowseList.tsx')).toContain('LandingBar')
+    expect(read('./browse/GridTile.tsx')).toContain('LandingBar')
+    expect(read('./browse/LandingBar.tsx')).toContain('ProgressBar')
   })
   it('and none keeps a bar of its own', () => {
     for (const f of ['./browse/BusyBar.tsx', './ExtractWindow.tsx', './browse/BrowseList.tsx', './browse/GridTile.tsx']) {

@@ -3,6 +3,7 @@ import { browsableArchive, segments } from '@shared/archivePlace'
 import { KindIcon } from './icons/FileIcons'
 import { FileMenuIcon } from './icons/FileMenuIcon'
 import './browse/archive.css'
+import './browse/place-strip.css'
 
 /** The innermost archive a member's path runs through, by its name. */
 function zipOf(path: string): string {
@@ -34,7 +35,7 @@ export function MemberNote({
         In <strong>{zip}</strong>, read-only. Extract it to make changes.
       </span>
       <button
-        className="browse-archive-button"
+        className="browse-place-button"
         disabled={busy}
         data-member-extract
         onClick={() => {

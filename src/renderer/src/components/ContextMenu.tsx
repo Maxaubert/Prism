@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from './icons/Icon'
 import { onOverlayScrollbar } from '../lib/overlayScroll'
 import { listenOn, ownDocument, ownWindow, viewerWindows } from '../lib/ownWindow'
+import { MENU_PANEL, MENU_ROW, MENU_ROW_INK } from './menuLook'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -33,10 +34,8 @@ export interface MenuItem {
   trailing?: { icon: JSX.Element; title: string; onClick: () => void }
 }
 
-const PANEL =
-  // Flat surface colour: --p-title is translucent on glass styles, and a menu
-  // you can read the file names through is noise, not material.
-  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-raised)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
+// The panel and row look is shared with the player's menu (menuLook.ts).
+const PANEL = `max-h-[calc(100dvh-16px)] ${MENU_PANEL}`
 
 function Row({
   it,
@@ -58,10 +57,10 @@ function Row({
       aria-expanded={it.children ? expanded : undefined}
       onClick={() => onPick(it)}
       onPointerEnter={(e) => onHover(e.currentTarget)}
-      className={`flex h-[28px] w-full items-center justify-between gap-8 border-t border-[color:var(--p-divider)] px-[11px] text-left text-[12px] transition-colors first:border-t-0 disabled:cursor-default disabled:opacity-50 ${
+      className={`gap-8 ${MENU_ROW} ${
         it.danger
           ? 'text-[#d97b84] hover:bg-[#b4353f]/20 hover:text-[#f0a4ab]'
-          : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
+          : `${MENU_ROW_INK} ${
               expanded ? 'bg-[var(--p-hover)] text-[var(--p-text)]' : ''
             }`
       }`}
