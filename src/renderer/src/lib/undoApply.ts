@@ -42,6 +42,9 @@ export interface UndoOps {
   >
 }
 
+const EMPTIED =
+  'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+
 type ZipMove = Extract<UndoEntry, { kind: 'archive-move' }>
 
 /** The folder a name inside a zip is in, '' at its root. */
@@ -129,14 +132,14 @@ export async function undoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       }
       // The name is free again only now, so the replaced file comes back
       // after the mover has left, not before.
-      if (entry.replaced?.length) await prism.restoreFromBin(entry.replaced)
+      if (entry.replaced?.length && !(await prism.restoreFromBin(entry.replaced))) ops.fail(EMPTIED)
       ops.refresh()
       ops.land?.(landed)
       return { ...entry, items, replaced: undefined }
     }
     case 'rename': {
       const back = await ops.rename(entry.to, baseName(entry.from))
-      if (entry.replaced) await prism.restoreFromBin([entry.replaced])
+      if (entry.replaced && !(await prism.restoreFromBin([entry.replaced]))) ops.fail(EMPTIED)
       ops.refresh()
       if (back) ops.land?.([back])
       return back ? { ...entry, from: back, replaced: undefined } : entry
@@ -260,20 +263,27 @@ export async function redoEntry(entry: UndoEntry, ops: UndoOps): Promise<UndoEnt
       return again ? { ...entry, to: again } : entry
     }
     case 'trash': {
+      // Only what the bin really took stays in the entry (audit #35): a locked
+      // file is said, and an undo then asks the bin for what it holds.
+      const binned: string[] = []
       let done = 0
       for (const p of entry.paths) {
         if (ops.signal?.aborted) break
-        await prism.trashFile(p)
+        if (await prism.trashFile(p)) binned.push(p)
         done += 1
         ops.progress?.(done, entry.paths.length)
       }
       ops.refresh()
-      if (done < entry.paths.length)
+      if (done < entry.paths.length) {
         ops.stopped?.(
-          done ? { ...entry, paths: entry.paths.slice(0, done) } : null,
+          binned.length ? { ...entry, paths: binned } : null,
           { ...entry, paths: entry.paths.slice(done) }
         )
-      break
+        break
+      }
+      if (binned.length < entry.paths.length)
+        ops.fail(`${entry.paths.length - binned.length} of ${entry.paths.length} could not be moved to the Recycle Bin.`)
+      return binned.length && binned.length < entry.paths.length ? { ...entry, paths: binned } : undefined
     }
     case 'unbin': {
       // Restore them again, exactly what `trash`'s undo does (D18).

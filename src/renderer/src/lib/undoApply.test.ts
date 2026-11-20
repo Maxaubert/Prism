@@ -443,3 +443,28 @@ describe('archive-move', () => {
     ).toEqual(['docs/', 'docs/img/', 'docs/img/logo.png'])
   })
 })
+
+describe('a step the bin or Windows refuses is said (audit #35)', () => {
+  it('a redone delete keeps only what the bin took, and says what it left', async () => {
+    const ops = fakeOps({ trashFile: async (p: string) => p !== 'C:\\d\\locked.docx' })
+    const again = await redoEntry({ kind: 'trash', paths: ['C:\\d\\a.txt', 'C:\\d\\locked.docx'] }, ops)
+    expect(again).toEqual({ kind: 'trash', paths: ['C:\\d\\a.txt'] })
+    expect(ops.fail).toHaveBeenCalledWith(expect.stringContaining('1 of 2'))
+  })
+  it('a redone delete the bin took whole says nothing', async () => {
+    const ops = fakeOps()
+    expect(await redoEntry({ kind: 'trash', paths: ['C:\\d\\a.txt'] }, ops)).toBeUndefined()
+    expect(ops.fail).not.toHaveBeenCalled()
+  })
+  it('an undone move or rename says when the replaced file would not come back', async () => {
+    const ops = fakeOps({ restoreFromBin: async () => false })
+    await undoEntry(
+      { kind: 'move', items: [{ from: 'C:\\a\\x.txt', to: 'C:\\b\\x.txt' }], replaced: ['C:\\a\\x.txt'] },
+      ops
+    )
+    expect(ops.fail).toHaveBeenCalledTimes(1)
+    const ops2 = fakeOps({ restoreFromBin: async () => false })
+    await undoEntry({ kind: 'rename', from: 'C:\\d\\a.txt', to: 'C:\\d\\b.txt', replaced: 'C:\\d\\b.txt' }, ops2)
+    expect(ops2.fail).toHaveBeenCalledTimes(1)
+  })
+})
