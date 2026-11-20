@@ -64,7 +64,7 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
     }
     return endpoint.want(sink, tab, gen, items)
   })
-  on(CALL.thumbsCancel, (_e, tab: unknown) => endpoint?.cancel(tab))
+  on(CALL.thumbsCancel, (e, tab: unknown) => endpoint?.cancel(tab, e.sender.id))
   on(CALL.thumbsFilm, (e, playing: unknown) => {
     if (windows.isPrismPage(e.sender)) endpoint?.film(e.sender.id, playing === true)
   })
