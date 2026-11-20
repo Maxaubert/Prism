@@ -237,8 +237,9 @@ Filesmith's conventions.
     the pure stack); leaving the window and the update install `hooks/useWindowClose.ts`;
     fullscreen and its fade `hooks/useFullscreenVeil.ts`; the window's keys `hooks/useAppKeys.ts`;
     the tabs (new, close, recent,
-    pick, reorder) `hooks/useTabOps.ts`; the session's tab and shell ids
-    `lib/sessionIds.ts`.
+    pick, reorder) `hooks/useTabOps.ts`; the unsaved text buffers and dirty paths `hooks/useTextBuffers.ts`;
+    the warm viewers and their cooldown `hooks/useWarmViewers.ts` (#538 item 9); the session's tab and shell ids
+    `lib/sessionIds.ts`. FolderBrowser's key answers are the pure `components/browse/folderKeys.ts`.
   - the archive panel's parts (ArchiveView.tsx): `components/archive/` (`useArchiveListing` the
     members and the reload, `useBandSelect` the drag-select band, `entry.ts` the row shape and
     columns, `MemberView`, `LockBadge`, `RenameInput`, `ArcVerb`; the verbs stay
@@ -270,6 +271,12 @@ Filesmith's conventions.
     `HLS_MIME`).
   - the bundled programs: `src/main/bundledTools.ts` (`ffmpegTools()`, `sevenExe()`,
     `fluidTools()`), never `findFfmpeg(app.isPackaged, ...)` spelled out.
+    Where each one is searched for (resources/bin, or a vendor/<name> walk up four parents) is one
+    helper, `src/main/vendorDirs.ts` (`vendorDirs`), not a copy per program.
+  - the IPC handlers validate and delegate; the work sits beside them: the paste engine
+    (`src/main/pasteJob.ts` `runPaste`, with `PASTE_TICK_MS`) and the Undo restore job
+    (`src/main/binRestore.ts` `runRestore`, with the shell fallback) take a `send` and a `written`
+    callback, so a test needs no ipcMain.
   - what several parts of main share about the app right now (the window, unsaved text, a
     working agent, the close answer, an install or quit under way): `src/main/appState.ts`
     (`appState`, and `E2E`). Read and written in place, never copied out.
@@ -277,9 +284,12 @@ Filesmith's conventions.
     fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
     flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
     dialogs, `pickFolder`, `pickFiles`, `pickIconFile`), `phone/index.ts` (`startPhoneService`, pos:*).
+    `windowRecovery.ts` (#538 item 6: the crash log and the rebuild, give-up and live-page paths, `createWindowRecovery`),
+    `openQueue.ts` (files from outside waiting for a window, `createOpenQueue`), `windowOptions.ts` (`WindowOptions`).
+    Still in index.ts: `createWindow` and its restore, spare/ghost/preview/tear wiring, Win+E routing.
   - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `browse`,
     `props`, `media`, `archive`, `folderIcons`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
-    in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
+    in the order the handlers were always registered; `ctx` (`MainCtx`, declared in `ipc/context.ts`) is index.ts's shared
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
     area's file, never back into index.ts. Prism has several windows in one process
     (2026-10-29): push through the registry, `windows` in `appState.ts`
@@ -295,6 +305,11 @@ Filesmith's conventions.
     paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
     results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main
     returns them, the preload promises them, the phone shim answers them.
+  - the typed contract (#538 item 27): `src/shared/ipcContract.ts` maps a channel to its arguments and answer
+    (`InvokeContract`, `SendContract`). The preload's `invoke`/`send` and main's `ipc/typed.ts`
+    `handle`/`on` read it, so one side drifting is a type error. Migrated so far: `open.ts`, `links.ts`,
+    `thumbs.ts`; a channel not in the map still uses the plain `ipcRenderer`/`ipcMain`. Move an area in
+    by adding its rows and switching its two ends.
   - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
     fallback)` in `src/preload/index.ts`.
   - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`

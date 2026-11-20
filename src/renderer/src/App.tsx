@@ -39,6 +39,8 @@ import {
 } from './lib/tabs/tabs'
 import { fileKind, isMarkdown } from '@shared/fileKind'
 import { baseName, extOf } from '@shared/path'
+import { useTextBuffers } from './hooks/useTextBuffers'
+import { useWarmViewers } from './hooks/useWarmViewers'
 import UpdateChip from 'prism-term-core/renderer/components/UpdateChip'
 import UpdateDialog from 'prism-term-core/renderer/components/UpdateDialog'
 import { TopBar } from './components/titlebar/TopBar'
@@ -108,12 +110,10 @@ import {
   type TransportStyle
 } from './lib/transport'
 import { deckOf } from './lib/mediaDeck'
-import { warmOf } from './lib/viewerCache'
 
 /** How long a viewer stays in memory after the window stops being the one in
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
-const WARM_COOLDOWN_MS = 60_000
 import { carriesOn, heldPaused, intendToPlay } from './lib/playState'
 import { ownDrop, setDrag } from './lib/drag/dragDrop'
 import { useInternalFileDrag } from './lib/drag/internalFileDrag'
@@ -286,89 +286,25 @@ export default function App(): JSX.Element {
   // docVersion so the rendered view re-reads what was written.
   const [editMode, setEditMode] = useState(false)
   const [docVersion, setDocVersion] = useState(0)
+  const activeIdRef = useRef<string | null>(null)
   // Unsaved text lives HERE, keyed by path, not inside the editor. That is what
   // lets you edit a file, look at three others, come back, and find your edits
   // still sitting there - and it is why leaving a file now asks nothing. Only
   // closing the window can actually destroy any of it, so only closing asks.
   // Keyed case-insensitively, as Windows paths are, but keeping the real path:
   // that is what gets written, and what the tree matches its rows against.
-  const buffers = useRef(new Map<string, { path: string; text: string }>())
-  const bufferOwners = useRef(new Map<string, Set<string>>())
-  const [dirtyPaths, setDirtyPaths] = useState<ReadonlySet<string>>(new Set())
-  // The names as they are actually spelled. dirtyPaths is lowercased for
-  // matching, which is no way to address someone's file in a dialog.
-  const [unsavedNames, setUnsavedNames] = useState<readonly string[]>([])
-  const syncDirty = useCallback(() => {
-    setDirtyPaths(new Set(buffers.current.keys()))
-    setUnsavedNames([...buffers.current.values()].map((b) => baseName(b.path)))
-    // Main needs this too: it is what holds the window open on a close.
-    window.prism.setDirty(buffers.current.size > 0)
-  }, [])
-  /**
-   * A file Prism just binned has no unsaved text to save (2026-08-30).
-   *
-   * `file:write` no longer demands the target exist, which is what lets a
-   * file renamed out from under a dirty buffer still be saved. The other side
-   * of that coin is this: without dropping the buffer, closing the window and
-   * answering "Save all changes" would RECREATE a file the user had put in
-   * the Recycle Bin. Prism did the deleting, so Prism knows.
-   */
-  const dropBuffers = useCallback(
-    (paths: readonly string[]) => {
-      let hit = false
-      for (const gone of paths) {
-        const under = gone.toLowerCase()
-        for (const key of [...buffers.current.keys()]) {
-          // A folder takes its files with it.
-          if (key === under || key.startsWith(under + '\\')) {
-            buffers.current.delete(key)
-            hit = true
-          }
-        }
-      }
-      if (hit) syncDirty()
-    },
-    [syncDirty]
-  )
-
-  /**
-   * ...and a file Prism RENAMED keeps its unsaved text, under the new name.
-   * Dropping it here would throw away the work; leaving it under the old name
-   * would recreate the old file on the next save.
-   */
-  const rekeyBuffer = useCallback(
-    (from: string, to: string) => {
-      const old = from.toLowerCase()
-      const buf = buffers.current.get(old)
-      if (!buf) return
-      buffers.current.delete(old)
-      buffers.current.set(to.toLowerCase(), { path: to, text: buf.text })
-      for (const owned of bufferOwners.current.values())
-        if (owned.delete(old)) owned.add(to.toLowerCase())
-      syncDirty()
-    },
-    [syncDirty]
-  )
-
-  /** What the editor should show for a file: unsaved text if we kept any. */
-  const getPending = useCallback((p: string) => buffers.current.get(p.toLowerCase())?.text, [])
-  /** The editor reports its buffer as it changes; null once it matches disk. */
-  const onBuffer = useCallback(
-    (path: string, text: string | null) => {
-      const key = path.toLowerCase()
-      if (text === null) buffers.current.delete(key)
-      else {
-        buffers.current.set(key, { path, text })
-        if (activeIdRef.current) {
-          const owned = bufferOwners.current.get(activeIdRef.current) ?? new Set<string>()
-          owned.add(key)
-          bufferOwners.current.set(activeIdRef.current, owned)
-        }
-      }
-      syncDirty()
-    },
-    [syncDirty]
-  )
+  const {
+    buffers,
+    bufferOwners,
+    dirtyPaths,
+    unsavedNames,
+    syncDirty,
+    dropBuffers,
+    rekeyBuffer,
+    getPending,
+    onBuffer,
+    saveAll
+  } = useTextBuffers(activeIdRef)
   /**
    * Something outside Prism rewrote a file that holds unsaved edits
    * (2026-08-31). The editor swaps a CLEAN file silently - taking the new
@@ -380,17 +316,6 @@ export default function App(): JSX.Element {
   const onExternalChange = useCallback((path: string) => {
     setAsk({ kind: 'file-changed', path, name: baseName(path) })
   }, [])
-  /** Write every unsaved buffer. Returns the paths that could not be written,
-   *  so a failing disk cancels the close instead of eating the work. */
-  const saveAll = useCallback(async (): Promise<string[]> => {
-    const failed: string[] = []
-    for (const [key, buf] of [...buffers.current]) {
-      if ((await window.prism.writeText(buf.path, buf.text)).ok) buffers.current.delete(key)
-      else failed.push(buf.path)
-    }
-    syncDirty()
-    return failed
-  }, [syncDirty])
   const [refreshKey, setRefreshKey] = useState(0)
   const browsing = useFolderBrowsing(active, setTabState, refreshKey)
   // A file from outside goes to the Explorer tab (2026-09-22). The fullscreen
@@ -636,7 +561,6 @@ export default function App(): JSX.Element {
   // Where the active tab is rooted, for handlers that must stay stable (the
   // + is handed to main once and must not be rebuilt whenever a tab changes).
   const activeRootRef = useRef<string | undefined>(undefined)
-  const activeIdRef = useRef<string | null>(null)
   useEffect(() => {
     activeRootRef.current = tabs.find((t) => t.id === activeId)?.root
     activeIdRef.current = activeId
@@ -1128,28 +1052,7 @@ export default function App(): JSX.Element {
    * session. The timer only ever RELEASES, so the worst a missed signal can
    * do is keep memory that the next switch will bound anyway.
    * ------------------------------------------------------------------ */
-  const [keepWarm, setKeepWarm] = useState(true)
-  useEffect(() => {
-    let cool: ReturnType<typeof setTimeout> | null = null
-    const off = window.prism.onWindowState((st) => {
-      if (cool) {
-        clearTimeout(cool)
-        cool = null
-      }
-      if (st.focused && !st.minimised) setKeepWarm(true)
-      else cool = setTimeout(() => setKeepWarm(false), WARM_COOLDOWN_MS)
-    })
-    return () => {
-      if (cool) clearTimeout(cool)
-      off()
-    }
-  }, [])
-  const warmOrder = useRef<string[]>([])
-  const warm = useMemo(() => {
-    const next = warmOf(tabs, warmOrder.current, activeId, keepWarm)
-    warmOrder.current = next.order
-    return next.entries
-  }, [tabs, activeId, keepWarm])
+  const warm = useWarmViewers(tabs, activeId)
 
   // Autoplay's landing: the next file of the SAME kind, however many images or
   // documents sit between - a folder of episodes plays like a season, whatever

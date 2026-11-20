@@ -57,7 +57,7 @@ describe('the IPC channel table', () => {
       expect(preload, `PUSH.${k} heard by the preload`).toContain(`PUSH.${k}`)
     }
     for (const k of Object.keys(CALL).filter((k) => !sweep(k))) {
-      expect(main, `CALL.${k} answered by main`).toMatch(new RegExp(`ipcMain\\.(?:handle|on)\\(\\s*CALL\\.${k}\\b`))
+      expect(main, `CALL.${k} answered by main`).toMatch(new RegExp(`(?:ipcMain\\.(?:handle|on)|\\b(?:handle|on))\\(\\s*CALL\\.${k}\\b`))
       expect(preload, `CALL.${k} asked by the preload`).toContain(`CALL.${k}`)
     }
     expect(main).toContain('SWEEP_CHANNELS.')

@@ -1,5 +1,4 @@
 import { cpus } from 'os'
-import { ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import type { ThumbsWantReply } from '@shared/thumbTypes'
 import { windows } from '../appState'
@@ -8,6 +7,7 @@ import { warmCanonical } from '../dirList'
 import { createThumbsEndpoint, type Sink, type ThumbsEndpoint } from '../thumbsEndpoint'
 import type { Thumbs } from '../thumbs'
 import type { MainCtx } from './context'
+import { handle, on } from './typed'
 
 let endpoint: ThumbsEndpoint | null = null
 
@@ -46,7 +46,7 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
       })
     : null
 
-  ipcMain.handle(CALL.thumbsWant, (e, tab: unknown, gen: unknown, items: unknown): Promise<ThumbsWantReply> | ThumbsWantReply => {
+  handle(CALL.thumbsWant, (e, tab: unknown, gen: unknown, items: unknown): Promise<ThumbsWantReply> | ThumbsWantReply => {
     if (!endpoint || !windows.isPrismPage(e.sender)) return { ready: {} }
     wants += 1
     const sender = e.sender
@@ -64,8 +64,8 @@ export function registerThumbsIpc(ctx: MainCtx, thumbs: Thumbs | null): void {
     }
     return endpoint.want(sink, tab, gen, items)
   })
-  ipcMain.on(CALL.thumbsCancel, (_e, tab: unknown) => endpoint?.cancel(tab))
-  ipcMain.on(CALL.thumbsFilm, (e, playing: unknown) => {
+  on(CALL.thumbsCancel, (_e, tab: unknown) => endpoint?.cancel(tab))
+  on(CALL.thumbsFilm, (e, playing: unknown) => {
     if (windows.isPrismPage(e.sender)) endpoint?.film(e.sender.id, playing === true)
   })
 }

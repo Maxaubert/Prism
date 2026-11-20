@@ -1,6 +1,14 @@
 import { lstat, readFile, readdir, rename, unlink } from './userFs'
 import { extname, join } from 'path'
 import { exists } from './fsUtil'
+import { shellBinAllowed } from './binRoots'
+import { PUSH } from '@shared/channels'
+import type { RestoreOutcome } from '@shared/ipcTypes'
+import { execFile } from './spawnWorker'
+import { powershellExe } from './systemBin'
+import { endCopies, startCopies } from './copyJobs'
+import { PASTE_TICK_MS } from './pasteJob'
+import { pctOf } from './pasteCopy'
 import { binDirsFor, ownSid, sidOf } from './binRoots'
 
 export { ownSid, sidOf }
@@ -141,4 +149,99 @@ async function moveBack(path: string, best: { dir: string; id: string }): Promis
   // Its record goes too, or Explorer's bin would list a ghost.
   await unlink(join(best.dir, `$I${best.id}`)).catch(() => {})
   return true
+}
+
+/**
+ * Undo's half of a delete, the part only the shell can do: ask Windows to move
+ * the items back out of its Recycle Bin (`Shell.Application`). MoveHere rather
+ * than InvokeVerb, because the Restore verb's NAME is localised and the
+ * namespace move is not. True when every path came back.
+ */
+export function shellRestore(paths: string[]): Promise<boolean> {
+  const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
+  const script = [
+    '$ErrorActionPreference = "SilentlyContinue"',
+    '$missing = $false',
+    '$sh = New-Object -ComObject Shell.Application',
+    '$bin = $sh.Namespace(0xA)',
+    `foreach ($p in @(${list})) {`,
+    '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
+    '  $item = @($bin.Items() | Where-Object {',
+    '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
+    '  })[-1]',
+    '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
+    '}',
+    // Nothing came back: say so, or undo would claim a restore that never
+    // happened (an emptied Recycle Bin is the common case).
+    'if ($missing) { exit 1 }'
+  ].join('; ')
+  return new Promise<boolean>((done) => {
+    execFile(
+      powershellExe(),
+      ['-NoProfile', '-Command', script],
+      { windowsHide: true, timeout: 20000 },
+      (err) => done(!err)
+    )
+  })
+}
+
+/** What the restore job needs from the IPC layer (#538 item 15). */
+export interface RestoreDeps {
+  send: (channel: typeof PUSH.pasteProgress, payload: unknown) => void
+  written: (...paths: string[]) => Promise<unknown>
+}
+
+/**
+ * Undo's half of a delete: the bin's own folder first (binRestore.ts, a few
+ * small reads), and only what that could not move from the shell. Best effort:
+ * an item the user has since emptied simply is not there any more. With a job
+ * id (the loading bar, owner 2026-11-09) it says how far it has got, stops
+ * between paths on Cancel, and answers what came back.
+ */
+export async function runRestore(
+  deps: RestoreDeps,
+  all: string[],
+  job: string
+): Promise<boolean | RestoreOutcome> {
+  const stop = job ? startCopies(job) : null
+  const paths: string[] = []
+  const direct: string[] = []
+  let cancelled = false
+  let lastSent = 0
+  const index = await binIndex(all)
+  for (const [i, p] of all.entries()) {
+    if (stop?.signal.aborted) {
+      cancelled = true
+      break
+    }
+    if (await restoreIndexed(p, index).catch(() => false)) direct.push(p)
+    else paths.push(p)
+    if (job && Date.now() - lastSent > PASTE_TICK_MS) {
+      lastSent = Date.now()
+      deps.send(PUSH.pasteProgress, {
+        jobId: job,
+        pct: pctOf(i + 1, all.length),
+        count: { done: i + 1, total: all.length }
+      })
+    }
+  }
+  if (job) endCopies(job)
+  if (cancelled) {
+    await deps.written(...all)
+    return { ok: false, restored: direct, left: all.filter((p) => !direct.includes(p)), cancelled: true }
+  }
+  if (!paths.length) {
+    await deps.written(...all)
+    return job ? { ok: true, restored: all, left: [], cancelled: false } : true
+  }
+  // Under the e2e seam the shell is not asked: its walk would read the owner's
+  // REAL bin. What the fake bin does not hold is simply not there.
+  if (!shellBinAllowed()) {
+    await deps.written(...all)
+    return job ? { ok: false, restored: direct, left: paths, cancelled: false } : false
+  }
+  const asked = shellRestore(paths).finally(() => deps.written(...all))
+  if (!job) return asked
+  const back = await asked
+  return { ok: back, restored: back ? all : direct, left: back ? [] : paths, cancelled: false }
 }
