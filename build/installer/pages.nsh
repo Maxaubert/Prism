@@ -89,9 +89,11 @@ FunctionEnd
 ; Prism gets a folder of its own wherever it is put: nobody means "empty your
 ; Documents folder into this" when they pick Documents.
 Function prismOwnFolder
-  StrLen $0 "${APP_FILENAME}"
+  ; The name WITH its backslash: D:\Tools\NotPrism and D:\MyPrism end in "Prism"
+  ; but are the user's folders, and the uninstaller empties $INSTDIR (audit #21).
+  StrLen $0 "\${APP_FILENAME}"
   StrCpy $1 "$INSTDIR" "" -$0
-  ${If} $1 != "${APP_FILENAME}"
+  ${If} $1 != "\${APP_FILENAME}"
     StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
   ${EndIf}
 FunctionEnd
