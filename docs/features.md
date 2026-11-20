@@ -37,6 +37,8 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **A tall dialog scrolls inside the window and a long name wraps** (audit #41, #42): the dialog box is capped
   to the window height less its margin and scrolls, so Reset, Close and the other buttons stay reachable; the
   title and body break a name with no spaces. Held by `packages/term-core/renderer/components/dialogLook.test.ts`.
+- **The setup pages scroll in a short window** (audit #40): the step column scrolls, so the footer buttons stay
+  reachable. Held by `components/Onboarding.test.ts` (a source check; no unit test can lay the page out).
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
