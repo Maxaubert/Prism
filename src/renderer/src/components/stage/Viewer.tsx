@@ -116,7 +116,7 @@ export function Viewer({
       onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
       onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
       onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember,
-      archiveCardMenu, archiveCardCopy, archiveCardDrop
+      archiveCardMenu, archiveCardCopy, archiveCardDrop, preview, shut
     }
     const gate = (
       <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly unpacked />} />
