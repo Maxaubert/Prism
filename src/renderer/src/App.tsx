@@ -66,6 +66,7 @@ import { usePreviewOpensIn } from './lib/prefs/previewPrefs'
 import { PreviewWindow } from './components/previewWindow/PreviewWindow'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
 import { rekeyPasted, useFilePaste, type PasteResult } from './hooks/useFilePaste'
+import type { StepDir } from './lib/slideshow'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -1086,8 +1087,9 @@ export default function App(): JSX.Element {
     [view]
   )
   const stepSameKind = useCallback(
-    (dir: 1 | -1) => {
-      const i = sameKindIndex(dir)
+    (dir: StepDir) => {
+      const kindNow = view?.files[view.index]?.kind
+      const i = dir === 'first' ? (view?.files.findIndex((f) => f.kind === kindNow) ?? -1) : sameKindIndex(dir)
       if (i < 0 || !active || !view) return
       const next = view.files[i]
       // The playlist carries its own intent (2026-08-28). Nothing autoplays on
