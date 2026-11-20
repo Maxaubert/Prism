@@ -22,7 +22,7 @@ describe('the long-wait channels', () => {
     .join('\n')
   // Main registers each through the shared table (`CALL.x`, 2026-10-12).
   const registered = new Set<string>(
-    [...main.matchAll(/ipcMain\.(?:handle|on)\(\s*CALL\.(\w+)/g)].map(
+    [...main.matchAll(/(?:ipcMain\.(?:handle|on)|\b(?:handle|on))\(\s*CALL\.(\w+)/g)].map(
       (m) => CALL[m[1] as keyof typeof CALL]
     )
   )

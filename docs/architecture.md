@@ -283,9 +283,12 @@ Filesmith's conventions.
     fullscreen, DWM border, `raise`, the window:* messages), `tabsSession.ts` (restore, save,
     flush the strip), `updateFlow.ts` (the offer and update:*), `dialogs.ts` (parented native
     dialogs, `pickFolder`, `pickFiles`, `pickIconFile`), `phone/index.ts` (`startPhoneService`, pos:*).
+    `windowRecovery.ts` (#538 item 6: the crash log and the rebuild, give-up and live-page paths, `createWindowRecovery`),
+    `openQueue.ts` (files from outside waiting for a window, `createOpenQueue`), `windowOptions.ts` (`WindowOptions`).
+    Still in index.ts: `createWindow` and its restore, spare/ghost/preview/tear wiring, Win+E routing.
   - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `browse`,
     `props`, `media`, `archive`, `folderIcons`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
-    in the order the handlers were always registered; `ctx` (`MainCtx`) is index.ts's shared
+    in the order the handlers were always registered; `ctx` (`MainCtx`, declared in `ipc/context.ts`) is index.ts's shared
     state and helpers, `ready` (`ReadyCtx`) what whenReady makes. A new handler goes in its
     area's file, never back into index.ts. Prism has several windows in one process
     (2026-10-29): push through the registry, `windows` in `appState.ts`
@@ -301,7 +304,12 @@ Filesmith's conventions.
     paste, move and archive results, progress payloads, `HostCapabilities`); the extraction
     results (`ExtractFailure` and the per-route answers) in `src/shared/extraction.ts`. Main
     returns them, the preload promises them, the phone shim answers them.
-  - the typed contract (#538 item 27): `src/shared/ipcContract.ts` maps a channel to its arguments and answer\r\n    (`InvokeContract`, `SendContract`). The preload's `invoke`/`send` and main's `ipc/typed.ts`\r\n    `handle`/`on` read it, so one side drifting is a type error. Migrated so far: `open.ts`, `links.ts`,\r\n    `thumbs.ts`; a channel not in the map still uses the plain `ipcRenderer`/`ipcMain`. Move an area in\r\n    by adding its rows and switching its two ends.\r\n  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
+  - the typed contract (#538 item 27): `src/shared/ipcContract.ts` maps a channel to its arguments and answer
+    (`InvokeContract`, `SendContract`). The preload's `invoke`/`send` and main's `ipc/typed.ts`
+    `handle`/`on` read it, so one side drifting is a type error. Migrated so far: `open.ts`, `links.ts`,
+    `thumbs.ts`; a channel not in the map still uses the plain `ipcRenderer`/`ipcMain`. Move an area in
+    by adding its rows and switching its two ends.
+  - the preload's listener and sync-ask shapes: `subscribe<T>(PUSH.x)` and `syncOr(CALL.x,
     fallback)` in `src/preload/index.ts`.
   - the phone's wire: `src/shared/phoneWire.ts` (`ROUTE` names, the `/pair` `/api/` `/m/` `/hls/`
     prefixes, `PlayAnswer`, `Me`, the stat, pos and tab answers). The page's fetch helpers are
