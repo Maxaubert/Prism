@@ -6,7 +6,7 @@ import { IconFull } from '../icons/transport'
 import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdf/pdfSearch'
 import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdf/pdfLinks'
-import { baseZoom, zoomPercent } from '../../lib/pdf/pdfZoom'
+import { baseZoom, FIT_FLOOR, fitScale, padXFor, zoomPercent } from '../../lib/pdf/pdfZoom'
 import { FindBar } from '../FindBar'
 import { LoadingState } from '../LoadingState'
 import { EDITOR, NAV_SURFACE, OVERLAY, isFormField } from '../../lib/focusGuards'
@@ -51,7 +51,6 @@ const STEP = 1.18
 // documents that were already right are unchanged. Fit modes and the absolute
 // clamps still work in pdf.js units.
 const PAGE_GAP = 16
-const PAD_X = 48
 const PAD_Y = 24
 // US Letter, until page 1 announces the document's real size.
 const FALLBACK_DIMS = { w: 612, h: 792 }
@@ -251,14 +250,8 @@ export function PdfView({
   const fitFor = useCallback(
     (m: FitMode): number => {
       if (boxSize.w <= 0 || boxSize.h <= 0) return 1
-      // A pixel of slack, deliberately. Fitting EXACTLY means any rounding
-      // anywhere - the page box, the gutter, a fractional device ratio - lands
-      // on the wrong side and shows a scrollbar for one pixel of overflow.
-      const availW = boxSize.w - PAD_X * 2 - 1
-      const availH = boxSize.h - PAD_Y * 2
-      const fit =
-        m === 'fit-width' ? availW / docBox.w : Math.min(availW / docBox.w, availH / docBox.h)
-      return clamp(fit, MIN_SCALE, MAX_SCALE)
+      // A pixel of slack, and a gutter that shrinks with the box (audit #83): see fitScale.
+      return fitScale(m, boxSize, docBox, PAD_Y, FIT_FLOOR, MAX_SCALE)
     },
     [boxSize, docBox]
   )
@@ -295,7 +288,7 @@ export function PdfView({
     // scale and a second render to correct it, which is the cascade the lint
     // rule is about.
     setOpenedFor(url)
-    if (docBox.w * base > boxSize.w - PAD_X * 2) setMode('fit-width')
+    if (docBox.w * base > boxSize.w - padXFor(boxSize.w) * 2) setMode('fit-width')
   }
   useEffect(() => {
     if (!openedFor) return
@@ -845,7 +838,7 @@ export function PdfView({
         ) : (
           <div
             className="flex min-h-full w-max min-w-full flex-col items-center"
-            style={{ padding: `${PAD_Y}px ${PAD_X}px`, gap: PAGE_GAP }}
+            style={{ padding: `${PAD_Y}px ${padXFor(boxSize.w)}px`, gap: PAGE_GAP }}
           >
             {pages.map((n) => {
               const d = dims.get(n) ?? baseDims

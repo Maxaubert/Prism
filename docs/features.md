@@ -55,6 +55,9 @@ changing a feature: each entry records what the owner decided, why, and what hol
   PDF, video and code pills use `w-max` with a cap (`CENTRED_PILL`), so they no longer squash to half the pane; in
   a narrow code viewer the line/column pill rises above Save. A layout bug, held by `lib/pillLook.test.ts` (the
   classes); the e2e does not measure it.
+- **A PDF fits a narrow pane** (audit #83): the page's side gutter shrinks with the box (48px from 800px wide up)
+  and a fit may go below the 25% zoom floor, so the page is not wider than the pane and opens centred. Held by
+  `lib/pdf/pdfZoom.test.ts` (`padXFor`, `fitScale`).
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
