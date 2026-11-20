@@ -178,9 +178,16 @@ export function createThumbsEndpoint(deps: EndpointDeps) {
       queue.poke()
     },
 
-    /** A window went away. */
+    /** A window went away: its film, and every tab it asked for (a closed
+     *  page sends no cancel, nothing unmounts). */
     forgetSender(senderId: number): void {
       films.delete(senderId)
+      for (const [tab, sink] of [...sinks]) {
+        if (sink.id !== senderId) continue
+        latest.delete(tab)
+        sinks.delete(tab)
+        queue.cancel(tab)
+      }
       queue.poke()
     },
 

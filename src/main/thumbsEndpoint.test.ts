@@ -245,4 +245,19 @@ describe('thumbs:want', () => {
     await flush()
     expect(s.made).toHaveLength(3)
   })
-})
+
+  it('a window that goes drops what its tabs still wait for (audit #36)', async () => {
+    const s = setup({ hold: true })
+    await s.ep.want(s.sink(1), 'tab', 1, wants(Array.from({ length: 10 }, (_, i) => `C:\\f\\${i}.jpg`)))
+    await s.ep.want(s.sink(2), 'other', 1, wants(['C:\\g\\a.jpg']))
+    await flush()
+    const started = s.made.filter((f) => f.startsWith('C:\\f\\')).length
+    s.ep.forgetSender(1)
+    for (let i = 0; i < 20; i++) {
+      s.finishMake.splice(0).forEach((f) => f())
+      await flush()
+    }
+    // Window 2's picture is still made; window 1's queue is not worked through.
+    expect(s.made.filter((f) => f.startsWith('C:\\f\\')).length).toBe(started)
+    expect(s.made).toContain('C:\\g\\a.jpg')
+  })})
