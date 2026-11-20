@@ -3,6 +3,25 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit wave B: behaviour fixes (2026-11-21)
+
+- **A window made from standby takes the kept session entry over** (audit #5). `openAsFirst` hands the
+  old entry to the new window and drops every other kept one, so a stale strip cannot outrank a later
+  Win+E window and the file does not grow per cycle. Held by `src/main/session.test.ts`.
+- **Archive members and folder copies go in the run's member folder** (audit #15, #26). Viewing or
+  copying a member, and "Copy" on an archive folder, no longer leave a temp folder per use: members get
+  one slot per unchanged container under the size cap, and everything goes at quit or the next start.
+  Held by `src/main/archiveTempRun.test.ts`.
+- **A decrypted AES member does not stay in temp** (audit #16): extracting it out or renaming it removes
+  its 7-Zip folder. Held by `src/main/zipAesTemp.test.ts`.
+- **Thumbnails of a closed window stop** (audit #36) and **a window's film flag goes with it** (audit
+  #50): the window's destroy cancels its tabs' queue and clears its film, even if it never asked for a
+  tile. Held by `src/main/thumbsEndpoint.test.ts` and `src/main/ipc/thumbs.test.ts`.
+- **A rebuilt or torn-off tab's tiles are answered** (audit #59): a new page asking for a tab starts it
+  afresh, and a page's cancel counts only while it owns the tab. Held by `src/main/thumbsEndpoint.test.ts`.
+- **A stop that lands while a follow is starting wins** (audit #49): a stop, or a newer start for the same
+  file and window, cancels the older start, so no poll timer leaks and no chunk is appended twice. Held by
+  `src/main/fileTail.test.ts`.
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
 mammoth reads a `.docx` with `@xmldom/xmldom`. `package.json` carries an npm `overrides` entry

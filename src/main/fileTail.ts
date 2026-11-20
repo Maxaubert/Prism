@@ -59,6 +59,10 @@ const POLL_MS = 500
 
 const key = (p: string, owner = ''): string => `${owner}\u0000${p.toLowerCase()}`
 
+/** Which startTail call may still install the watch for a key (audit #49). */
+const turns = new Map<string, number>()
+let turnSeq = 0
+
 /** The most one poll reads (review, 2026-10-28). */
 export const TAIL_CHUNK = 4 * 1024 * 1024
 /** A backlog past this (the editor's 64 MB text cap) is skipped, not read. */
@@ -143,6 +147,13 @@ export async function startTail(
   owner = ''
 ): Promise<boolean> {
   stopTail(path, owner)
+  // THIS start's turn (audit #49): a stop, or a newer start for the same
+  // path and owner, that lands while the awaits below run takes it away, and
+  // the watch is then never installed (it would leak its poll timer, or follow
+  // twice and append every chunk twice).
+  const k = key(path, owner)
+  const turn = ++turnSeq
+  turns.set(k, turn)
   try {
     const st = await stat(path)
     if (!st.isFile()) return false
@@ -153,6 +164,7 @@ export async function startTail(
     const head = Buffer.alloc(4)
     await fh.read(head, 0, 4, 0)
     await fh.close().catch(() => {})
+    if (turns.get(k) !== turn) return false
     const w: Watch = {
       path,
       key: key(path, owner),
@@ -172,6 +184,7 @@ export async function startTail(
 }
 
 export function stopTail(path: string, owner = ''): void {
+  turns.delete(key(path, owner))
   const w = watches.get(key(path, owner))
   if (!w) return
   clearInterval(w.timer)
@@ -180,6 +193,7 @@ export function stopTail(path: string, owner = ''): void {
 
 /** Every tail one owner (a window) follows, dropped: that window closed. */
 export function stopTailsOf(owner: string): void {
+  for (const k of [...turns.keys()]) if (k.startsWith(`${owner}\u0000`)) turns.delete(k)
   for (const [k, w] of watches)
     if (k.startsWith(`${owner}\u0000`)) {
       clearInterval(w.timer)
@@ -189,6 +203,7 @@ export function stopTailsOf(owner: string): void {
 
 /** Every tail, dropped. For quitting, and for a root wall that narrowed. */
 export function stopAllTails(): void {
+  turns.clear()
   for (const w of watches.values()) clearInterval(w.timer)
   watches.clear()
 }
