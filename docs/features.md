@@ -15,6 +15,22 @@ changing a feature: each entry records what the owner decided, why, and what hol
 - **7-Zip 26.06** (audit #24): the bundled `7z.exe` moved from 25.00 to 26.06, which has the fix for
   CVE-2025-55188 (an archive link written outside the extraction folder). The MSI is pinned by its SHA-256 in
   `tools/fetch-7zip.mjs`. Held by `src/main/sevenZipPin.test.ts`.
+- **A twin in one move batch keeps both** (audit #2): with Replace, two same-named files from different folders no
+  longer bin the first one that just landed. Held by `src/main/moveOps.test.ts` ("twins in one batch").
+- **Cut and paste carries unsaved text** (audit #3): the buffer of a cut file, or of a file in a cut folder, follows
+  it to the new path, so Save all cannot re-create the old file. Held by `useFilePaste.test.ts` ("rekeyPasted").
+- **A slideshow wraps in one step** (audit #6): at the last picture it asks for the first, once, instead of
+  looping on back steps and freezing the window. Held by `lib/slideshow.test.ts` ("slideshowTick").
+- **A failed audio decode says so** (audit #14): the sidecar pads at most one second of silence; a longer gap
+  errors the response. Held by `src/main/audioSidecar.test.ts`.
+- **A MIDI nothing can synthesise shows failed** (audit #56): never the synthesising notice for ever. Held by
+  `hooks/useDecodedSource.test.ts`.
+- **Drop analysis is sliced** (audit #61): one pass, only the envelopes kept, a pause between slices. Same drop
+  times as before. Held by `lib/viz/drops.test.ts`.
+- **A merged tab keeps this window's unsaved text** (audit #62): a dropped tab's different text for the same path
+  does not overwrite it. Held by `lib/tabs/tabCarry.test.ts` ("adoptCarriedBuffers").
+- **HEIC index boxes are capped at 1 MB** (audit #78): a corrupt header cannot make main allocate gigabytes.
+  Held by `src/main/heifExif.test.ts`.
 
 ## @xmldom/xmldom is held at 0.8.15 or newer (owner, 2026-11-20, audit #35)
 
