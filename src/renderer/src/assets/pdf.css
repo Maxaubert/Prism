@@ -100,10 +100,10 @@
 
 /* Find matches, painted by the CSS Custom Highlight API: every match in a quiet
    accent, the one you are on in the full accent. */
-::highlight(p-find) {
+::highlight(p-find-1), ::highlight(p-find-2), ::highlight(p-find-3), ::highlight(p-find-4), ::highlight(p-find-5), ::highlight(p-find-6), ::highlight(p-find-7), ::highlight(p-find-8) {
   background: rgba(91, 91, 214, 0.32);
 }
-::highlight(p-find-here) {
+::highlight(p-find-here-1), ::highlight(p-find-here-2), ::highlight(p-find-here-3), ::highlight(p-find-here-4), ::highlight(p-find-here-5), ::highlight(p-find-here-6), ::highlight(p-find-here-7), ::highlight(p-find-here-8) {
   background: rgba(91, 91, 214, 0.85);
   color: #fff;
 }

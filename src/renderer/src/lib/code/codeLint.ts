@@ -76,7 +76,14 @@ export function jsonErrors(text: string): Diagnostic[] {
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Invalid JSON'
     const at = /at position (\d+)/.exec(raw)
-    const pos = at ? Math.min(Number(at[1]), text.length) : 0
+    // Some engines name no position for a text that ends too soon ("Unexpected
+    // end of JSON input"): the problem is at the end, not at the top (audit #75).
+    const atEnd = !at && /end of JSON/i.test(raw)
+    const pos = at
+      ? Math.min(Number(at[1]), text.length)
+      : atEnd
+        ? Math.max(0, text.trimEnd().length - 1)
+        : 0
     return [
       {
         from: pos,

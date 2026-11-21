@@ -95,6 +95,11 @@ export type VisitedDirectories = ReturnType<typeof createVisitedDirectories>
 /** The one the app uses: every tab and every Explorer surface share it. */
 export const visitedDirectories = createVisitedDirectories()
 
+/** The one generation string a read is keyed by, so navigate and the location
+ *  effect join each other's read (audit #20). */
+export const readGeneration = (refreshKey: number, revision: number, settleKey: number): string =>
+  `${refreshKey}:${revision}:${settleKey}`
+
 /** Navigation and the resulting location effect can await the same directory read. */
 export function createDirectoryRequests(
   read: (tabId: string, path: string, again?: boolean) => Promise<BrowseDirectory | null>

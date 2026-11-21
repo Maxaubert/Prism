@@ -96,6 +96,9 @@ export interface PasteResult {
   /** Why each failed item failed (ENOENT, EBUSY, "into itself"), for the
    *  diagnostics log's `op` line (owner, 2026-11-06). */
   failures?: Array<{ name: string; reason: string }>
+  /** A cut that copied whole but could not remove all of its source (a locked
+   *  file inside a folder), audit #51: counted as pasted, said apart. */
+  left?: Array<{ name: string; reason: string }>
   /** Cancel stopped it (owner, 2026-11-09): `paths` is what landed whole, and
    *  a partial copy is gone. */
   cancelled?: boolean

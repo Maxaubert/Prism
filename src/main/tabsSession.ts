@@ -47,6 +47,8 @@ export interface SessionStore {
    *  Written at once: on main's thread only when it is the last window or
    *  the quit, off it while other windows stay open. */
   closed(key: number, how: { others: boolean; quitting: boolean }): void
+  /** A window made from the kept entry takes it over; the others go. */
+  adopt(key: number): void
   /** The debounce, written now: synchronously when `last` (the last window,
    *  or the quit), off main otherwise. */
   flush(last: boolean): void
@@ -264,6 +266,7 @@ export function createTabsSession(deps: TabsSessionDeps): TabsSession {
     focus: (key) => model.focus(key),
     minor: (key) => model.minor(key),
     rekey: (from, to) => model.rekey(from, to),
+    adopt: (key) => model.adopt(key),
     closed(key, how) {
       model.closed(key, how)
       dirty = true

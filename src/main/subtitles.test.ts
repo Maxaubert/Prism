@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { matchSubs, readAsVtt, sidecarsFor, srtToVtt, stripVttStyles } from './subtitles'
+import { decodeSubtitle, matchSubs, readAsVtt, sidecarsFor, srtToVtt, stripVttStyles } from './subtitles'
 
 describe('matchSubs', () => {
   const files = [
@@ -126,5 +126,24 @@ describe('the tracks on disk, read without blocking', () => {
     writeFileSync(srt, '1\n00:00:01,000 --> 00:00:02,000\nHi\n')
     expect(await readAsVtt(srt)).toBe('WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi\n')
     expect(await readAsVtt(join(dir, 'gone.srt'))).toBeNull()
+  })
+})
+
+describe('subtitle encodings (audit #17)', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:02,000\ncaf\u00e9\n'
+  it('decodes Windows-1252 when the bytes are not UTF-8', () => {
+    expect(decodeSubtitle(Buffer.from(srt, 'latin1'))).toBe(srt)
+  })
+  it('keeps UTF-8, with or without a BOM', () => {
+    expect(decodeSubtitle(Buffer.from(srt, 'utf8'))).toBe(srt)
+    expect(decodeSubtitle(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(srt)]))).toBe(srt)
+  })
+  it('decodes UTF-16LE by its BOM', async () => {
+    const buf = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(srt, 'utf16le')])
+    expect(decodeSubtitle(buf)).toBe(srt)
+    const dir = mkdtempSync(join(tmpdir(), 'prism-subs-enc-'))
+    const f = join(dir, 'u.srt')
+    writeFileSync(f, buf)
+    expect(await readAsVtt(f)).toBe('WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\ncaf\u00e9\n')
   })
 })

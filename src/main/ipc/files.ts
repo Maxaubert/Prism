@@ -43,7 +43,7 @@ import { deleteItems, emptyBin, restoreItems, type BinEnv } from '../binOps'
 import { trashItem as trashVia } from '../binTrash'
 import { binIfEmpty, makeFolder, renameFile, uniqueNameAsync } from '../fileOps'
 import { appsForExt, argsFor, type AppCandidate } from '../openWith'
-import { addToArchive, archiveTooLarge, moveMembers, moveNames } from '../archive'
+import { addToArchive, archiveUnwritable, moveMembers, moveNames } from '../archive'
 import { insideSelf, moveEntries } from '../moveOps'
 import { copyCounted, dropPartial, pctOf } from '../pasteCopy'
 import { fileKind, isMarkdown } from '@shared/fileKind'
@@ -702,7 +702,7 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       keepBoth?: boolean
     ): Promise<ArchiveAddResult> => {
       if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
-      if (archiveTooLarge((await stat(zip)).size)) return 'failed'
+      if (await archiveUnwritable(zip)) return 'failed'
       // A worker that died mid-job answers like any other failure.
       return addToArchive(
         zip,
@@ -725,7 +725,7 @@ export function registerMoveIpc(ctx: MainCtx, ready: ReadyCtx): void {
       // A bad name refuses the move: never a move under other names.
       const named = moveNames(names, Array.isArray(entries) ? entries.length : 0)
       if (!archiveOk(zip) || !Array.isArray(entries) || named === null) return 'failed'
-      if (archiveTooLarge((await stat(zip)).size)) return 'failed'
+      if (await archiveUnwritable(zip)) return 'failed'
       return moveMembers(
         zip,
         entries,

@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { EDITOR, OVERLAY, isTypingTarget } from '../lib/focusGuards'
 import { isHeld } from '../lib/holds'
+import { readOnlyFile } from '../lib/readOnlyFile'
 import { menuOrDialogUp } from '../lib/pageDocuments'
 import { isExplorerTab, type Tab } from '../lib/tabs/tabs'
 import { copyFilePaths } from '../lib/fileClipboard'
@@ -179,7 +180,7 @@ export function useAppKeys({
           e.stopPropagation()
           const key = e.key.toLowerCase()
           if (key === 'v' && viewerDirectory) void pasteFiles(viewerDirectory)
-          else if (file) void copyFilePaths([file.path], key === 'x')
+          else if (file && !readOnlyFile(file)) void copyFilePaths([file.path], key === 'x')
           return
         }
         // CTRL+V NEEDS NO ROW (owner, 2026-11-09: "to get it to work then i have
@@ -212,7 +213,15 @@ export function useAppKeys({
             return
           }
         }
-        if (explorerFileFocus && file && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // A zip member or a binned file is read-only: no rename, no bin (audit #77).
+        if (
+          explorerFileFocus &&
+          file &&
+          !readOnlyFile(file) &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
           const entry = { path: file.path, name: file.name, isFolder: false, file }
           if (e.key === 'F2' && !e.shiftKey) {
             e.preventDefault()
