@@ -81,6 +81,10 @@ describe('no surface keeps its own note, time or title any more (#517)', () => {
   it('the image viewer and App say through say()', () => {
     expect(read('../components/ImageView.tsx')).not.toMatch(/setCopyNote|data-copy-note|setTimeout\(\(\) => setCopy/)
     expect(read('../App.tsx')).not.toMatch(/setUndoNote|noteTimer/)
+    // Undo's note moved with the Explorer split (audit #8): it still says through say().
+    const explorer = read('../components/explorer/useExplorerController.ts')
+    expect(explorer).not.toMatch(/setUndoNote|noteTimer/)
+    expect(explorer).toContain("say(text, { op: 'undo' })")
   })
   it('the archive notice has the one title', () => {
     expect(read('../components/archive/useArchiveOps.tsx')).not.toContain('title="Archive"')
