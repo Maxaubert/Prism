@@ -1,6 +1,8 @@
 // A member row of the archive panel, and the columns its header and rows
 // share (out of ArchiveView.tsx, structure cleanup 2026-10-12).
 
+import type { Listing } from './useArchiveListing'
+
 export type Entry = {
   path: string
   name: string
@@ -21,3 +23,8 @@ export const COL_TYPE = 'hidden w-[140px] shrink-0 truncate md:block'
 export const COL_SIZE = 'w-[86px] shrink-0 text-right tabular-nums'
 export const COL_PACKED = 'hidden w-[128px] shrink-0 text-right tabular-nums xl:block'
 export const COL_WHEN = 'hidden w-[150px] shrink-0 text-right tabular-nums lg:block'
+
+/** The members a listing holds: none while it loads, failed or is locked. */
+export function rowsOf(entries: Listing): Entry[] {
+  return !entries || entries === 'error' || entries === 'locked' ? [] : entries
+}
