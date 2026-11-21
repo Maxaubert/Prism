@@ -55,18 +55,39 @@ export async function analyzeDropsOffMain(
   const mono = await decimateMono(buffer, signal, pause)
   if (!mono || signal?.aborted) return []
   if (typeof Worker === 'undefined') return analyzeDrops(mono, target)
-  const samples = mono.getChannelData(0)
-  const worker = new Worker(new URL('./dropsWorker.ts', import.meta.url), { type: 'module' })
+  // A separate function, so this frame (and with it the AudioBuffer) ends here.
+  return scanInWorker(mono, target, signal)
+}
+
+/** Runs the scan in a module Worker. If the worker cannot start or fails, the small
+ *  mono copy is scanned in place instead (a few ms at SCAN_RATE), so drops never
+ *  vanish silently. The worker gets its own transferred copy. */
+function scanInWorker(mono: PcmSource, target: number, signal?: AbortSignal): Promise<number[]> {
+  const inPlace = (): number[] => (signal?.aborted ? [] : analyzeDrops(mono, target))
+  let worker: Worker
+  try {
+    worker = new Worker(new URL('./dropsWorker.ts', import.meta.url), { type: 'module' })
+  } catch {
+    return Promise.resolve(inPlace())
+  }
+  const samples = mono.getChannelData(0).slice()
   return new Promise<number[]>((resolve) => {
-    const done = (times: number[]): void => {
+    let settled = false
+    const done = (times: () => number[]): void => {
+      if (settled) return
+      settled = true
       signal?.removeEventListener('abort', onAbort)
       worker.terminate()
-      resolve(times)
+      resolve(times())
     }
-    const onAbort = (): void => done([])
+    const onAbort = (): void => done(() => [])
     signal?.addEventListener('abort', onAbort)
-    worker.onmessage = (e: MessageEvent<number[]>): void => done(e.data)
-    worker.onerror = (): void => done([])
+    worker.onmessage = (e: MessageEvent<number[]>): void => done(() => e.data)
+    worker.onerror = (e): void => {
+      e.preventDefault()
+      done(inPlace)
+    }
+    worker.onmessageerror = (): void => done(inPlace)
     worker.postMessage({ samples, sampleRate: mono.sampleRate, target }, [samples.buffer])
   })
 }
