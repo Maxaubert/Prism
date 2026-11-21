@@ -151,6 +151,33 @@ async function moveBack(path: string, best: { dir: string; id: string }): Promis
   return true
 }
 
+/** The shell restore's script. It holds NO path: the paths arrive as JSON on
+ *  stdin (`restoreInput`), so no character of a file name is ever PowerShell
+ *  source (audit #1; the curly quotes U+2018 to U+201B end a string there). */
+export const restoreScript = [
+  '$ErrorActionPreference = "SilentlyContinue"',
+  '[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)',
+  '$request = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+  '$missing = $false',
+  '$sh = New-Object -ComObject Shell.Application',
+  '$bin = $sh.Namespace(0xA)',
+  'foreach ($p in @($request.paths)) {',
+  '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
+  '  $item = @($bin.Items() | Where-Object {',
+  '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
+  '  })[-1]',
+  '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
+  '}',
+  // Nothing came back: say so, or undo would claim a restore that never
+  // happened (an emptied Recycle Bin is the common case).
+  'if ($missing) { exit 1 }'
+].join('; ')
+
+/** The paths as the script reads them. */
+export function restoreInput(paths: string[]): string {
+  return JSON.stringify({ paths })
+}
+
 /**
  * Undo's half of a delete, the part only the shell can do: ask Windows to move
  * the items back out of its Recycle Bin (`Shell.Application`). MoveHere rather
@@ -158,33 +185,15 @@ async function moveBack(path: string, best: { dir: string; id: string }): Promis
  * namespace move is not. True when every path came back.
  */
 export function shellRestore(paths: string[]): Promise<boolean> {
-  const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
-  const script = [
-    '$ErrorActionPreference = "SilentlyContinue"',
-    '$missing = $false',
-    '$sh = New-Object -ComObject Shell.Application',
-    '$bin = $sh.Namespace(0xA)',
-    `foreach ($p in @(${list})) {`,
-    '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
-    '  $item = @($bin.Items() | Where-Object {',
-    '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
-    '  })[-1]',
-    '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
-    '}',
-    // Nothing came back: say so, or undo would claim a restore that never
-    // happened (an emptied Recycle Bin is the common case).
-    'if ($missing) { exit 1 }'
-  ].join('; ')
   return new Promise<boolean>((done) => {
     execFile(
       powershellExe(),
-      ['-NoProfile', '-Command', script],
-      { windowsHide: true, timeout: 20000 },
+      ['-NoProfile', '-NonInteractive', '-Command', restoreScript],
+      { windowsHide: true, timeout: 20000, encoding: 'utf8', input: restoreInput(paths) },
       (err) => done(!err)
     )
   })
 }
-
 /** What the restore job needs from the IPC layer (#538 item 15). */
 export interface RestoreDeps {
   send: (channel: typeof PUSH.pasteProgress, payload: unknown) => void

@@ -65,7 +65,8 @@ import { useLinger } from './hooks/useLinger'
 import { usePreviewOpensIn } from './lib/prefs/previewPrefs'
 import { PreviewWindow } from './components/previewWindow/PreviewWindow'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
-import { useFilePaste } from './hooks/useFilePaste'
+import { rekeyPasted, useFilePaste, type PasteResult } from './hooks/useFilePaste'
+import type { StepDir } from './lib/slideshow'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -876,7 +877,14 @@ export default function App(): JSX.Element {
     (message: string) => setAsk({ kind: 'failed', message, op: 'paste' }),
     []
   )
-  const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
+  const onPasted = useCallback(
+    (result: PasteResult): void => {
+      rekeyPasted(result, buffers.current.values(), rekeyBuffer)
+      refreshFiles()
+    },
+    [buffers, rekeyBuffer, refreshFiles]
+  )
+  const pasteFiles = useFilePaste(onPasted, reportPasteError)
   // The pane shows the file on display, or nothing at all when a navigation
   // took that file away while the pane was open (`previewHeld`, #300 review):
   // it stays at its width with "Select a file to preview".
@@ -1079,8 +1087,9 @@ export default function App(): JSX.Element {
     [view]
   )
   const stepSameKind = useCallback(
-    (dir: 1 | -1) => {
-      const i = sameKindIndex(dir)
+    (dir: StepDir) => {
+      const kindNow = view?.files[view.index]?.kind
+      const i = dir === 'first' ? (view?.files.findIndex((f) => f.kind === kindNow) ?? -1) : sameKindIndex(dir)
       if (i < 0 || !active || !view) return
       const next = view.files[i]
       // The playlist carries its own intent (2026-08-28). Nothing autoplays on
