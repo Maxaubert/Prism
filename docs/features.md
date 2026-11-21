@@ -3,6 +3,17 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit splits and leftovers (2026-11-21)
+
+- **The drop scan runs in a Worker** (audit #61). `lib/viz/dropsOffMain.ts` mixes the decoded track
+  to mono and block-averages it to about 2 kHz in slices (the AudioBuffer is free right after),
+  then transfers that small array to `lib/viz/dropsWorker.ts`, which runs `analyzeDrops`. Without
+  `Worker` (unit tests) the same scan runs in place. Held by `dropsOffMain.test.ts` (same drops as
+  the full-rate scan within 0.1 s, abort, small copy).
+- **The trailer script drives today's Explorer** (audit #96). `tools/showcase/showcase.mjs` lost its
+  file tree, treeitem and Terminal beats; each selector now names the `src/` file that renders it.
+  Not run by any test (it records the screen).
+- **The big-file cancel test has a 20 s timeout** (`src/main/copyCounted.test.ts`), for slow CI.
 ## Audit wave D: code health (2026-11-21)
 
 - **`src/main/index.ts` may not grow** (audit #7, step 1). The tab tear-off and preview-window IPC
