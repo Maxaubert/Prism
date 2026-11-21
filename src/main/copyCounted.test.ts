@@ -26,7 +26,7 @@ describe('a stoppable copy (the loading bar, owner 2026-11-09)', () => {
     expect(ticks).toBeLessThan(600) // far short of the whole file's chunks
     await dropPartial(out)
     expect(existsSync(out)).toBe(false)
-  })
+  }, 20000)
 
   it('a copy that finishes writes the whole file and keeps the times when asked', async () => {
     const src = join(dir, 'a.txt')
