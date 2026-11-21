@@ -88,6 +88,9 @@ export function createLaunchRouter(
     state.hotkeyOpening = { id, browse, ackedAt: null, closed: false, win: null }
     state.hotkeyOpening.win = createWindow({ seed: { kind: 'none' }, winE: id })
   }
+  /** A launch handed to this process: a second Prism's arguments
+   *  (`second-instance`), or the Win+E helper's request over the hotkey pipe
+   *  (wakePipe.ts, 2026-11-06), which carries what that process would have. */
   return (argv: string[], workingDirectory: string, via: 'second-instance' | 'pipe'): void => {
     noteActivity()
     const launch = secondLaunch(argv, workingDirectory)
