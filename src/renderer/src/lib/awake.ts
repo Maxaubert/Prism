@@ -40,13 +40,3 @@ export function reportPlaying(key: string, isPlaying: boolean): void {
 export function forgetPlayer(key: string): void {
   reportPlaying(key, false)
 }
-
-/** Test seam: how many players currently claim to be playing. */
-export function _playingCount(): number {
-  return playing.size
-}
-
-export function _reset(): void {
-  playing.clear()
-  last = null
-}
