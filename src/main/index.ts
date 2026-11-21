@@ -1,64 +1,30 @@
 import { startLagProfiler } from './lagProfiler'
 import { startNativeTrace } from './nativeTrace'
 import { CALL, PUSH } from '@shared/channels'
-import {
-  app,
-  protocol,
-  shell,
-  screen,
-  BrowserWindow,
-  ipcMain,
-  contentTracing,
-  crashReporter,
-  utilityProcess,
-  Menu,
-  powerMonitor,
-  powerSaveBlocker,
-  session,
-  clipboard,
-  nativeImage
-} from 'electron'
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { app, protocol, shell, BrowserWindow, ipcMain, contentTracing, crashReporter, utilityProcess, Menu, powerMonitor, powerSaveBlocker, session, clipboard, nativeImage } from 'electron'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { answerE2eClipboard, installFakeClipboard } from './e2eClipboard'
-import { existsSync } from 'fs'
 import { rm } from 'fs/promises'
-import { getPriority, setPriority, tmpdir, constants as osConstants } from 'os'
+import { tmpdir } from 'os'
 import { performance } from 'perf_hooks'
-import { setFlagsFromString } from 'v8'
-import { runInNewContext } from 'vm'
 import { appendFile } from 'fs/promises'
-import * as userFsp from './userFs'
-import {
-  initDwmHelper,
-  trimWorkingSets
-} from './dwmHelper'
-import { pathsFromArgv, secondLaunch } from './argv'
+import { initDwmHelper } from './dwmHelper'
+import { pathsFromArgv } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, shortId, winERequest, winEHostOf } from './winERequests'
 import { bootFields, createStartupLog, launchReason, type Launch } from './startupLog'
-import { repeatOf, type HotkeyOpening } from './hotkeyRepeat'
 import { createSpareIdle } from './spareIdle'
-import { createStandby, lastWindowClosed, standbyWanted, type QuitReason } from './standby'
+import { lastWindowClosed, standbyWanted, type QuitReason } from './standby'
 import { startWakePipe, wakePipeName } from './wakePipe'
-import { removeOldExplorerWindows } from './oldExplorerWindows'
 import { createWindowPreferences } from './windowPreferences'
-import { forgetCanonical, listDir, searchFiles, toViewerFile, warmCanonical } from './dirList'
-import {
-  desktopClosed,
-  grantDesktopDirectory,
-  insideDesktop
-} from './desktopAccess'
-import { browseWatcherOf } from './browseWatch'
-import { browseDirectory, browseLocations, browseWatch, type BrowseRead } from './browse'
-import { driveUsage, withUsedShare } from './driveUsage'
-import { phoneListed, phoneMay, phoneOnThisPc, phoneRelease } from './phone/phoneAccess'
-import { phonePlaces } from './phone/places'
-import { MemberTemp, cleanDeadRuns, pidAlive } from './memberTemp'
+import { forgetCanonical, listDir, toViewerFile, warmCanonical } from './dirList'
+import { grantDesktopDirectory, insideDesktop } from './desktopAccess'
+import { type BrowseRead } from './browse'
+import { MemberTemp } from './memberTemp'
 import { createArchiveBrowse } from './archiveBrowse'
 import { placeOf } from '@shared/archivePlace'
 import { createListingCache } from './listingCache'
 import { createExplorerListings } from './explorerListing'
-import { isLocalFixed, learnDriveKinds } from './driveKinds'
-import { REMEMBER_FOLDERS_KEY } from '@shared/listingPrefs'
+import { isLocalFixed } from './driveKinds'
 import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
@@ -66,11 +32,8 @@ import { findRunningEverything } from './existingEverything'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
-import { holders } from './holders'
-import { Thumbs } from './thumbs'
-import { parseTabs, readSessionRaw, type SavedTabs } from './tabs'
+import { readSessionRaw, type SavedTabs } from './tabs'
 import { savedEntry } from './session'
-import type { WindowSeed } from './windowRegistry'
 import { userPaths } from './paths'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
@@ -78,49 +41,30 @@ import { LONG_WAIT_CHANNELS } from './diagChannels'
 import { mainCrumb } from './diagCrumb'
 import { binListing } from './binList'
 import { binDirs } from './binRoots'
-import { watchOps, writeOp } from './opLog'
-import { initSweepOverlay, loadSweepAddon, sweepDirs, type PrismSweep, type SweepLoad, type SweepOverlay } from './sweepOverlay'
-import { documentImages } from './docImages'
+import { watchOps } from './opLog'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
-import { probeMedia, type MediaInfo } from './ffmpeg'
-import { createProbeCache } from './probeCache'
 import {
   cancelAllConversions
 } from './videoConvert'
-import { docKind } from './docConvert'
-import { createDocClient } from './docClient'
 import { createShellVerbSetting } from './shellVerbSetting'
-import { shapeOf, type TextShape } from './textFile'
-import { stopAllTails, stopTailsOf } from './fileTail'
-import { firstWindow } from './windowSize'
-import { readAsVtt, sidecarsFor } from './subtitles'
+import { type TextShape } from './textFile'
+import { stopAllTails } from './fileTail'
 import {
   setSevenExe,
   setZipFork
 } from './archive'
-import {
-  previewUpdate,
-  wantsPreview
-} from 'prism-term-core/main/updatePreview'
 import { crashBudget } from './crashBudget'
 import { createWindowRecovery } from './windowRecovery'
 import { createOpenQueue } from './openQueue'
 import type { MainCtx, ReadyCtx } from './ipc/context'
-import type { WindowOptions } from './windowOptions'
 import { crashLogSettled } from './crashLog'
-import { guardWindow } from './windowGuard'
 import pkg from '../../package.json'
-import { fileKind, isMarkdown } from '@shared/fileKind'
-import type {
-  DirChange,
-  OpenPayload,
-  TextRead
-} from '@shared/types'
+import type { DirChange, OpenPayload } from '@shared/types'
 import { exists } from './fsUtil'
 import { E2E, appState, windows } from './appState'
 import { createPathWall } from './pathWall'
 import { MEDIA_SCHEME, createMediaServer } from './mediaProtocol'
-import { createLiveVideo, isLiveRequest, type LiveVideo } from './liveVideo'
+import { isLiveRequest, type LiveVideo } from './liveVideo'
 import { heicToJpeg } from './heicClient'
 import { ffmpegTools, sevenExe } from './bundledTools'
 import { registerArchiveIpc, type ArchiveBodies } from './ipc/archive'
@@ -129,49 +73,33 @@ import type { DragOut } from './dragOut'
 import type { NativeDragRecord } from '@shared/dragOut'
 import { clearFakeDrags, fakeDragCalls } from './e2eDragOut'
 import { registerMediaIpc } from './ipc/media'
-import { registerThumbsIpc, thumbWantCount } from './ipc/thumbs'
-import { rawPreview } from './rawPreview'
+import { registerThumbsIpc } from './ipc/thumbs'
 import { registerPropsIpc } from './ipc/props'
-import { registerBrowseIpc, registerTreeIpc, releaseTab } from './ipc/browse'
+import { registerBrowseIpc, registerTreeIpc } from './ipc/browse'
 import { registerLinkIpc } from './ipc/links'
 import { installPermissionHandler } from './permissions'
-import {
-  registerSaveCopyIpc,
-  registerFilesIpc,
-  registerShellIpc,
-  registerMoveIpc,
-  registerNewFilesIpc,
-  tailOwner
-} from './ipc/files'
+import { registerSaveCopyIpc, registerFilesIpc, registerShellIpc, registerMoveIpc, registerNewFilesIpc } from './ipc/files'
 import { registerOpenIpc } from './ipc/open'
 import { registerFolderIconIpc } from './ipc/folderIcons'
-import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
+import { registerSessionIpc } from './ipc/window'
 import { registerTearIpc, registerPreviewWindowIpc } from './ipc/tabs'
 import { createTabsSession } from './tabsSession'
-import { offerUpdate, startUpdates, updateOffered } from './updateFlow'
-import {
-  registerPositionsIpc,
-  startPhoneService,
-  type PhoneHooks,
-  type PhoneServerDeps,
-  type PhoneService
-} from './phone'
-import {
-  applyDwmBorder,
-  applyMaterial,
-  raise,
-  readWindowState,
-  registerWindowIpc,
-  releaseShroud,
-  themeGround,
-  watchWindowState
-} from './windowChrome'
-import { createTearOff } from './tearOff'
-import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
-import { createPreviewWindows } from './previewWindow'
-import { randomBytes } from 'crypto'
-import { TEAR, type Point } from '@shared/tabTear'
+import { startUpdates } from './updateFlow'
+import { registerPositionsIpc, type PhoneService } from './phone'
+import { registerWindowIpc } from './windowChrome'
 
+import { createMainState } from './mainState'
+import { createWindowFactory, coldStartFlags } from './windowFactory'
+import { createLaunchRouter } from './launchRouter'
+import { wirePreferences } from './startup/preferences'
+import { createProbeCached } from './startup/probe'
+import { wireThumbs } from './startup/thumbs'
+import { wireLiveVideo } from './startup/liveVideo'
+import { wirePhone } from './startup/phone'
+import { installE2eWindowHooks } from './startup/e2eHooks'
+import { wireTearOff } from './startup/tearWiring'
+import { createSweepWiring } from './startup/sweepWiring'
+import { createStandbyParts } from './startup/standbyParts'
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
 // (launch argv, single-instance forward, drag-drop, dialog). The viewer itself is
@@ -368,8 +296,6 @@ async function buildPayload(p: string, root?: string): Promise<OpenPayload | nul
  *  processes on profiles of their own, reading this one's, are gone. */
 const preferencesOwner = userPaths.root()
 const windowPreferences = createWindowPreferences(preferencesOwner, false)
-/** The first restore of this process has happened ("Remember tabs" applies to it alone). */
-let coldRestoreDone = false
 const indexDirectory = join(preferencesOwner, 'search-index')
 const sizeCacheDirectory = join(preferencesOwner, 'folder-sizes')
 const indexer = initializeIndexerRuntime({
@@ -517,44 +443,20 @@ const winERequests = createWinERequests(
         l.mark('winEAck')
         launchOfRequest.delete(id)
       }
-    if (hotkeyOpening && shortId(hotkeyOpening.id) === fields.id) hotkeyOpening.ackedAt = Date.now()
+    if (state.hotkeyOpening && shortId(state.hotkeyOpening.id) === fields.id) state.hotkeyOpening.ackedAt = Date.now()
   }
 )
 /** The launch (or wake) each Win+E request is timed under (`startupLog.ts`). */
 const launchOfRequest = new Map<string, Launch>()
 /** When each pending Win+E request reached this process (ms), for its `shown` line. */
 const requestReceived = new Map<string, number>()
-/** The window the latest Win+E press is opening, for repeat presses
- *  (`hotkeyRepeat.ts`; owner, 2026-11-06: four presses opened four windows). */
-let hotkeyOpening: (HotkeyOpening & { win: BrowserWindow | null }) | null = null
+/** Process state shared by the window factory, the launch router and the quit path (mainState.ts). */
+const state = createMainState()
 /** One `win-e` line from main's own steps. */
 function winELine(ev: string, fields: Record<string, unknown>): void {
   diag?.log.write('main', 'win-e', { ev, ...fields })
 }
-/** A repeat press brings forward the window the press before it is opening. */
-function raiseOpening(): void {
-  const w = hotkeyOpening?.win
-  if (!w || w.isDestroyed()) return
-  if (E2E) w.showInactive()
-  else raise(w, 'repeat')
-}
-/** A Win+E or folder-verb request while Prism runs: a new window for it. */
-function openWinEWindow(id: string, browse: string | null): void {
-  if (appState.appQuitting || appState.installingUpdate) return
-  hotkeyOpening = { id, browse, ackedAt: null, closed: false, win: null }
-  hotkeyOpening.win = createWindow({ seed: { kind: 'none' }, winE: id })
-}
 const openQueue = createOpenQueue({ windows, exists })
-const { sendOpen, drainPending } = openQueue
-/** Second-instance handoffs, read one after another so they keep arrival order. */
-let handoffs: Promise<void> = Promise.resolve()
-/** A tab id main makes (a restored tab without one, the home Explorer) is
- *  unique in the process: two windows can restore in the same millisecond. */
-let mintSeq = 0
-const mintTabId = (prefix: string): string => `${prefix}-${(mintSeq += 1)}-${Date.now()}`
-/** The session file as it was at startup (2026-10-29): the first window is
- *  sized from it, and its restore reads its strip from it. */
-let sessionRaw: string | null = null
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
@@ -715,8 +617,6 @@ const windowBudget = crashBudget()
  *  schema in Prism Terminal's docs/diagnostics.md). Started once the
  *  single-instance lock is won; null in a launch that only hands its file over. */
 let diag: Diagnostics | null = null
-/** Why this process is quitting, for the `quit` line (owner, 2026-11-06). */
-let quitReason: QuitReason | null = null
 /** The launch timings (startupLog.ts): one `startup` line per launch and wake. */
 const startup = createStartupLog({
   write: (fields) => diag?.log.write('main', 'startup', fields),
@@ -730,7 +630,6 @@ app.on('before-quit', () => (appState.appQuitting = true))
 /** E2E only: a dead page stays dead, as the bug left it, so the watchdog and
  *  the second launch can be proved as the nets they are. */
 const holdRecovery = E2E && process.env.PRISM_E2E_HOLD_RECOVERY === '1'
-let crashedAtStart = false
 /**
  * Which page a startup restore belongs to (#265, review). A restore is a
  * sequence of awaits that drains the shared `pendingOpen` and ends by marking
@@ -746,574 +645,20 @@ let crashedAtStart = false
 
 const { logWindow, recreateWindow, giveUpWindow, ensureLivePage, openAsFirst } = createWindowRecovery({
   createWindow: (options) => createWindow(options),
-  firstWindowMade: () => firstWindowMade,
+  firstWindowMade: () => state.firstWindowMade,
   quitBecause: (reason) => {
-    quitReason ??= reason
+    state.quitReason ??= reason
   },
   sessionFile,
   windowPreferences
 })
 
 /**
- * THE NATIVE SWEEP BOX (#338; src/main/sweepOverlay.ts): started lazily, once,
- * after the first window has painted (#189: nothing on the startup path), and
- * every window after that gets its target the same way.
+ * THE NATIVE SWEEP BOX (#338; src/main/sweepOverlay.ts, startup/sweepWiring.ts):
+ * started lazily, once, after the first window has painted (#189: nothing on
+ * the startup path), and every window after that gets its target the same way.
  */
-let sweepOverlay: SweepOverlay | null = null
-/** The addon as the sweep loaded it. The tab tear-off asks it the system's
- *  window order too (`nativeWindows`), but never loads it itself: not on a
- *  drag's path, and not when the sweep is off by flag. */
-let sweepLoaded: SweepLoad | null = null
-function sweepOverlayFor(win: BrowserWindow): void {
-  if (win.isDestroyed()) return
-  if (!sweepOverlay) {
-    sweepOverlay = initSweepOverlay({
-      // sync-ok: once, after the first window has painted; loading a native addon is synchronous anyway
-      load: () => (sweepLoaded = loadSweepAddon(sweepDirs(app.isPackaged, process.resourcesPath, app.getAppPath()), existsSync)),
-      e2e: E2E,
-      argv: process.argv,
-      log: (fields) => mainCrumb('sweep-overlay', fields),
-      ipc: ipcMain,
-      windowOf: (sender) => BrowserWindow.fromWebContents(sender)
-    })
-    // Remote Desktop composes on the client: asked again when a session or
-    // the displays change.
-    const recheck = (): void => sweepOverlay?.recheck()
-    screen.on('display-metrics-changed', recheck)
-    screen.on('display-added', recheck)
-    powerMonitor.on('unlock-screen', recheck)
-    // The thread is joined at will-quit and again (idempotent) at the
-    // process's exit, which `app.exit` reaches and will-quit does not.
-    app.once('will-quit', () => sweepOverlay?.shutdown())
-    process.once('exit', () => sweepOverlay?.shutdown())
-  }
-  sweepOverlay.attach(win)
-}
-/** After the first frame is on screen, not in the race for it. */
-const SWEEP_OVERLAY_DELAY_MS = 400
-
-/** The first window of the session has been made (whenReady). */
-let firstWindowMade = false
-/** Windows made so far: each window's key (`w1`, `w2`, ...), the prefix of
- *  the tab ids its page mints. */
-let windowSerial = 0
-/** `session-end` comes to every window; its last lines are written once. */
-let sessionEnded = false
-
-/** The renderer flags only the cold start's first window gets: setup runs the
- *  guide, the demo its own (they ride in the page's argv). A later window
- *  never inherits them from the process (2026-10-29). */
-function coldStartFlags(): string[] {
-  return [
-    ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
-    ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
-  ]
-}
-
-/** Where a window that is not the first opens: the size of the one focused
- *  last, a step down and right of it, else Prism's first-run size. */
-function nextWindowBounds(): { x?: number; y?: number; width: number; height: number } {
-  const from = windows.target()?.win
-  if (from && !from.isDestroyed()) {
-    const b = from.getNormalBounds()
-    return { x: b.x + 32, y: b.y + 32, width: b.width, height: b.height }
-  }
-  return firstWindow(screen.getPrimaryDisplay().workArea)
-}
-
-function createWindow(options: WindowOptions = {}): BrowserWindow {
-  const first = !!options.first
-  const launchFlags = [...(options.launchFlags ?? [])]
-  const place = options.bounds ?? (options.saved !== undefined ? readWindowState(options.saved?.bounds ?? null) : nextWindowBounds())
-  const key = `w${(windowSerial += 1)}`
-  noteActivity()
-  const made0 = performance.now()
-  const win = new BrowserWindow({
-    title: 'Prism',
-    width: place.width,
-    height: place.height,
-    x: place.x,
-    y: place.y,
-    minWidth: 560,
-    minHeight: 400,
-    show: false,
-    // Every window under --e2e, whoever made it (2026-10-29): offscreen and
-    // unfocusable, never placed from a cursor or a saved size.
-    ...(E2E ? { x: -4000, y: -4000, focusable: false, skipTaskbar: true } : {}),
-    // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
-    // frameless window, which is why a translucent style came out as a hole in
-    // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
-    // the custom title bar still draws over it.
-    titleBarStyle: 'hidden',
-    // Explicit, rather than inherited from the executable: Windows caches the
-    // exe's icon per path, so a new build can keep showing the old one in the
-    // taskbar. A window icon set here is not cached by anything.
-    icon: app.isPackaged
-      ? join(process.resourcesPath, 'icon.ico')
-      : join(__dirname, '../../build/icon.ico'),
-    // The theme's own ground (step 3): the spare must never flash another.
-    backgroundColor: themeGround(),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      /* Never throttled (2026-08-27). Chromium takes a window nobody can see
-       * down to about a frame a second, and with it goes the media: a film
-       * paused the instant another window covered Prism. It was right for a
-       * viewer sitting idle in the background and wrong for one that is
-       * playing, and Prism cannot tell the difference cheaply enough to be
-       * worth the surprise. (The recorder needed this too - a throttled
-       * window films as a slideshow.) */
-      backgroundThrottling: false,
-      // Setup launches Prism with --setup so the guide runs even on a machine
-      // that has seen it before. It rides in the renderer's own argv rather
-      // than an IPC message, so it is there before the first render. The
-      // first window's only (`coldStartFlags`).
-      additionalArguments: [
-        ...launchFlags,
-        // The window's key: the prefix of every tab id its page mints, so
-        // ids are unique across windows (2026-10-29, sessionIds.ts).
-        `--prism-window=${key}`,
-        // The page's clipboard is main's in-memory one under --e2e (#356);
-        // the preload learns it here, since the renderer's argv is its own.
-        ...(E2E ? ['--prism-e2e'] : [])
-      ]
-    }
-  })
-  const rec = windows.add(win, {
-    key,
-    first,
-    seed: options.seed ?? { kind: 'none' },
-    launchFlags,
-    winE: options.winE,
-    spare: options.spare
-  })
-  const page = rec.id
-  const launch = options.launch
-  launch?.mark('made')
-  // How long the constructor itself took: the spare's froze for 9 minutes
-  // on 2026-11-01 (the audit). Said when it is slow, for any window.
-  const makeMs = Math.round(performance.now() - made0)
-  if (makeMs >= 1000) diag?.log.write('main', 'window-make-slow', { ms: makeMs, win: key, spare: !!options.spare })
-  // Anything the user does in any window holds the spare back (spareIdle.ts).
-  win.webContents.on('input-event', noteActivity)
-  win.webContents.on('ipc-message', (_e, channel) => {
-    if (!String(channel).startsWith('diag:')) noteActivity()
-  })
-  /** The Win+E requests this window's page answers, if any (`winEHostOf`). */
-  const winEHost = winEHostOf(rec)
-  firstWindowMade = true
-  // The cold start's first window carries the saved entry until its page
-  // reports a strip of its own (session.ts `seed`).
-  if (options.saved) sessionFile.seed(page, options.saved)
-  // A Win+E window never outranks an ordinary one at the next cold start
-  // (session.ts, review 2026-10-29); its crash rebuild keeps the rank.
-  if (options.winE) sessionFile.minor(page)
-  // A window that is not the first is parked the moment it exists under
-  // --e2e, so nothing it shows can be seen (the harness parks every window).
-  if (E2E && !first) win.setOpacity(0)
-  // The diagnostics log's watch (#322): this window's hang events, and its
-  // frame for the page's stack when ITS heartbeat stops (each page beats on
-  // its own, 2026-10-29). A rebuilt window (#265) is handed over the same way.
-  diag?.watchWindow(win)
-  // Windows is shutting down or logging off: no will-quit is coming, so the
-  // log's last lines (those just before a hang at shutdown) are written here,
-  // once however many windows hear it.
-  win.on('session-end', () => {
-    if (sessionEnded) return
-    sessionEnded = true
-    quitReason ??= 'session-end'
-    diag?.log.write('main', 'session-end', {})
-    diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after session-end
-  })
-  let shown = false
-  const showWindow = (): void => {
-    if (shown || win.isDestroyed()) return
-    shown = true
-    // Never reopened maximised (owner, 2026-10-11): see windowSize.ts.
-    if (E2E) win.showInactive()
-    else raise(win, 'show')
-    launch?.mark('shown')
-    // A Win+E's window on screen: how long since its press reached Prism.
-    const req = rec.winE ?? (first ? hotkeyOpening?.id : undefined)
-    const got = req ? requestReceived.get(req) : undefined
-    if (req && got !== undefined) {
-      requestReceived.delete(req)
-      winELine('shown', { id: shortId(req), ms: Date.now() - got, win: key })
-    }
-    // No helper to warm (#189): the border program is compiled at build time
-    // and started per change with no pipe, so this costs milliseconds and the
-    // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
-    applyDwmBorder(win)
-  }
-  // The spare stays hidden: the tear shows it, inactive, under the cursor.
-  const showUnlessSpare = (): void => {
-    if (!rec.spare) showWindow()
-  }
-  win.once('ready-to-show', () => launch?.mark('readyToShow'))
-  win.once('ready-to-show', showUnlessSpare)
-  win.webContents.once('dom-ready', showUnlessSpare)
-  // The native sweep box's target (#338), once this window has painted.
-  win.webContents.once('did-finish-load', () => setTimeout(() => sweepOverlayFor(win), SWEEP_OVERLAY_DELAY_MS))
-  guardWindow(win, {
-    budget: windowBudget,
-    log: logWindow,
-    show: showUnlessSpare,
-    // A spare that keeps dying is simply made again later: it holds nothing.
-    recreate: () => (rec.spare ? replaceSpare(win) : recreateWindow(win)),
-    giveUp: giveUpWindow,
-    // The text the page held died with it; a close must not ask about it.
-    // THIS window's flag only (2026-10-29): another window's text is alive.
-    stateLost: () => {
-      rec.dirty = false
-    },
-    quitting: () => appState.appQuitting,
-    held: () => holdRecovery,
-    // The spare is hidden on purpose: no watchdog false alarm (2026-11-06).
-    hiddenByDesign: () => rec.spare && !win.isDestroyed() && !win.isVisible()
-  })
-  // E2E only: the page dies as it commits, before anything has shown the
-  // window, which is the shape of the 2026-10-03 failure. Once per process.
-  if (E2E && process.env.PRISM_E2E_CRASH_AT_START === '1' && !crashedAtStart) {
-    crashedAtStart = true
-    win.webContents.once('did-navigate', () => win.webContents.forcefullyCrashRenderer())
-  }
-  // The border follows maximize state; fullscreen changes call applyDwmBorder
-  // themselves on the way out, and applyMaterial's debounce covers the rest.
-  win.on('maximize', () => applyDwmBorder(win))
-  win.on('unmaximize', () => applyDwmBorder(win))
-  // Its bounds go into its own entry of the session file (session.ts).
-  watchWindowState(
-    win,
-    (bounds) => sessionFile.bounds(page, bounds),
-    // On main's thread only for the last window or the quit (the window
-    // closing is still counted here).
-    () => sessionFile.flush(windows.count() <= 1 || appState.appQuitting || appState.installingUpdate)
-  )
-  // Files from outside go to the window focused last.
-  win.on('focus', () => {
-    windows.focused(win)
-    sessionFile.focus(page)
-    // Files queued for a window still restoring when the focus moved here:
-    // this one has restored, so they open here now (review, 2026-10-29).
-    if (openQueue.waiting() && rec.restored) void drainPending(win)
-  })
-  /**
-   * A WINDOW'S CLOSE LETS GO OF WHAT ITS TABS HELD (2026-10-29). Closing a
-   * window's last tab closes the window without a `browseRelease` per tab
-   * (useTabOps.ts), which was fine while that close ended the process. With
-   * other windows still open, every tab of the closed one would keep its
-   * folder grants, its folder watch, its listing's details run and its
-   * searches, and its tails and conversions would run on for nobody. So main
-   * releases them here, except a tab that is moving to another window
-   * (`windows.markMoving`, tab tear-off step 3), and except a window being
-   * replaced by its own crash rebuild, whose tabs live on in the new one.
-   */
-  win.on('closed', () => {
-    const rebuilding = rec.rebuilding
-    const spare = rec.spare
-    // Its preview window is no window of the session's: it goes with it.
-    // Never in the way of the rest of this close.
-    try {
-      previewWindows.ownerGone(win)
-    } catch {
-      /* already gone */
-    }
-    if (hotkeyOpening?.win === win) hotkeyOpening.closed = true
-    // A tear in flight from or into this window ends (its tab goes back).
-    // FIRST, before the registry forgets the window (review 2026-10-29): the
-    // tab stops flying here, so the source's own close below releases it
-    // rather than leaving its grants and watch to nobody.
-    tear.gone(win)
-    const released = windows.remove(win)
-    const others = windows.count() > 0
-    if (spare) {
-      // The spare holds nothing of the session: no entry, nothing to release.
-      // Made again later, unless the app is going.
-      if (others && !appState.appQuitting) spareSoon()
-    } else if (!rebuilding) {
-      // The session file: a window closed while others stay open takes its
-      // entry with it; the last one keeps it (owner, 2026-10-29).
-      // A shutdown or log-off is a quit too: Windows closes the windows one
-      // by one with no before-quit, and each would otherwise drop its entry,
-      // leaving only whichever closed last (review, 2026-10-29).
-      sessionFile.closed(page, {
-        others,
-        quitting: appState.appQuitting || appState.installingUpdate || sessionEnded
-      })
-      for (const tabId of released) releaseTab(tabId)
-      // Its Win+E state goes with it (a crash rebuild's window keeps it).
-      if (winEHost) winERequests.forget(winEHost)
-    }
-    // Tails are keyed by the PAGE, not the tab: a crash rebuild's new page
-    // has a new id and starts its own, so the old page's stop here too
-    // (review, 2026-10-29), or each crash left a poller reading for nobody.
-    stopTailsOf(tailOwner({ id: page }))
-    if (playing.delete(page)) holdAwake(playing.size > 0)
-    // THE SHROUD NEVER KEEPS THE APP ALIVE: the last page window gone, the
-    // hidden fullscreen cover goes too, so `window-all-closed` can come. And
-    // so does the tear-off's spare (step 3): a hidden window must never keep
-    // Prism running with nothing on screen.
-    if (!others) {
-      releaseShroud()
-      dropSpare()
-    }
-    // Files that were waiting for this window go to the one now in front,
-    // once it has restored.
-    else if (openQueue.waiting() && windows.target()?.restored) void drainPending(windows.target()!.win)
-  })
-  /**
-   * Minimised, and focused, told to the page (2026-08-26).
-   *
-   * The renderer cannot see either: Electron does not mark a MINIMISED window
-   * hidden, so `visibilitychange` never fires and `document.hidden` stays
-   * false, and window blur in the page is not the same question as "another
-   * application has the focus". The player's "pause in the background" setting
-   * needs both, so main - which does know - says so. THIS window's state, to
-   * this window's page (2026-10-29).
-   */
-  const sayState = (): void => {
-    if (win.isDestroyed()) return
-    windows.sendTo(win, PUSH.windowState, {
-      minimised: win.isMinimized(),
-      // Its preview window having the keyboard is still this window being
-      // looked at (review 2026-11-08): a click on the preview's player must
-      // not count as "in the background" and pause it.
-      focused: win.isFocused() || !!previewWindows.of(win)?.isFocused()
-    })
-  }
-  // With a preview window up, the focus moving between the two is a blur
-  // here and a focus there, one after the other: said once both are in.
-  const sayStateSettled = (): void => {
-    if (previewWindows.of(win)) setTimeout(sayState, 50)
-    else sayState()
-  }
-  // Listed one by one: BrowserWindow's overloads are per event name, so a loop
-  // over a union of them has no single signature to match.
-  win.on('minimize', sayState)
-  win.on('restore', sayState)
-  win.on('show', sayState)
-  win.on('hide', sayState)
-  win.on('focus', sayState)
-  win.on('blur', sayStateSettled)
-
-  win.on('enter-full-screen', () => {
-    windows.sendTo(win, PUSH.windowFullscreen, true)
-    applyMaterial(win, true)
-  })
-  win.on('leave-full-screen', () => {
-    windows.sendTo(win, PUSH.windowFullscreen, false)
-    applyMaterial(win, false)
-  })
-  /**
-   * A window the page tried to open. Denied, and handed to the OS only when
-   * it is a web address (2026-08-31).
-   *
-   * There was no scheme check here at all, which made any `<a target=_blank>`
-   * or `window.open` in the renderer a one-click launch of an arbitrary URI
-   * scheme on the user's machine. The renderer shows documents from anywhere
-   * - a PDF, a markdown file, a zip member - so "the page asked for it" is
-   * not a reason to trust it. Same test as the `shell:external` handler, and
-   * for the same reason.
-   */
-  win.webContents.setWindowOpenHandler((d) => {
-    // The preview window (owner, 2026-11-08): the one name this page armed
-    // a moment ago, a blank page the Explorer draws into. Nothing else.
-    const preview = previewWindows.options(win, d.url, d.frameName)
-    if (preview) return { action: 'allow', overrideBrowserWindowOptions: preview }
-    if (/^https?:\/\//i.test(d.url)) openLink(d.url)
-    return { action: 'deny' }
-  })
-  win.webContents.on('did-create-window', (child, d) => {
-    child.setMenu(null)
-    child.on('focus', sayStateSettled)
-    child.on('blur', sayStateSettled)
-    // The same walls as its owner's page (review 2026-11-08): a middle-click
-    // or a drop in the preview window reaches the CHILD's webContents, which
-    // would otherwise open any window and load any page (a web page with the
-    // inherited preload). It opens nothing and goes nowhere; a web address
-    // goes to the browser.
-    child.webContents.setWindowOpenHandler((c) => {
-      if (/^https?:\/\//i.test(c.url)) openLink(c.url)
-      return { action: 'deny' }
-    })
-    child.webContents.on('will-navigate', (e, url) => {
-      e.preventDefault()
-      if (/^https?:\/\//i.test(url)) openLink(url)
-    })
-    previewWindows.adopt(win, child, d.frameName)
-  })
-  // Its preview window goes with the page that draws it.
-  win.webContents.on('render-process-gone', () => previewWindows.ownerGone(win))
-  // A page cannot navigate the window away from the app either: the renderer
-  // is Prism's own UI and nothing in it is a browser.
-  win.webContents.on('will-navigate', (e, url) => {
-    const dev = process.env['ELECTRON_RENDERER_URL']
-    if (dev && url.startsWith(dev)) return
-    if (url.startsWith('file://')) return
-    e.preventDefault()
-    if (/^https?:\/\//i.test(url)) openLink(url)
-  })
-
-  win.webContents.on('did-start-loading', () => {
-    rec.restoreStarted = false
-    rec.restored = false
-    // Its strip comes back when the new page reports it.
-    rec.strip = null
-    // This window's Win+E requests wait for its new page (a cold start's
-    // lands in the first window, one while Prism runs in its own).
-    if (winEHost) winERequests.reload(winEHost)
-  })
-  // The page itself, not a frame inside it: a document preview's iframe
-  // loading is no reason to abandon a restore.
-  win.webContents.on('did-start-navigation', (details) => {
-    if (!details.isMainFrame || details.isSameDocument) return
-    rec.gen += 1
-    previewWindows.ownerGone(win)
-    // A source page reloading mid-tear can no longer end it (step 3): the
-    // page itself only, a preview's iframe loading ends nothing.
-    tear.lost(win)
-  })
-  // A shortcut press needs an immediate window even on a cold renderer load.
-  // Its solid background is followed by the lightweight opening screen. The
-  // first window's from the process's argv (a later window never reads it),
-  // a window opened for a request while Prism runs from that request.
-  if ((first && winERequest(process.argv)) || rec.winE || options.showNow) showWindow()
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) void win.loadURL(devUrl)
-  else void win.loadFile(join(__dirname, '../renderer/index.html'))
-
-  // Rebuild last session's strip, then deliver whatever the app was launched
-  // with. Order matters: the launch file goes through the same arriving-file
-  // rule as everything else, so double-clicking a photo in a folder that was
-  // already open lands in that tab rather than opening a second copy of it.
-  // The lightweight loading shell can finish its document before App loads.
-  // Start restore only once the renderer is actually listening for its files.
-  const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
-    // THIS window's page only (2026-10-29): every window has its own listener.
-    if (event.sender.id !== page || win.isDestroyed()) return
-    if (rec.restoreStarted) {
-      if (rec.restored) event.sender.send(PUSH.openRestored)
-      return
-    }
-    rec.restoreStarted = true
-    // THE SPARE'S PAGE (step 3): nothing to restore, not even the home
-    // Explorer, and no file from outside is ever drained into it. It is ready
-    // as soon as it listens; a tab torn off is handed to it then. Asked of
-    // `spare`, not of `reported`: a drop only commits (and reports) once this
-    // page has drawn the tab (review 2026-10-29).
-    if (rec.spare && rec.seed.kind === 'adopt') {
-      rec.restored = true
-      event.sender.send(PUSH.openRestored)
-      spareIdle.ready()
-      tear.listening(win)
-      return
-    }
-    const gen = rec.gen
-    const stale = (): boolean => gen !== rec.gen || win.isDestroyed()
-    // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
-    // became async when listDir did, and firing them off together would let
-    // the launch file race the restored tabs: the arriving-file rule folds a
-    // file into a tab whose root already holds it, so a launch file that
-    // arrives BEFORE its own restored tab spawns a duplicate instead.
-    void (async () => {
-      // WHERE THIS PAGE'S TABS COME FROM (2026-10-29): the strip it reported
-      // last (a reload, a crash), else what the window was made with. Only
-      // the cold start's first window is made with the saved strip, so no
-      // other window can ever restore a copy of it.
-      const seed: WindowSeed = rec.reported ? { kind: 'tabs', tabs: rec.reported } : rec.seed
-      // "Remember tabs" (owner, 2026-09-22), off: a COLD start opens only the
-      // Explorer tab and what Prism was opened with. Once per process, so a
-      // reload of the window in the same session still gets its tabs back; the
-      // tabs are saved either way.
-      const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
-      const skip = seed.kind === 'saved' && !remember && !coldRestoreDone
-      if (seed.kind === 'saved') coldRestoreDone = true
-      // A page back from more than one death in a row comes back without its
-      // saved tabs (#265, review): one of them may be what kills it, and
-      // restoring it at every recovery ends in the give-up, then the same
-      // give-up at every later launch. The Explorer tab and the files handed
-      // over still arrive; the log says the tabs were left out.
-      const strained = windowBudget.strained(Date.now())
-      if (strained && seed.kind !== 'none' && !skip)
-        logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
-      const send = (payload: OpenPayload): void => {
-        if (stale()) return
-        windows.sendTo(win, PUSH.openFile, payload)
-        // The first folder this launch's window lists (startupLog.ts).
-        if (payload.listing) launch?.mark('listed')
-      }
-      // The strip, filtered (`parseTabs`: a root that has gone takes its tab).
-      const strip = (): SavedTabs | null => {
-        if (skip || strained) return null
-        if (seed.kind === 'saved') return sessionRaw ? parseTabs(sessionRaw) : null
-        if (seed.kind === 'tabs') return parseTabs(JSON.stringify(seed.tabs))
-        return null
-      }
-      const saved = strip()
-      // The home Explorer first when no pinned one was saved (#271): it is
-      // the tab the window opens on, and a names-only read is 1 to 3 ms.
-      const sendHome = async (): Promise<void> => {
-        const id = mintTabId('explorer-home')
-        const homePath = app.getPath('home')
-        const home =
-          (await explorerListings.cachedAsync(homePath)) ?? (await browseDirectory(id, homePath, 'names'))
-        if (stale()) return
-        if (home) {
-          grantDesktopDirectory(id, home.path)
-          send({
-            root: home.path,
-            files: home.listing.files,
-            index: -1,
-            role: 'explorer',
-            pinned: true,
-            restore: true,
-            restoreTabId: id,
-            listing: { path: home.path, listing: home.listing }
-          } satisfies OpenPayload)
-        }
-      }
-      const pinnedSaved = !!saved?.tabs.some((t) => t.role === 'explorer' && t.pinned)
-      if (!pinnedSaved) await sendHome()
-      if (stale()) return
-      const pinnedSent = saved ? await restoreTabs(send, saved, (i) => mintTabId(`restored-${i}`)) : false
-      if (stale()) return
-      // A saved pinned Explorer whose folder has gone: the home one stands in.
-      if (pinnedSaved && !pinnedSent) await sendHome()
-      if (stale()) return
-      // In argv order, each through the ordinary arriving-file route, so
-      // several files from one folder still fold into ONE tab and the last
-      // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
-      // New OS opens can arrive while a slow restore is still draining. Shift
-      // the shared queue so those requests are preserved in arrival order too.
-      // Only the window they go to drains it (the one focused last).
-      await drainPending(win, () => !stale())
-      if (stale()) return
-      if (winEHost) winERequests.restored(winEHost)
-    })()
-      .catch((error: unknown) => console.error('Could not restore the startup session:', error))
-      .finally(() => {
-        if (stale()) return
-        rec.restored = true
-        launch?.mark('restored')
-        // Startup is over once a first window has restored: the spare may be
-        // made at the next quiet spell from now on (spareIdle.ts).
-        if (first) {
-          startupSettled = true
-          spareSoon()
-        }
-        // A handoff's paths are stat'ed awaited (2026-10-12), so one can land
-        // in the queue just after the drain above ended: it opens now.
-        if (openQueue.waiting()) void drainPending(win, () => !stale())
-        // A genuinely empty or failed restore may show the ordinary empty state.
-        // Until this signal, no tabs means the initial folders are still loading.
-        if (!event.sender.isDestroyed()) event.sender.send(PUSH.openRestored)
-      })
-  }
-  ipcMain.on(CALL.openListen, restoreWhenListening)
-  win.once('closed', () => ipcMain.removeListener(CALL.openListen, restoreWhenListening))
-  return win
-}
-
+const { sweepOverlayFor, loaded: sweepLoaded } = createSweepWiring()
 /** A window's page reported its strip: kept on its record (a crash rebuilds
  *  it from this) and in its own entry of the session file. */
 function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
@@ -1334,8 +679,6 @@ function reportTabs(sender: Electron.WebContents, state: SavedTabs): void {
  * itself 2 s in would change what every other scenario counts.
  */
 const spareWanted = (): boolean => !E2E || process.env.PRISM_E2E_SPARE === '1'
-/** Startup is over: a first window has restored (spareIdle.ts `settled`). */
-let startupSettled = false
 /** When anything last happened that a spare must not compete with. */
 let lastActivity = Date.now()
 function noteActivity(): void {
@@ -1349,7 +692,7 @@ function noteActivity(): void {
 const spareIdle = createSpareIdle({
   now: Date.now,
   lastActivity: () => lastActivity,
-  settled: () => startupSettled,
+  settled: () => state.startupSettled,
   allowed: () => {
     if (!spareWanted() || standby.on() || appState.appQuitting || appState.installingUpdate) return false
     if (windows.count() === 0) return false
@@ -1387,382 +730,55 @@ function dropSpare(): void {
   for (const r of windows.all()) if (r.spare && !r.win.isDestroyed()) r.win.destroy()
   tabGhost.destroy()
 }
-/**
- * THE GHOST'S WINDOW (owner, 2026-10-30: "let it just be the tab you're
- * carrying"; src/main/tabGhost.ts): tab-sized, frameless, transparent, never
- * focused, never in the taskbar, never under the pointer, above every app.
- * Its page is a fixed data: page with no script of its own and no preload,
- * sandboxed; it may not navigate or open anything. Under --e2e it is parked
- * and clear like every window.
- */
-const tabGhost = createTabGhost<BrowserWindow>({
-  e2e: E2E,
-  base: themeGround,
-  light: () => themeGround() !== '#111318',
-  log: (event, fields) => mainCrumb(event, fields),
-  make: (ready, gone) => {
-    const w = new BrowserWindow({
-      show: false,
-      frame: false,
-      // Opaque: a transparent window draws nothing with DirectComposition off
-      // (owner, 2026-10-30: "right now there's nothing"). See-through by its
-      // opacity (TEAR.ghostOpacity).
-      backgroundColor: themeGround(),
-      width: TEAR.tabWidth + TEAR.ghostPad * 2,
-      height: TEAR.tabHeight + TEAR.ghostPad * 2,
-      ...(E2E ? { x: -4000, y: -4000 } : {}),
-      focusable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      hasShadow: false,
-      roundedCorners: false,
-      thickFrame: false,
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        spellcheck: false,
-        backgroundThrottling: false,
-        devTools: false
-      }
-    })
-    w.setAlwaysOnTop(true, 'screen-saver')
-    w.setIgnoreMouseEvents(true)
-    w.setMenu(null)
-    if (E2E) w.setOpacity(0)
-    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    w.webContents.on('will-navigate', (e) => e.preventDefault())
-    w.webContents.once('did-finish-load', ready)
-    w.webContents.on('render-process-gone', () => {
-      gone()
-      if (!w.isDestroyed()) w.destroy()
-    })
-    w.once('closed', gone)
-    void w.loadURL(GHOST_PAGE).catch(() => {})
-    return w
-  }
-})
-/**
- * THE PREVIEW WINDOW (owner, 2026-11-08; src/main/previewWindow.ts): the
- * Explorer page's own Quick Look window, owned by the window it came from,
- * faded in and out here. In no registry: it never counts as a window of the
- * session, and it goes with its owner and with standby.
- */
-const previewWindows = createPreviewWindows<BrowserWindow>({
-  e2e: E2E,
-  ground: themeGround,
-  workArea: (b) => screen.getDisplayMatching(b).workArea,
-  token: () => randomBytes(16).toString('hex'),
-  now: () => Date.now(),
-  every: (fn, ms) => setInterval(fn, ms),
-  stop: (h) => clearInterval(h as NodeJS.Timeout),
-  closedByItself: (owner) => windows.sendTo(owner, PUSH.previewWindowGone),
-  log: (event, fields) => mainCrumb(event, fields)
-})
-if (E2E)
-  Object.assign(globalThis, {
-    __e2ePreviewWindows: () => previewWindows.e2e(),
-    __e2ePreviewFades: () => previewWindows.e2eFades(),
-    __e2ePreviewOpens: () => previewWindows.e2eOpens()
-  })
-/**
- * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
- * Prism's windows is really in front, and whether another app's window covers
- * a point, from the native addon (native/sweep/zorder.h). Without it (not
- * loaded yet, an older build, --e2e) the tear falls back to Prism's own order
- * of focus and raises, and cannot see other apps.
- */
-const nativeWindows = (): PrismSweep | null =>
-  !E2E && sweepLoaded && 'addon' in sweepLoaded ? sweepLoaded.addon : null
-const hwnds = new WeakMap<BrowserWindow, Buffer>()
-/** A window the tear made clear by the addon, and whether that made it layered. */
-const fadedByAddon = new WeakMap<BrowserWindow, boolean>()
-function hwndOf(win: BrowserWindow): Buffer {
-  let h = hwnds.get(win)
-  if (!h) hwnds.set(win, (h = win.getNativeWindowHandle()))
-  return h
-}
-/** `wins` front to back as the system stacks them (those not on screen, such
- *  as one on another virtual desktop, left out), or null when unknown. */
-function systemOrder(wins: BrowserWindow[]): BrowserWindow[] | null {
-  const a = nativeWindows()
-  if (!a?.zOrder) return null
-  try {
-    const order = a.zOrder(wins.map(hwndOf))
-    if (!Array.isArray(order)) return null
-    return order.filter((i) => Number.isInteger(i) && i >= 0 && i < wins.length).map((i) => wins[i])
-  } catch {
-    return null
-  }
-}
-const tear = createTearOff<BrowserWindow>({
-  e2e: E2E,
-  cursor: () => screen.getCursorScreenPoint(),
-  workArea: (p) => screen.getDisplayNearestPoint(p).workArea,
+const { tabGhost, previewWindows, tear } = wireTearOff({
+  sessionFile,
   takeSpare,
-  listening: (win) => !!windows.recordOf(win)?.restored,
-  adopt: (win, carry) => void windows.sendTo(win, PUSH.tabAdopt, carry),
-  moving: (tabId, on) => (on ? windows.markMoving(tabId) : windows.unmarkMoving(tabId)),
-  // The drop: the floating window is a window of the session from now on,
-  // with the tab it shows as its strip (its page reported it while it was
-  // still the spare, which the session ignores).
-  // The source's record and entry lose the tab at the same moment, not when
-  // its page reports again (review 2026-10-29): until then its close released
-  // the moved tab's grants and watch, and the file held the tab twice.
-  commit: (win, carry, source) => {
-    const r = windows.recordOf(win)
-    if (!r) return
-    r.spare = false
-    const t = carry.tab
-    r.reported = {
-      // Its one tab is its home (`applyCarry`).
-      tabs: [{ id: t.id, role: 'explorer', pinned: true, root: t.root, browse: t.browse, file: t.files[t.index]?.path }],
-      active: 0
-    }
-    sessionFile.report(r.id, r.reported)
-    const left = windows.handTab(t.id, source, win)
-    const src = windows.recordOf(source)
-    if (left && src) sessionFile.report(src.id, left)
-  },
-  reveal: (win) => {
-    if (win.isDestroyed()) return
-    if (E2E) win.showInactive()
-    else raise(win)
-    applyDwmBorder(win)
-  },
-  // The tab goes back (a drop whose floating page never drew it): the
-  // floating page drops it, the window hides as the spare, and whatever it
-  // reported or asked for is the source's again.
-  release: (win, tabId, source) => {
-    if (source && !source.isDestroyed()) windows.noteTabOwner(tabId, source.webContents)
-    windows.sendTo(win, PUSH.tabRelease, tabId)
-    if (!win.isDestroyed()) win.hide()
-    const r = windows.recordOf(win)
-    if (r) {
-      r.reported = null
-      r.dirty = false
-      sessionFile.closed(r.id, { others: true, quitting: false })
-    }
-    // The source kept the tab on screen all through the drag (owner,
-    // 2026-10-30): if it is still its front tab, the folder watch the
-    // floating page started goes on for it (the floating page's own stop
-    // comes after the tab is the source's again and is ignored). Otherwise it
-    // stops (review 2026-10-29: a background tab the source never shows kept
-    // a watch running for nobody).
-    const shown = source && !source.isDestroyed() ? windows.recordOf(source)?.reported : null
-    if (shown?.tabs[shown.active]?.id !== tabId) void browseWatch(tabId, null, () => {})
-  },
-  tell: (source, event) => void windows.sendTo(source, PUSH.tearEvent, event),
   spareSoon: () => spareSoon(),
-  // STEP 4: ANY WINDOW'S STRIP TAKES THE TAB (owner, 2026-10-29). The
-  // windows that can, front to back: shown, restored, not minimized, not the
-  // spare; as the system stacks them (the addon), else the one focused or
-  // raised most recently in front, and among windows never focused (the
-  // e2e's) the newest, as a new window opens on top.
-  windowsFront: () => {
-    const wins = windows
-      .all()
-      .filter((r) => !r.spare && r.restored && !r.win.isDestroyed() && r.win.isVisible() && !r.win.isMinimized())
-      .reverse()
-      .sort((a, b) => b.frontAt - a.frontAt)
-      .map((r) => r.win)
-    return systemOrder(wins) ?? wins
-  },
-  covered: (p, win) => {
-    const a = nativeWindows()
-    if (!a?.coveredAt || win.isDestroyed()) return false
-    try {
-      const q = screen.dipToScreenPoint(p)
-      return a.coveredAt(q.x, q.y, hwndOf(win)) === true
-    } catch {
-      return false
-    }
-  },
-  // Only a page that has restored its tabs takes one (review 2026-10-30): a
-  // page reloading mid-drag reports its strip as its first tab mounts.
-  stripOf: (win) => {
-    const r = windows.recordOf(win)
-    return r?.restored && !win.isDestroyed() && win.isVisible() && !win.isMinimized() ? r.strip : null
-  },
-  name: (win) => windows.recordOf(win)?.key ?? '',
-  hover: (win, hover) => void windows.sendTo(win, PUSH.tabHover, hover),
-  // The drop into another window's strip: that window has the tab from now on
-  // (its record lists it at once, so its close releases it; its page reports
-  // the real order next), and the source's record and entry lose it at the
-  // same moment, exactly as a tear's commit does.
-  merge: (target, carry, source, at) => {
-    const r = windows.recordOf(target)
-    if (!r) return
-    const t = carry.tab
-    const left = windows.handTab(t.id, source, target)
-    const src = windows.recordOf(source)
-    if (left && src) sessionFile.report(src.id, left)
-    const tabs = (r.reported?.tabs ?? []).filter((x) => x.id !== t.id)
-    const i = Math.max(0, Math.min(at ?? tabs.length, tabs.length))
-    tabs.splice(i, 0, { id: t.id, role: 'explorer', root: t.root, browse: t.browse, file: t.files[t.index]?.path })
-    r.reported = { tabs, active: i }
-    sessionFile.report(r.id, r.reported)
-    windows.sendTo(target, PUSH.tabMerge, { carry, at })
-  },
-  // To the front WITHOUT the focus: the source holds the pointer, and its
-  // window losing the focus would cancel the carry.
-  raise: (win) => {
-    if (!win.isDestroyed()) win.moveTop()
-  },
-  raised: (win) => windows.raised(win),
-  // THE GHOST (owner, 2026-10-30): only the tab follows the cursor; the
-  // floating window stays hidden until the drop.
-  ghost: tabGhost,
-  // At the drop the ghost stays until the window just shown has drawn a frame
-  // (review 2026-10-30): hidden all through the drag, it has drawn nothing.
-  drawn: (win, fn) => {
-    if (win.isDestroyed()) return fn()
-    win.webContents.executeJavaScript(ONE_FRAME).then(fn, fn)
-  },
-  // The only tab's window while a drop restores and moves it (review
-  // 2026-10-30: no restore animation to its old place, no frame at the new
-  // size before it has drawn). By the addon only: back, it is not layered any
-  // more, where Electron's setOpacity leaves it layered for good and a
-  // layered window loses its Mica or acrylic. Without it the move just shows.
-  fade: (win, out) => {
-    const a = nativeWindows()
-    if (!a?.setAlpha || !a.unlayer || win.isDestroyed()) return
-    try {
-      if (out) {
-        const added = a.setAlpha(hwndOf(win), 0)
-        fadedByAddon.set(win, added || fadedByAddon.get(win) === true)
-        return
-      }
-      if (!fadedByAddon.has(win)) return
-      a.setAlpha(hwndOf(win), 255)
-      if (fadedByAddon.get(win)) a.unlayer(hwndOf(win))
-      fadedByAddon.delete(win)
-    } catch {
-      // The addon failed: never leave the window clear (layered then, but seen).
-      fadedByAddon.delete(win)
-      if (!out && !win.isDestroyed()) win.setOpacity(1)
-    }
-  },
-  // Its tab went into another window: nothing is left in it, and its text went
-  // with the tab, so it closes asking nothing. After this turn, so the page's
-  // answer to its drop goes out first.
-  closeEmptied: (win) => {
-    const r = windows.recordOf(win)
-    if (r) {
-      r.closeConfirmed = true
-      r.dirty = false
-    }
-    setTimeout(() => {
-      if (!win.isDestroyed()) win.close()
-    }, 0)
-  },
-  log: (event, fields) => mainCrumb(event, fields)
+  sweepLoaded
+})
+/** The one place a Prism window is made (windowFactory.ts). */
+const createWindow = createWindowFactory({
+  state,
+  diag: () => diag,
+  sessionFile,
+  restoreTabs,
+  windowPreferences,
+  explorerListings,
+  winERequests,
+  openQueue,
+  spareIdle,
+  previewWindows,
+  tear,
+  windowBudget,
+  recovery: { logWindow, recreateWindow, giveUpWindow },
+  requestReceived,
+  playing,
+  holdAwake,
+  noteActivity,
+  spareSoon,
+  replaceSpare,
+  dropSpare,
+  sweepOverlayFor,
+  winELine,
+  openLink,
+  holdRecovery
 })
 /** The lag profiler (made with the log, once the lock is won): off in standby. */
 let lagProfiler: { rotate(): void } | null = null
 /** The phone server's standby half (made at ready). */
 let phoneService: PhoneService | null = null
-/** V8's own collector, asked for once (main runs without --expose-gc). */
-let collect: (() => void) | null | undefined
-function collectGarbage(): void {
-  if (collect === undefined) {
-    try {
-      setFlagsFromString('--expose-gc')
-      collect = runInNewContext('gc') as () => void
-    } catch {
-      collect = null
-    }
-  }
-  try {
-    collect?.()
-  } catch {
-    /* a collection that cannot run costs nothing but the memory */
-  }
-}
-/** Every Prism process's memory now, in MB: private bytes and working set. */
-function memoryNow(): Record<string, number> {
-  const out = { processes: 0, privateMb: 0, workingSetMb: 0, mainMb: 0, gpuMb: 0, pageMb: 0 }
-  for (const m of app.getAppMetrics()) {
-    const priv = (m.memory.privateBytes ?? m.memory.workingSetSize) / 1024
-    out.processes += 1
-    out.privateMb += priv
-    out.workingSetMb += m.memory.workingSetSize / 1024
-    if (m.type === 'Browser') out.mainMb += priv
-    else if (m.type === 'GPU') out.gpuMb += priv
-    else if (m.type === 'Tab') out.pageMb += priv
-  }
-  for (const k of Object.keys(out) as Array<keyof typeof out>) out[k] = Math.round(out[k])
-  return out
-}
-let restTimer: NodeJS.Timeout | null = null
-let priorityBefore: number | null = null
 /**
- * STANDBY'S PARTS (standby.ts; owner, 2026-11-06: "a mode that doesnt use
- * much compute ram"). In the order they rest; they wake in reverse.
+ * STANDBY'S PARTS (standby.ts, startup/standbyParts.ts; owner, 2026-11-06:
+ * "a mode that doesnt use much compute ram"). In the order they rest; they
+ * wake in reverse.
  */
-const standby = createStandby({
-  log: (fields) => diag?.log.write('main', 'standby', fields),
-  parts: [
-    // No hidden window survives: the spare, its ghost, and the wait for one.
-    { name: 'spare', sleep: () => dropSpare(), wake: () => {} },
-    // Nor a preview window (owner, 2026-11-08).
-    { name: 'preview', sleep: () => previewWindows.destroyAll(), wake: () => {} },
-    // No watch timer wakes the process (20 a second otherwise).
-    { name: 'diag', sleep: () => diag?.standby(true), wake: () => diag?.standby(false) },
-    // Nor the sampling profiler (250 samples a second).
-    { name: 'profiler', sleep: () => lagProfiler?.rotate(), wake: () => lagProfiler?.rotate() },
-    // The phone server rests with the windows (its switch stays as it was).
-    { name: 'phone', sleep: () => phoneService?.rest(), wake: () => phoneService?.wake() },
-    // Low priority while resting: a press wakes it first, before any window.
-    {
-      name: 'priority',
-      sleep: () => {
-        priorityBefore = getPriority()
-        setPriority(osConstants.priority.PRIORITY_LOW)
-      },
-      wake: () => {
-        if (priorityBefore !== null) setPriority(priorityBefore)
-        priorityBefore = null
-      }
-    },
-    // The heap collected once the pages have gone, and the memory said.
-    {
-      name: 'heap',
-      sleep: () => {
-        if (restTimer) clearTimeout(restTimer)
-        restTimer = setTimeout(() => {
-          restTimer = null
-          if (!standby.on()) return
-          collectGarbage()
-          // Every Prism process's working set emptied (the helper's --trim):
-          // what stays resident is what a resting Prism touches, which is
-          // almost nothing. Under --e2e `PRISM_E2E_NO_TRIM=1` measures without.
-          const trim = !(E2E && process.env.PRISM_E2E_NO_TRIM === '1')
-          if (trim) trimWorkingSets(process.execPath, app.getAppMetrics().map((m) => m.pid))
-          restTimer = setTimeout(() => {
-            restTimer = null
-            if (standby.on()) diag?.log.write('main', 'standby', { ev: 'rest', trimmed: trim, ...memoryNow() })
-          }, 2000)
-          restTimer.unref()
-        }, 3000)
-        restTimer.unref()
-      },
-      wake: () => {
-        if (restTimer) clearTimeout(restTimer)
-        restTimer = null
-      }
-    }
-  ]
+const standby = createStandbyParts({
+  diag: () => diag,
+  lagProfiler: () => lagProfiler,
+  phoneService: () => phoneService,
+  dropSpare,
+  previewWindows
 })
-if (E2E)
-  Object.assign(globalThis, {
-    __e2eStandby: () => ({ on: standby.on(), windows: BrowserWindow.getAllWindows().length, memory: memoryNow() })
-  })
 
 /** What the IPC handlers in ipc/ reach (`MainCtx`, ipc/context.ts): index.ts's own state and helpers. */
 const ctx: MainCtx = {
@@ -1932,139 +948,20 @@ if (!app.requestSingleInstanceLock()) {
   if (E2E) Object.assign(globalThis, { __e2eDiagFlush: () => diag?.log.flushSync() })
   // `workingDirectory` is the SECOND process's cwd (#21): its relative paths
   // are read against it, never against this process's own.
-  /** A launch handed to this process: a second Prism's arguments
-   *  (`second-instance`), or the Win+E helper's request over the hotkey pipe
-   *  (wakePipe.ts, 2026-11-06), which carries what that process would have. */
-  const onLaunch = (argv: string[], workingDirectory: string, via: 'second-instance' | 'pipe'): void => {
-    noteActivity()
-    const launch = secondLaunch(argv, workingDirectory)
-    const shortcutRequest = winERequest(argv)
-    const resting = standby.on()
-    diag?.log.write('main', 'second-instance', {
-      via,
-      ...(shortcutRequest ? { winE: shortId(shortcutRequest) } : {}),
-      args: Math.max(0, argv.length - 1),
-      ...(resting ? { standby: true } : {})
-    })
-    if (shortcutRequest) {
-      // A window now would only be taken away: no answer, and the helper's
-      // own File Explorer fallback opens instead.
-      if (appState.installingUpdate || appState.appQuitting) return
-      const browse = browseRequest(argv)
-      requestReceived.set(shortcutRequest, Date.now())
-      winELine('received', {
-        id: shortId(shortcutRequest),
-        path: resting ? 'standby' : firstWindowMade ? 'warm' : 'cold',
-        via,
-        ...(browse ? { browse: true } : {})
-      })
-      // A REPEAT PRESS (owner, 2026-11-06): while the window an earlier
-      // press asked for is opening, or just after it showed its folder, this
-      // one brings THAT window forward and opens nothing.
-      const repeat = resting ? null : repeatOf(hotkeyOpening, browse, Date.now())
-      if (repeat === 'follow' && hotkeyOpening && winERequests.follow(shortcutRequest, hotkeyOpening.id)) {
-        requestReceived.delete(shortcutRequest)
-        raiseOpening()
-        return
-      }
-      if (repeat === 'raise') {
-        requestReceived.delete(shortcutRequest)
-        winERequests.answer(shortcutRequest)
-        raiseOpening()
-        return
-      }
-      // THE STARTING PROCESS'S FIRST WINDOW takes a request that arrives
-      // before it is made, exactly as the cold start's own (the helper of a
-      // second press while Prism is still starting).
-      if (!firstWindowMade) {
-        if (winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse))
-          hotkeyOpening ??= { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
-        return
-      }
-      // A WAKE FROM STANDBY (owner, 2026-11-06): the window opens as the cold
-      // start's first would (its strip, its place), shown at once, and the
-      // request lands in it. Everything a cold start pays before this point
-      // (the process, the modules, the session's set-up) is already done.
-      if (resting) {
-        // Taken FIRST (review, 2026-11-06): a request refused here opens no
-        // window, and woken parts with no window to close would never rest
-        // again (window-all-closed cannot fire with none open).
-        if (!winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)) return
-        const wake = startup.begin('standby-wake', { winE: true, extra: { winE: shortId(shortcutRequest) } })
-        standby.wake('win-e')
-        launchOfRequest.set(shortcutRequest, wake)
-        hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
-        hotkeyOpening.win = openAsFirst({ winE: shortcutRequest, launch: wake })
-        return
-      }
-      // A NEW WINDOW OF THIS PROCESS (tab tear-off step 2, 2026-10-29; it
-      // was a whole second Prism). "started" goes down the helper's pipe at
-      // once, and the id once that window's page shows the folder. A token
-      // already pending (a retransmission) opens nothing more.
-      if (winERequests.enqueue(shortcutRequest, shortcutRequest, browse)) openWinEWindow(shortcutRequest, browse)
-      return
-    }
-    // `Prism.exe --preview-update` while Prism is already running (it is
-    // resident, so it usually is) ends here, not at the launch branch. Only
-    // when nothing is on offer: a preview never replaces a real update, nor one
-    // that is part way through its install.
-    if (wantsPreview(argv) && !updateOffered()) offerUpdate(previewUpdate(pkg.version))
-    // A launch that lands while this process is on its way out (#265, review)
-    // must not make a window the quit or the installer then takes away with
-    // its file. An install starts the new Prism itself; an ordinary quit
-    // starts a fresh one with what was handed over, once this one has gone.
-    if (appState.installingUpdate) return
-    if (appState.appQuitting) {
-      // sync-ok: quit, the relaunch must be decided before this process exits
-      if (launch.pathsNow().length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
-      return
-    }
-    // A new page restores and drains `pendingOpen` itself once it listens
-    // (a reload or a new window starts unrestored). From standby, the parts
-    // come back first and the wake is timed like a launch.
-    if (resting) {
-      const wake = startup.begin('standby-wake', { extra: { via: 'launch' } })
-      standby.wake('launch')
-      ensureLivePage(wake)
-    } else ensureLivePage()
-    // The handoff is the case the foreground lock bites hardest: Prism has
-    // been sitting in the background for an hour, and the file it is handed
-    // must arrive in a window that is actually in front of you. Raised FIRST,
-    // before the paths are even read, so the foreground-lock fix runs the
-    // instant the handoff arrives. The window focused last (2026-10-29).
-    const front = windows.target()?.win
-    if (front) {
-      if (E2E) front.show()
-      else raise(front)
-    }
-    // The paths are stat'ed awaited (owner, 2026-10-12: main never waits on
-    // the disk), one handoff after another so they keep arrival order. The
-    // opens are sequential for the same reason as the launch drain above:
-    // order is what folds them into one tab and leaves the last-named file in
-    // front.
-    handoffs = handoffs
-      .then(async () => {
-        const paths = await launch.paths()
-        if (appState.installingUpdate) return
-        if (appState.appQuitting) {
-          if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: launch.relaunchArgs() })
-          return
-        }
-        const to = windows.target()
-        if (!to?.restored) openQueue.push(...paths)
-        else {
-          // Anything still queued goes first, so arrival order holds.
-          await drainPending(to.win).catch(() => {})
-          // Awaited INSIDE the chain (2026-10-16): fired and forgotten, a
-          // later handoff's opens could overtake this one's, and the wrong tab
-          // ended up in front. One path that fails still lets the rest open.
-          for (const p of paths) await sendOpen(p, to.win).catch(() => {})
-        }
-      })
-      .catch(() => {
-        /* a handoff that cannot be read opens nothing */
-      })
-  }
+  const onLaunch = createLaunchRouter({
+    state,
+    diag: () => diag,
+    noteActivity,
+    standby,
+    startup,
+    winERequests,
+    requestReceived,
+    launchOfRequest,
+    winELine,
+    openQueue,
+    recovery: { ensureLivePage, openAsFirst },
+    createWindow
+  })
   app.on('second-instance', (_e, argv, workingDirectory) => onLaunch(argv, workingDirectory, 'second-instance'))
   // The hotkey pipe, once the app is ready (a request before then goes the
   // old way: the helper starts a Prism, which hands over).
@@ -2087,7 +984,7 @@ if (!app.requestSingleInstanceLock()) {
   if (shortcutRequest) {
     winERequests.enqueue(shortcutRequest, WIN_E_FIRST, browse)
     // The cold start's own press: a repeat while its window opens rides on it.
-    hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
+    state.hotkeyOpening = { id: shortcutRequest, browse, ackedAt: null, closed: false, win: null }
   }
 
   let indexerStopped = false
@@ -2110,7 +1007,7 @@ if (!app.requestSingleInstanceLock()) {
     // The kills inside are synchronous; the folder goes at the next start.
     void liveVideo?.stopAll()
     const reason: QuitReason =
-      quitReason ?? (appState.installingUpdate ? 'update' : sessionEnded ? 'session-end' : 'user')
+      state.quitReason ?? (appState.installingUpdate ? 'update' : state.sessionEnded ? 'session-end' : 'user')
     // The quit is going ahead: the log's queue is written synchronously, so
     // its last lines land. LAST (review of #322): the shell, sidecar and
     // conversion teardown above is where a quit goes wrong (PT #127), and a
@@ -2145,53 +1042,7 @@ if (!app.requestSingleInstanceLock()) {
         id: 'e2e-early-probe',
         filePath: process.env.PRISM_E2E_EARLY_PROBE
       })
-    // Reuse a ready index before starting private background indexing. NOT
-    // before the Explorer's first answer (#271): the indexer, the drive-kind
-    // probe and folder sizes all want libuv's four threads, and they must not
-    // queue in front of the listing the first frame is waiting for. The first
-    // answer, or 1.5 s, whichever comes first.
-    void explorerListings.settled.then(() => {
-      void warmIndexer()
-      void learnDriveKinds()
-    })
-    // Remember folders (#271): off deletes what was kept, at once.
-    const rememberFolders = (values: Record<string, string>): void =>
-      listingCache.setEnabled(values[REMEMBER_FOLDERS_KEY] !== 'off')
-    rememberFolders(windowPreferences.load().values)
-    // The common places are the last to be evicted (#271), with Quick access
-    // (pinned as the page reads them ahead).
-    for (const key of ['home', 'desktop', 'documents', 'downloads', 'pictures', 'music', 'videos'] as const) {
-      try {
-        listingCache.pin([app.getPath(key)])
-      } catch {
-        /* a profile without that folder */
-      }
-    }
-    const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
-      rememberFolders(snapshot.values)
-      // Every window's page (2026-10-29): one store, every window shows it.
-      windows.sendToAll(PUSH.windowPreferencesChanged, snapshot)
-    })
-    app.once('will-quit', stopPreferencesWatch)
-    app.once('will-quit', () => listingCache.flush())
-    // Preferences are written off main while the app runs (2026-10-12): what is
-    // still waiting goes down synchronously here, or a value set just before
-    // quit is lost.
-    app.once('will-quit', () => windowPreferences.flush())
-    // The member temp folder (#300): this run's at quit, every dead run's once
-    // the first answer is in (never on the startup path, #189).
-    // On the process's own exit, which `app.exit` reaches and will-quit does not.
-    process.once('exit', () => memberTemp.removeRun())
-    void explorerListings.settled.then(() =>
-      setTimeout(() => void cleanDeadRuns(memberTemp.root, pidAlive, memberTemp.dir), 5000)
-    )
-    // The profiles the retired Win+E processes kept (step 2, 2026-10-29), the
-    // same way: never on the startup path, and nothing to do once gone.
-    void explorerListings.settled.then(() =>
-      setTimeout(() => void removeOldExplorerWindows(preferencesOwner), 5000)
-    )
-    registerPreferencesIpc(ctx)
-    registerWinEIpc(ctx)
+    wirePreferences(ctx)
     protocol.handle(MEDIA_SCHEME, (request) =>
       liveVideo && isLiveRequest(request.url) ? liveVideo.serve(request) : serveMedia(request)
     )
@@ -2205,20 +1056,8 @@ if (!app.requestSingleInstanceLock()) {
       })
     )
 
-    // One probe per file, kept for as long as the file has not changed: the
-    // audio player, the video player, the no-picture note and the phone's
-    // /api/play all ask. Null is "ffprobe could not read it" AND "there is
-    // no ffprobe": the callers that tell those apart ask findFfmpeg first.
-    // The in-flight probe is shared too (review, 2026-10-16): see probeCache.ts.
-    const probeShared = createProbeCache(
-      (p) => {
-        const ffprobe = ffmpegTools()?.ffprobe
-        return ffprobe ? probeMedia(ffprobe, p) : Promise.resolve(null)
-      },
-      async (p) => (await userFsp.stat(p)).mtimeMs
-    )
-    const probeCached = async (p: string): Promise<MediaInfo | null> =>
-      ffmpegTools()?.ffprobe ? probeShared(p) : null
+    // One probe per file, kept for as long as the file has not changed (startup/probe.ts).
+    const probeCached = createProbeCached()
 
     // The phone's HLS jobs (#105): one ffmpeg per phone and file, under
     // userData. Made once, and the directory is wiped at startup: segments
@@ -2233,145 +1072,29 @@ if (!app.requestSingleInstanceLock()) {
     registerPositionsIpc(positions)
     const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = ffmpegTools()
-    // The phone grid's pictures (#135), made once and cached under userData.
-    // Its ffmpegs register with the holders (#133), so a move of the file wins.
-    const thumbs = hlsTools
-      ? new Thumbs(hlsTools.ffmpeg, userPaths.thumbs(), (c, f) => holders.add(c, f), {
-          // The desktop's tiles (zoom grid): a HEIC ffmpeg cannot join and a
-          // camera raw's embedded JPEG come from the viewer's own decoders.
-          heic: heicToJpeg,
-          raw: rawPreview
-        })
-      : null
-    // Half-written thumbnails of a run that died, off the startup path.
-    void thumbs?.sweepParts()
-    // The e2e reads how many thumbnail ffmpegs ran and the most at once.
-    if (E2E && thumbs) Object.assign(globalThis, { __e2eThumbs: () => ({ ...thumbs.stats(), wants: thumbWantCount() }) })
+    // The phone grid's pictures (startup/thumbs.ts).
+    const thumbs = wireThumbs(hlsTools)
     const hlsJobs = hlsTools
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
       : null
     void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
-    // The desktop's live transcode (2026-11-08): the phone's jobs, its own
-    // folder, wiped before the first job may use it.
-    const LIVE_DIR = userPaths.live()
-    const liveWiped = rm(LIVE_DIR, { recursive: true, force: true }).catch(() => undefined)
-    liveVideo = hlsTools
-      ? createLiveVideo({
-          ffmpeg: hlsTools.ffmpeg,
-          baseDir: LIVE_DIR,
-          readable,
-          hold: (c, f) => holders.add(c, f),
-          ready: liveWiped,
-          op: writeOp
-        })
-      : null
-
-    /**
-     * `file:text`'s body, factored (#106) so the phone's `/api/text` reads
-     * the same way: capped, decoded by its own byte-order mark, the shape
-     * remembered for a save. The WALL is not in here: the IPC handler checks
-     * the root set and the extracted grants, the phone route checks its own
-     * phone's root, and each grants what the answer names on its own side.
-     */
-    const readTextWalled = async (p: string): Promise<TextRead> => {
-      try {
-        const fs = userFsp
-        // AWAITED, so a read error is caught here rather than escaping as a
-        // rejected invoke; and capped, because the contract is small text
-        // files and CodeMirror is handed one string (2026-08-28).
-        const st = await fs.stat(p)
-        // Too big to hand over as one string. Answered as a REASON rather than
-        // as null: the editor used to seed itself with a placeholder and could
-        // then save that placeholder over the file (2026-08-28).
-        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        // Decoded by its own byte-order mark rather than assumed utf-8: a
-        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
-        // anything PowerShell 5.1 redirected to a file. Those used to open as
-        // mojibake, which Prism would then offer to save back over them. The
-        // file's SHAPE is remembered so the save can reproduce it, line
-        // endings included (see textFile.ts).
-        const buf = await fs.readFile(p)
-        const { text, encoding, eol } = shapeOf(buf)
-        textShape.set(p.toLowerCase(), { encoding, eol })
-        return { text }
-      } catch {
-        return { error: 'unreadable' }
-      }
-    }
-    /** `doc:html`'s body, factored the same way (#106): converted AND
-     *  sanitised on the document worker, null for anything that is not a document or
-     *  would not convert. No wall in here either. */
-    const docClient = createDocClient()
-    const docHtmlOf = async (p: string): Promise<string | null> => {
-      if (!docKind(extname(p))) return null
-      try {
-        // On the document worker, never main (2026-10-12, docClient.ts).
-        return await docClient.html(p)
-      } catch {
-        return null
-      }
-    }
+    // The desktop's live transcode (startup/liveVideo.ts).
+    liveVideo = wireLiveVideo(hlsTools, readable)
 
     // The archive bodies the phone shares, from `registerArchiveIpc` below.
     let archiveBodies: ArchiveBodies | null = null
-    const phoneDeps = (hooks: PhoneHooks): PhoneServerDeps => ({
+    const { phoneService: phone, readTextWalled, docHtmlOf } = wirePhone({
+      ctx,
       rendererDir: RENDERER_DIR,
-      devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
-      media: serveMedia,
-      listDir,
-      // The very function `search:files` answers the sidebar with, so the
-      // phone's field and the PC's box find the same files by the same rules,
-      // over the folder the phone is in (2026-10-14).
-      search: (dir: string, query: string) => searchFiles(dir, query),
-      // The desktop Explorer's rule, one owner per phone (phoneAccess.ts).
-      access: { listed: phoneListed, may: phoneMay, release: phoneRelease, local: (p) => phoneOnThisPc(p) },
-      places: () =>
-        phonePlaces(
-          () => browseLocations((key) => app.getPath(key)),
-          hooks.pins(),
-          async (paths) =>
-            E2E ? withUsedShare(await driveUsage(paths), process.env.PRISM_E2E_DRIVE_USED) : driveUsage(paths)
-        ),
-      subsFor: async (p: string) => (await sidecarsFor(p)).map((t) => ({ path: t.path, label: t.label })),
-      readSubs: (p: string) =>
-        readAsVtt(p, ffmpegTools()?.ffmpeg),
-      probe: probeCached,
-      jobs: hlsJobs,
-      readText: readTextWalled,
-      docHtml: docHtmlOf,
-      docImages: documentImages,
-      isMarkdown,
-      // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
-      // phone's grant on its side is not enough on its own.
-      grantServable: (paths) => {
-        for (const img of paths) wall.grantServable(img)
-      },
-      // The comic and archive bodies are made further down this block, by
-      // `registerArchiveIpc` beside the gates they share. That is fine:
-      // `phoneDeps()` is only ever called from `startPhone`, which runs after
-      // the block has finished, so nothing here is read before it exists.
-      comicOpen: (p, password) => archiveBodies!.openComicWalled(p, password),
-      archiveList: (p, password) => archiveBodies!.listArchiveWalled(p, password),
-      archiveExtract: (p, entry, password) => archiveBodies!.extractMemberWalled(p, entry, password),
-      // The IPC's own kind gates, minus their root half (the route walls
-      // with the phone's root instead): a .txt is never handed to 7-Zip.
-      isArchive: (p) => fileKind(extname(p)) === 'archive',
-      isComic: (p) => fileKind(extname(p)) === 'comic',
-      onChange: hooks.onChange,
-      log: logPhone,
-      positions: {
-        get: (p) => positions.get(p),
-        set: (p, t) => positions.set(p, t)
-      },
-      thumb: (p) => {
-        const kind = fileKind(extname(p))
-        if (!thumbs || (kind !== 'image' && kind !== 'video')) return Promise.resolve(null)
-        return thumbs.get(p, kind)
-      },
-      // A throwaway e2e build must never raise the firewall prompt.
-      loopbackOnly: E2E
+      serveMedia,
+      probeCached,
+      hlsJobs,
+      positions,
+      thumbs,
+      logPhone,
+      archiveBodies: () => archiveBodies!
     })
-    phoneService = startPhoneService({ deps: phoneDeps, hlsJobs })
+    phoneService = phone
 
     /** What the IPC handlers in ipc/ need that only exists now (`ReadyCtx`). */
     const ready: ReadyCtx = { positions, readTextWalled, probeCached, docHtmlOf, live: liveVideo }
@@ -2418,72 +1141,20 @@ if (!app.requestSingleInstanceLock()) {
     // (2026-10-29): the session file is read once, here, before it exists, so
     // it opens at its saved size; its restore filters the strip from the same
     // text when its page listens.
-    sessionRaw = readSessionRaw(userPaths.tabs()) // sync-ok: startup, before the first window (inside readSessionRaw)
+    state.sessionRaw = readSessionRaw(userPaths.tabs()) // sync-ok: startup, before the first window (inside readSessionRaw)
     const firstWin = createWindow({
       first: true,
       seed: { kind: 'saved' },
       launchFlags: coldStartFlags(),
-      saved: savedEntry(sessionRaw),
+      saved: savedEntry(state.sessionRaw),
       launch: coldLaunch
     })
-    if (hotkeyOpening && !hotkeyOpening.win) hotkeyOpening.win = firstWin
+    if (state.hotkeyOpening && !state.hotkeyOpening.win) state.hotkeyOpening.win = firstWin
     void shellVerbSetting.status()
     app.on('activate', () => {
       if (windows.count() === 0) ensureLivePage()
     })
-    // E2E only (tab tear-off step 1, 2026-10-29): the scenarios open a second
-    // window the way main makes any later one, find the session's FIRST
-    // window whatever order Electron lists them in (`getAllWindows()[0]` is
-    // no promise), and read what main still holds for a tab after its
-    // window has closed.
-    if (E2E)
-      Object.assign(globalThis, {
-        __e2eOpenWindow: (): number => createWindow({ seed: { kind: 'none' } }).id,
-        __e2eMainWindow: (): BrowserWindow | null => (windows.all().find((r) => r.first) ?? windows.oldest())?.win ?? null,
-        // The session's windows: the tear-off's spare is not one (`__e2eTear`).
-        __e2eWindows: () =>
-          windows.all().filter((r) => !r.spare).map((r) => ({
-            id: r.win.id,
-            page: r.id,
-            key: r.key,
-            first: r.first,
-            winE: r.winE,
-            dirty: r.dirty,
-            restored: r.restored,
-            tabs: (r.reported?.tabs ?? []).map((t) => t.id ?? '')
-          })),
-        __e2eTabHeld: (tabId: string) => ({ released: desktopClosed(tabId), watching: !!browseWatcherOf(tabId) }),
-        // The tear-off (step 3): its phase, where the moving window WOULD be
-        // (nothing moves under --e2e), its counts, and the spare.
-        __e2eTear: () => {
-          const s = windows.spare()
-          return {
-            ...tear.state(),
-            spare: s ? { page: s.id, key: s.key, ready: s.restored, visible: !s.win.isDestroyed() && s.win.isVisible() } : null,
-            // The ghost's own window (owner, 2026-10-30): made, loaded, shown
-            // (parked and clear), and where it would be.
-            ghostWin: tabGhost.state()
-          }
-        },
-        // The label the ghost's page shows, read back from its document.
-        __e2eGhostLabel: () => tabGhost.label(),
-        // Step 4: where a parked window pretends to be (an offset from the
-        // work area's top-left, so it can be a target), a focus order (the
-        // e2e's windows are unfocusable, so none is ever focused by itself),
-        // and the strip a window reported.
-        __e2eTearAt: (id: number, at: Point | null) => {
-          const w = BrowserWindow.fromId(id)
-          if (w) tear.e2eAt(w, at)
-        },
-        __e2eFocused: (id: number) => {
-          const w = BrowserWindow.fromId(id)
-          if (w) windows.focused(w)
-        },
-        __e2eStrip: (id: number) => {
-          const w = BrowserWindow.fromId(id)
-          return w ? (windows.recordOf(w)?.strip ?? null) : null
-        }
-      })
+    installE2eWindowHooks({ createWindow, tear, tabGhost })
   })
 
   app.on('window-all-closed', () => {
@@ -2498,22 +1169,22 @@ if (!app.requestSingleInstanceLock()) {
     const next = lastWindowClosed({
       quitting: appState.appQuitting,
       installingUpdate: appState.installingUpdate,
-      sessionEnded,
+      sessionEnded: state.sessionEnded,
       wanted: standbyWanted(windowPreferences.load().values, E2E, process.env)
     })
     if (next.standby) {
       standby.enter()
       return
     }
-    if (next.reason) quitReason ??= next.reason
+    if (next.reason) state.quitReason ??= next.reason
     app.quit()
   })
   // Windows logging off or shutting down while Prism rests: no window is
   // there to hear `session-end`, so the power monitor's word is taken.
   void app.whenReady().then(() =>
     powerMonitor.on('shutdown', () => {
-      sessionEnded = true
-      quitReason ??= 'session-end'
+      state.sessionEnded = true
+      state.quitReason ??= 'session-end'
       diag?.log.write('main', 'session-end', { standby: standby.on() })
       diag?.log.flushSync() // sync-ok: shutdown, the process may be killed right after
     })

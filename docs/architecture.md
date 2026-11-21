@@ -286,7 +286,7 @@ Filesmith's conventions.
     dialogs, `pickFolder`, `pickFiles`, `pickIconFile`), `phone/index.ts` (`startPhoneService`, pos:*).
     `windowRecovery.ts` (#538 item 6: the crash log and the rebuild, give-up and live-page paths, `createWindowRecovery`),
     `openQueue.ts` (files from outside waiting for a window, `createOpenQueue`), `windowOptions.ts` (`WindowOptions`).
-    Still in index.ts: `createWindow` and its restore, spare/ghost/preview/tear wiring, Win+E routing.
+    `createWindow` and its restore are in `windowFactory.ts`, `onLaunch` (Win+E routing) in `launchRouter.ts`, the shared process state in `mainState.ts`, and the whenReady, tear-off, standby and sweep wiring in `startup/` (2026-11-21, audit #7 step 2). index.ts stays the composition root.
   - the IPC handlers, by area: `src/main/ipc/` (`window`, `open`, `files`, `browse`,
     `props`, `media`, `archive`, `folderIcons`). Each is a `registerXIpc(ctx)` that index.ts's whenReady calls
     in the order the handlers were always registered; `ctx` (`MainCtx`, declared in `ipc/context.ts`) is index.ts's shared

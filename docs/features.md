@@ -13,6 +13,27 @@ changing a feature: each entry records what the owner decided, why, and what hol
   pieces are made in BrowseList and passed in (named `...Ref`, so the React lint rules see them as
   refs). Same DOM, classes and data attributes. `browseListSize.test.ts` holds the size (a ratchet:
   575 lines plus 50).
+- **`src/main/index.ts` split, step 2** (audit #7 and #11, owner's yes 2026-11-21). Code moved, not
+  rewritten; startup order, IPC registration order and app events are as before. `windowFactory.ts`
+  holds `createWindow` and the session restore it runs; `launchRouter.ts` holds `onLaunch` (the
+  Win+E branch, and one `relaunchWithPaths` helper for the quit-then-relaunch step);
+  `mainState.ts` holds the process state those parts share (`MainState`, handed in, not global);
+  `startup/` holds the whenReady groups (`preferences`, `probe`, `thumbs`, `liveVideo`, `phone`),
+  the tear-off parts (`tearWiring`), standby (`standbyParts`), the sweep box (`sweepWiring`) and
+  the e2e window hooks (`e2eHooks`). index.ts went from 2,521 to 1,192 lines. Held by
+  `src/main/indexSize.test.ts` (index.ts, `windowFactory.ts` and `tearWiring.ts` each stay within
+  50 lines of today's count); `syncCalls.test.ts` and `spawnCalls.test.ts` read the new files too.
+- **App.tsx split (audit #8 and #12, owner "yes to all", 2026-11-21).** No behaviour change: only where the code lives. App.tsx went from 2,141 to about 820 lines. The tabs moved to `hooks/useAppTabs`, the layout and panel state to `useAppLayout`, how tabs arrive to `useAppOpening`, the file on show and stepping to `useAppSelection`, the preview pane and window to `useAppPreviews`, the questions to `useAppDialogs`, and paste, the media deck, paste progress and the window drop to `useAppPaste`, `useAppDeck`, `usePasteProgress` and `useWindowDrop`. The Explorer's menus, rename, properties, bin, quick access and file jobs moved to `components/explorer/useExplorerController`, its surface to `ExplorerHost` and its menus and dialogs to `ExplorerMenus`. The viewer box moved to `components/stage/ViewerStage`. The new components return the same elements in the same order, so the DOM the e2e and the CSS select by is unchanged. `src/renderer/src/appSize.test.ts` holds the size: App.tsx may not grow back past its line count plus 50.
+- **The drop scan runs in a Worker** (audit #61). `lib/viz/dropsOffMain.ts` mixes the decoded track
+  to mono and block-averages it to about 2 kHz in slices (the AudioBuffer is free right after),
+  then transfers that small array to `lib/viz/dropsWorker.ts`, which runs `analyzeDrops`. Without
+  `Worker` (unit tests), or when the worker fails to load, the same scan runs in place on the
+  small copy. Held by `dropsOffMain.test.ts` (same drops as the full-rate scan within 0.1 s,
+  abort, small copy, transferred copy, broken-worker fallback).
+- **The trailer script drives today's Explorer** (audit #96). `tools/showcase/showcase.mjs` lost its
+  file tree, treeitem and Terminal beats; each selector now names the `src/` file that renders it.
+  Not run by any test (it records the screen).
+- **The big-file cancel test has a 20 s timeout** (`src/main/copyCounted.test.ts`), for slow CI.
 
 ## Audit wave D: code health (2026-11-21)
 
