@@ -142,6 +142,8 @@ export async function runPaste(
   // Why each one failed, for the `op` line (owner, 2026-11-06): the error's
   // code (ENOENT, EBUSY, EPERM) or what Prism refused.
   const failures: Array<{ name: string; reason: string }> = []
+  // Sources a cut copied whole but could not fully remove (audit #51).
+  const left: Array<{ name: string; reason: string }> = []
   const failedWith = (s: string, reason: string): void => {
     failed += 1
     failures.push({ name: basename(s), reason })
@@ -200,8 +202,15 @@ export async function runPaste(
             { signal, keep: true }
           )
           writing = null
-          // The copy is whole: only now does the source go.
-          await rm(s, { recursive: true })
+          // The copy is whole: only now does the source go. A lock inside it
+          // leaves part of the source behind; the item still counts as pasted,
+          // since its copy landed and must not be pasted again.
+          await rm(s, { recursive: true }).catch((err: NodeJS.ErrnoException) =>
+            void left.push({
+              name: basename(s),
+              reason: typeof err?.code === 'string' ? err.code : String(err?.message ?? err).slice(0, 120)
+            })
+          )
         }
         // A cut carries the text shape like a drag-move does (2026-10-16).
         moveShapes(deps.textShape, s, target)
@@ -243,6 +252,7 @@ export async function runPaste(
     moved: moving,
     total: src.length,
     ...(failures.length ? { failures } : {}),
+    ...(left.length ? { left } : {}),
     ...(cancelled ? { cancelled } : {})
   }
 }

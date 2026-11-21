@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { mkdtemp, readFile, stat, userFs, writeFile } from './userFs'
+import { mkdtemp, stat, userFs, writeFile } from './userFs'
 import { tmpdir } from 'os'
 import { basename, join, relative, resolve } from 'path'
 import type { ArchiveMoveResult } from '@shared/ipcTypes'
@@ -9,6 +9,7 @@ import {
   listZip,
   norm,
   setSevenExe,
+  sevenBytes,
   sevenExtract,
   validMemberName,
   type AddResult,
@@ -102,9 +103,9 @@ export async function renameMember(
   let data: Buffer
   if (like.header.method === AES_METHOD) {
     if (!password) return 'password'
-    const r = await sevenExtract(zipPath, p, password)
+    const r = await sevenBytes(zipPath, p, password)
     if (!r.ok) return r.reason
-    data = await readFile(r.path)
+    data = r.data
   } else {
     try {
       data = like.getData(password)

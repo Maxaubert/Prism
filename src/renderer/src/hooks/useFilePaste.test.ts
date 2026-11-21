@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { copyFilePaths, fileCutPaths } from '../lib/fileClipboard'
 import { resetHolds } from '../lib/holds'
 import { resetJobs } from '../lib/jobs'
-import { PASTE_MESSAGES, pasteMessage, pasteMoves, useFilePaste, type PasteResult } from './useFilePaste'
+import { PASTE_MESSAGES, pasteMessage, pasteMoves, rekeyPasted, useFilePaste, type PasteResult } from './useFilePaste'
 
 const answer = (r: Partial<PasteResult>): PasteResult => ({ pasted: 0, failed: 0, paths: [], ...r })
 
@@ -23,6 +23,14 @@ describe('pasteMessage: one table for the Explorer and the tree', () => {
       'Pasted 2, but 1 could not be copied.'
     )
     expect(pasteMessage(answer({ pasted: 2, paths: ['a', 'b'] }))).toBeNull()
+  })
+})
+
+describe('pasteMessage: a cut that left part of its source (audit #51)', () => {
+  it('says so, apart from a failure, when the copy landed whole', () => {
+    const r = answer({ pasted: 1, moved: true, left: [{ name: 'a', reason: 'EBUSY' }] })
+    expect(pasteMessage(r)).toBe(PASTE_MESSAGES.leftover(1))
+    expect(pasteMessage(answer({ pasted: 1 }))).toBeNull()
   })
 })
 
@@ -83,5 +91,25 @@ describe('a cut whose paste was stopped (the loading bar, review 2026-11-09)', (
   it('a cut that finished is spent', async () => {
     await paste({ moved: true, pasted: 2, from: ['C:/a/x', 'C:/a/y'], paths: ['C:/b/x', 'C:/b/y'], total: 2 })
     expect(fileCutPaths()).toEqual([])
+  })
+})
+
+describe('rekeyPasted: unsaved text follows a cut and paste (audit #3)', () => {
+  it('re-keys a dirty buffer of a moved file, and of a file inside a moved folder', () => {
+    const rekey = vi.fn()
+    rekeyPasted(
+      answer({ moved: true, pasted: 2, from: ['C:\\a\\foo.txt', 'C:\\a\\dir'], paths: ['C:\\b\\foo.txt', 'C:\\b\\dir'] }),
+      [{ path: 'C:\\a\\foo.txt' }, { path: 'C:\\a\\dir\\n.txt' }, { path: 'C:\\z\\other.txt' }],
+      rekey
+    )
+    expect(rekey.mock.calls).toEqual([
+      ['C:\\a\\foo.txt', 'C:\\b\\foo.txt'],
+      ['C:\\a\\dir\\n.txt', 'C:\\b\\dir\\n.txt']
+    ])
+  })
+  it('a copy re-keys nothing', () => {
+    const rekey = vi.fn()
+    rekeyPasted(answer({ pasted: 1, from: ['C:\\a\\foo.txt'], paths: ['C:\\b\\foo.txt'] }), [{ path: 'C:\\a\\foo.txt' }], rekey)
+    expect(rekey).not.toHaveBeenCalled()
   })
 })

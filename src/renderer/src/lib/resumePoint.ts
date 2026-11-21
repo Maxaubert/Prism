@@ -19,6 +19,20 @@ export function resumeAt(stored: number | null | undefined, duration: number): n
   return stored
 }
 
+/** The stored place is applied only to the file it was asked for (audit #91):
+ *  the element is reused as the arrows move through a folder, so the answer
+ *  for film A can come back while film B is loaded, and must not seek it. It
+ *  also waits for an element still at its start, as before. */
+export const RESUME_APPLY_BEFORE = 1 // seconds
+export function mayApplyResume(
+  at: number | null,
+  currentTime: number,
+  askedSrc: string,
+  nowSrc: string
+): at is number {
+  return at !== null && askedSrc === nowSrc && currentTime <= RESUME_APPLY_BEFORE
+}
+
 /** What to write for a position, or null for "forget it": short media is
  *  never written, and the last seconds clear what was there. `undefined`
  *  means write nothing at all this time. */

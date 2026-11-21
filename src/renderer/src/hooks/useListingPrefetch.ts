@@ -54,6 +54,22 @@ export function smallFolderChildren(listing: DirListing | null, maxEntries = 30,
 
 let quickAccessDone = false
 
+/** Read the first Quick access folders ahead, once a session. The flag is set
+ *  when the read-ahead RUNS, not when it is scheduled (audit #89): a cleanup
+ *  that cancelled the idle callback (the user opened a folder, or the pins
+ *  changed as places loaded) would otherwise use the one turn up. */
+export function prefetchQuickAccessOnce(quickAccess: QuickAccessPin[]): boolean {
+  if (quickAccessDone) return false
+  quickAccessDone = true
+  for (const pin of quickAccess.filter((p) => p.isFolder).slice(0, 8)) prefetchFolder(pin.path, true)
+  return true
+}
+
+/** Test seam: a new session. */
+export const resetQuickAccessOnce = (): void => {
+  quickAccessDone = false
+}
+
 const idle = (fn: () => void): (() => void) => {
   const w = window as Window & {
     requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
@@ -92,10 +108,7 @@ export function useListingPrefetch({
   // Quick access, once a session.
   useEffect(() => {
     if (!ready || quickAccessDone || !quickAccess) return
-    quickAccessDone = true
-    return idle(() => {
-      for (const pin of quickAccess.filter((p) => p.isFolder).slice(0, 8)) prefetchFolder(pin.path, true)
-    })
+    return idle(() => void prefetchQuickAccessOnce(quickAccess))
   }, [ready, quickAccess])
   // A folder picked with the keyboard (or a click): likely opened next.
   useEffect(() => {

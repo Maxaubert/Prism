@@ -155,3 +155,26 @@ describe('folder icons follow a rename done in Prism (2026-10-31, D9)', () => {
     setFolderIcons(['C:/films/trips'], null)
   })
 })
+
+describe('a delete of a playing film waits for the player to let go (audit #76)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('holds the bin back a beat when a tab shows the file, and not when none does', async () => {
+    vi.useFakeTimers()
+    const trashFile = vi.fn(async () => true)
+    vi.stubGlobal('window', { prism: { trashFile, mediaUrl: (p: string) => p } })
+    const o = ops(vi.fn(async () => true))
+    const done = o.runDelete('C:\\films\\clip.mp4')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(trashFile).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(trashFile).toHaveBeenCalledTimes(1)
+    await done
+
+    trashFile.mockClear()
+    const other = o.runDelete('C:\\films\\other.mp4')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(trashFile).toHaveBeenCalledTimes(1)
+    await other
+  })
+})

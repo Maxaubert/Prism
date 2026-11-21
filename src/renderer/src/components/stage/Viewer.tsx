@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
+import type { StepDir } from '../../lib/slideshow'
 import { ViewerSwitch } from '../ViewerSwitch'
 import { UnsupportedView } from '../UnsupportedView'
 import { ArchiveCard } from '../browse/ArchiveCard'
@@ -98,7 +99,7 @@ export function Viewer({
   /** Autoplay: a finished video/track moves to the next of its kind. */
   onAutoAdvance: () => void
   /** The video menu's Next / Previous, by the same rule. */
-  onStep: (dir: 1 | -1) => void
+  onStep: (dir: StepDir) => void
   canStep: (dir: 1 | -1) => boolean
   /** Code and text edit in place, so the viewer hands its buffer up to App. */
   onBuffer: (path: string, text: string | null) => void
@@ -116,7 +117,7 @@ export function Viewer({
       onUndoable, refreshKey, onToggleFullscreen, fullscreen, transportStyle, transportBg,
       onOpenLocal, onAutoAdvance, onStep, canStep, onBuffer, onRenameSelf, getPending,
       onExternalChange, reloadAnswer, background, volumeKey, onOpenArchive, onOpenArchiveMember,
-      archiveCardMenu, archiveCardCopy, archiveCardDrop
+      archiveCardMenu, archiveCardCopy, archiveCardDrop, preview, shut
     }
     const gate = (
       <MemberGate file={file} render={(real) => <Viewer {...props} file={real} readOnly unpacked />} />

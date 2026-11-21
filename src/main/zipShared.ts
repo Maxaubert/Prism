@@ -1,7 +1,7 @@
 import AdmZip from 'adm-zip'
 import { execFile } from './spawnWorker'
 import { existsSync } from 'fs'
-import { mkdtemp } from 'fs/promises'
+import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import { exists } from './fsUtil'
@@ -141,6 +141,26 @@ export async function sevenExtract(
   }
   const out = join(dir, basename(norm(entryPath)))
   return (await exists(out)) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
+}
+
+/** One member's BYTES through 7-Zip: unpacked into a folder of its own, read,
+ *  and the folder removed whatever happened, so a decrypted copy never stays in
+ *  temp (audit #16). */
+export async function sevenBytes(
+  zipPath: string,
+  entryPath: string,
+  password: string
+): Promise<{ ok: true; data: Buffer } | { ok: false; reason: MemberFail }> {
+  const dir = await mkdtemp(join(tmpdir(), 'prism-zip-'))
+  try {
+    const r = await sevenExtract(zipPath, entryPath, password, dir)
+    if (!r.ok) return r
+    return { ok: true, data: await readFile(r.path) }
+  } catch {
+    return { ok: false, reason: 'failed' }
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /** Every entry of an open zip, folders included (some zips omit folder

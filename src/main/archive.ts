@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { readFile, writeFile } from './userFs'
+import { readFile, stat, writeFile } from './userFs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { crc32, inflateRaw } from 'zlib'
 import { Made } from './extractJob'
@@ -10,6 +10,7 @@ import {
   failOf,
   listZip,
   norm,
+  sevenBytes,
   sevenExtract,
   sevenZipExe,
   validMemberName,
@@ -93,6 +94,15 @@ export function archiveTooLarge(sizeBytes: number): boolean {
   return sizeBytes > ZIP_WRITE_MAX
 }
 
+/** Is this zip off limits for a write: too big, or gone since the listing
+ *  (audit #34)? A stat that throws must answer, not reject the invoke. */
+export async function archiveUnwritable(zipPath: string): Promise<boolean> {
+  try {
+    return archiveTooLarge((await stat(zipPath)).size)
+  } catch {
+    return true
+  }
+}
 export function archiveStat(zipPath: string): Promise<ArchiveStat | null> {
   return zip().read('archiveStat', zipPath)
 }
@@ -327,9 +337,9 @@ export async function extractTo(
       let data: Buffer
       if (like.header.method === AES_METHOD) {
         if (!password) return { ok: false, reason: 'password' }
-        const r = await sevenExtract(zipPath, p, password)
+        const r = await sevenBytes(zipPath, p, password)
         if (!r.ok) return { ok: false, reason: r.reason }
-        data = await readFile(r.path)
+        data = r.data
       } else {
         try {
           data = await memberData(like, password)

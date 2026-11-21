@@ -62,6 +62,14 @@ export function OverlayScrollbar(props: { target: RefObject<HTMLElement | null> 
     }
   }, [props.target])
 
+  const endDrag = (): void => {
+    dragging.current = null
+    if (!hover.current) {
+      window.clearTimeout(idle.current)
+      idle.current = window.setTimeout(() => setShown(false), 900)
+    }
+  }
+
   if (!box.scrollable) return null
   return (
     <div
@@ -102,13 +110,15 @@ export function OverlayScrollbar(props: { target: RefObject<HTMLElement | null> 
           scrollListTo(list, drag.startTop + (e.clientY - drag.startY) * ratio)
         }}
         onPointerUp={(e) => {
-          dragging.current = null
-          e.currentTarget.releasePointerCapture(e.pointerId)
-          if (!hover.current) {
-            window.clearTimeout(idle.current)
-            idle.current = window.setTimeout(() => setShown(false), 900)
+          if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId)
           }
+          endDrag()
         }}
+        // A drag that loses the pointer (Alt+Tab, a dialog taking capture) gets
+        // no pointerup: end it here, or the bar stays held up for good (audit #37).
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
       />
     </div>
   )

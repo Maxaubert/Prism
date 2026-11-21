@@ -5,6 +5,7 @@ import { stoppedNote, withFileJob } from '../lib/fileJob'
 import { followFolderIcons } from '../lib/folderIcons'
 import { markLanded } from '../lib/landMarks'
 import { parentDir } from '@shared/path'
+import { movedPath } from '../lib/moveViews'
 
 /** What main answers a paste with. */
 export type PasteResult = Awaited<ReturnType<Window['prism']['pasteInto']>>
@@ -19,6 +20,8 @@ export const PASTE_MESSAGES = {
   nothing: 'Nothing could be pasted here.',
   partly: (pasted: number, failed: number): string =>
     `Pasted ${pasted}, but ${failed} could not be copied.`,
+  leftover: (n: number): string =>
+    `${n} ${n === 1 ? 'item was' : 'items were'} copied, but could not be fully removed from where ${n === 1 ? 'it was' : 'they were'}.`,
   threw: 'The files could not be pasted. Try again.'
 } as const
 
@@ -29,6 +32,7 @@ export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.re
   if (r.refused) return refused
   if (!r.pasted) return PASTE_MESSAGES.nothing
   if (r.failed) return PASTE_MESSAGES.partly(r.pasted, r.failed)
+  if (r.left?.length) return PASTE_MESSAGES.leftover(r.left.length)
   return null
 }
 
@@ -38,6 +42,21 @@ export function pasteMessage(r: PasteResult, refused: string = PASTE_MESSAGES.re
 export function pasteMoves(r: PasteResult): Array<{ from: string; to: string }> {
   if (!r.moved || !r.from || r.from.length !== r.paths.length) return []
   return r.from.map((from, i) => ({ from, to: r.paths[i] }))
+}
+
+/** A cut and paste moves files that may hold unsaved text: each such buffer follows
+ *  its file to the new path, as a rename does (audit #3). */
+export function rekeyPasted(
+  result: PasteResult,
+  buffers: Iterable<{ path: string }>,
+  rekeyBuffer: (from: string, to: string) => void
+): void {
+  const moves = pasteMoves(result)
+  if (!moves.length) return
+  for (const buffer of [...buffers]) {
+    const to = movedPath(buffer.path, moves)
+    if (to !== buffer.path) rekeyBuffer(buffer.path, to)
+  }
 }
 
 /**

@@ -225,6 +225,9 @@ export async function moveEntries(
   }
   if (onClash === 'ask' && out.clashes.length) return out
 
+  // Names this batch has already landed: a twin from another folder must not
+  // bin the copy that just arrived (audit #2), it keeps both.
+  const landed = new Set<string>()
   for (const [i, p] of usable.entries()) {
     if (signal?.aborted) {
       out.cancelled = true
@@ -236,6 +239,7 @@ export async function moveEntries(
     const name = basename(p)
     let target = join(destDir, name)
     try {
+      const twin = landed.has(name.toLowerCase())
       if (await exists(target)) {
         // Same name, both folders: pour one into the other rather than
         // landing a second copy beside it.
@@ -245,12 +249,13 @@ export async function moveEntries(
         }
         // Only an explicit 'replace' may destroy; everything else lands beside
         // what is there. 'ask' must never reach a write it did not ask about.
-        if (onClash === 'replace') {
+        if (onClash === 'replace' && !twin) {
           out.replaced.push(target)
           await trash(target)
         } else target = join(destDir, await uniqueNameAsync(destDir, name))
       }
       await moveOne(p, target, signal)
+      landed.add(name.toLowerCase())
       out.moved.push({ from: p, to: target })
     } catch (e) {
       if (isAborted(e, signal)) {

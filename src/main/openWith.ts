@@ -91,28 +91,34 @@ const expandEnv = (s: string): string =>
 
 /* ---------- registry access ---------- */
 
-function query(key: string): Promise<RegValue[]> {
+function query(key: string, extra: string[] = []): Promise<RegValue[]> {
   return new Promise((resolve) => {
     execFile(
       systemExe('reg.exe'),
-      ['query', key],
+      ['query', key, ...extra],
       { windowsHide: true, timeout: 3000 },
       (err, stdout) => resolve(err ? [] : parseRegOutput(stdout))
     )
   })
 }
 
-const defaultValue = (values: RegValue[], key?: string): string | undefined =>
-  values.find(
-    (v) => v.name === '(Default)' && (!key || v.key.toLowerCase() === key.toLowerCase())
-  )?.data
+/** The default value out of what `reg query <key> /ve` printed. The value's
+ *  NAME is not matched: reg.exe prints it localised ("(Standard)"), the type is
+ *  not (audit #13). A key with no default prints a placeholder with no type. */
+export function defaultOf(values: RegValue[]): string | undefined {
+  const v = values.find((x) => x.type === 'REG_SZ' || x.type === 'REG_EXPAND_SZ')
+  return v?.data || undefined
+}
+
+const queryDefault = async (key: string): Promise<string | undefined> =>
+  defaultOf(await query(key, ['/ve']))
 
 /** The open command an Applications\<exe> or a progid key declares, if it is a
  *  plain executable command (store handlers use DelegateExecute instead). */
 async function openCommand(key: string): Promise<string | null> {
-  const values = await query(`${key}\\shell\\open\\command`)
+  const cmdKey = `${key}\\shell\\open\\command`
+  const [values, cmd] = await Promise.all([query(cmdKey), queryDefault(cmdKey)])
   if (values.some((v) => v.name.toLowerCase() === 'delegateexecute' && v.data)) return null
-  const cmd = defaultValue(values)
   return cmd && !/rundll32|openas_rundll/i.test(cmd) ? cmd : null
 }
 
@@ -147,8 +153,8 @@ async function fromExeName(exeName: string): Promise<AppCandidate | null> {
     const c = await candidateFromCommand(cmd)
     if (c) return { ...c, name: await friendlyName(appKey, c.exe) }
   }
-  const appPath = defaultValue(
-    await query(`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`)
+  const appPath = await queryDefault(
+    `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`
   )
   if (appPath) {
     const exe = expandEnv(appPath.replace(/^"|"$/g, ''))
@@ -174,16 +180,16 @@ async function fromProgid(progid: string): Promise<AppCandidate | null> {
  */
 export async function appsForExt(ext: string, cap = 8): Promise<AppCandidate[]> {
   const fileExts = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}`
-  const [mruValues, userProgids, classProgids, classRoot] = await Promise.all([
+  const [mruValues, userProgids, classProgids, classDefault] = await Promise.all([
     query(`${fileExts}\\OpenWithList`),
     query(`${fileExts}\\OpenWithProgids`),
     query(`HKCR\\${ext}\\OpenWithProgids`),
-    query(`HKCR\\${ext}`)
+    queryDefault(`HKCR\\${ext}`)
   ])
 
   const exeNames = mruOrder(mruValues).filter((n) => /\.exe$/i.test(n))
   const progids = [
-    defaultValue(classRoot) ?? '',
+    classDefault ?? '',
     ...userProgids.map((v) => v.name),
     ...classProgids.map((v) => v.name)
   ].filter((p) => p && p !== '(Default)' && p !== 'MRUList')

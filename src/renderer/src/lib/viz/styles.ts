@@ -852,6 +852,13 @@ export function styleById(id: string): VizStyle {
   return VIZ_STYLES.find((s) => s.id === id) ?? VIZ_STYLES[0]
 }
 
+/** True when `builtFor` is the style that `id` resolves to. A stored id that no
+ *  longer exists resolves to the first style, so compare resolved ids, or the
+ *  visualizer sees a change on every frame and never parks (audit #57). */
+export function styleIsBuilt(id: string, builtFor: string): boolean {
+  return styleById(id).id === builtFor
+}
+
 
 // ------------------------------------------------------------------- themes
 // Base COLOUR schemes only - a palette + accent. Finishes (glow) and animation

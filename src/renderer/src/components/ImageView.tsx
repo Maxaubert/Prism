@@ -20,7 +20,7 @@ import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import { saveCopyNote } from '../lib/saveCopyNote'
 import { say } from '../lib/say'
 import type { CopyFormat } from '@shared/imageCopy'
-import { loadSlideSeconds, stopsSlideshow, type SlideSeconds } from '../lib/slideshow'
+import { loadSlideSeconds, slideshowTick, stopsSlideshow, type SlideSeconds, type StepDir } from '../lib/slideshow'
 import { isTypingTarget } from '../lib/focusGuards'
 import { isFullscreenKey } from '../lib/fullscreenKey'
 import { photoInfoKeyToggles } from '../lib/photoInfoKey'
@@ -70,7 +70,7 @@ export function ImageView({
   onToggleFullscreen: () => void
   /** The slideshow's step: the same route the arrows take, so it moves through
    *  the folder in whatever order the sort menu decided. */
-  onStep?: (dir: 1 | -1) => void
+  onStep?: (dir: StepDir) => void
   /** Whether there IS one that way, which is how the slideshow knows to wrap
    *  by walking back to the start rather than stopping at the end. */
   canStep?: (dir: 1 | -1) => boolean
@@ -431,10 +431,7 @@ export function ImageView({
    */
   useEffect(() => {
     if (!slideshow || !onStep || !canStep) return
-    const id = window.setInterval(() => {
-      if (canStep(1)) onStep(1)
-      else while (canStep(-1)) onStep(-1)
-    }, slideSecs * 1000)
+    const id = window.setInterval(() => slideshowTick(canStep, onStep), slideSecs * 1000)
     return () => window.clearInterval(id)
   }, [slideshow, slideSecs, onStep, canStep])
 

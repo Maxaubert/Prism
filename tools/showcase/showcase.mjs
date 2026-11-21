@@ -23,6 +23,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { needBox, stopTake } from '../lib/captureGuard.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -110,6 +111,9 @@ const CURSOR = `(() => {
   }
 })()`
 
+// What is running, so a failed take can stop it (audit #96).
+const take = { ff: null, app: null }
+
 async function main() {
   rmSync(PROFILE, { recursive: true, force: true })
   mkdirSync(dirname(RAW), { recursive: true })
@@ -127,6 +131,7 @@ async function main() {
   const app = await electron.launch({
     args: [MAIN, `--user-data-dir=${PROFILE}`, join(DEMO, 'coastline-dawn.jpg')]
   })
+  take.app = app
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
 
@@ -162,6 +167,7 @@ async function main() {
     ],
     { stdio: ['pipe', 'ignore', 'inherit'] }
   )
+  take.ff = ff
   await sleep(900) // ffmpeg opens the duplication device before frame one
 
   // --- the moves ------------------------------------------------------------
@@ -177,8 +183,7 @@ async function main() {
     await page.mouse.click(x, y)
   }
   const at = async (locator) => {
-    const b = await locator.boundingBox()
-    if (!b) throw new Error('nothing to aim at')
+    const b = await needBox(locator, String(locator))
     return [b.x + b.width / 2, b.y + b.height / 2]
   }
   const go = async (locator, ms) => {
@@ -253,7 +258,7 @@ async function main() {
     // The panel is resizable, so the trailer resizes it: a handle nobody drags
     // looks like a border.
     const grip = page.getByLabel('Resize file tree')
-    const b = await grip.boundingBox()
+    const b = await needBox(grip, 'the "Resize file tree" handle')
     const y = b.y + b.height / 2
     await move(b.x + b.width / 2, y, 560)
     await page.mouse.down()
@@ -272,7 +277,7 @@ async function main() {
 
   await beat('scrub', 1500, async () => {
     const bar = page.locator('[class~="group/bar"]').first()
-    const b = await bar.boundingBox()
+    const b = await needBox(bar, 'the player bar')
     const y = b.y + b.height / 2
     await move(b.x + b.width * 0.44, y, 560)
     await click(b.x + b.width * 0.44, y)
@@ -309,5 +314,6 @@ async function main() {
 
 main().catch(async (e) => {
   console.error(e)
+  await stopTake(take)
   process.exit(1)
 })
