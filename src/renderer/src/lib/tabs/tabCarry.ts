@@ -40,6 +40,25 @@ export interface CarrySinks {
 
 const shownPath = (tab: Tab): string | null => (tab.index >= 0 ? (tab.files[tab.index]?.path ?? null) : null)
 
+/** Take the unsaved text a carried tab brings into this window. A different buffer this
+ * window already holds for the same path is kept, never replaced: the incoming text is
+ * not allowed to silently overwrite unsaved edits here (audit #62). Returns the keys the
+ * tab now owns. */
+export function adoptCarriedBuffers(
+  buffers: Map<string, { path: string; text: string }>,
+  carried: ReadonlyArray<{ path: string; text: string }>
+): string[] {
+  const owned: string[] = []
+  for (const b of carried) {
+    const key = b.path.toLowerCase()
+    const have = buffers.get(key)
+    if (have && have.text !== b.text) continue
+    buffers.set(key, { path: b.path, text: b.text })
+    owned.push(key)
+  }
+  return owned
+}
+
 /** The lowercase keys of the unsaved buffers a tab owns: the ones it edited,
  *  and the file it shows. */
 export function ownedBufferKeys(

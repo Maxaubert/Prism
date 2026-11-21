@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
+import type { StepDir } from '../lib/slideshow'
 import { ViewerSwitch } from '../components/ViewerSwitch'
 import { ArchiveView } from '../components/ArchiveView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
@@ -187,7 +188,7 @@ export function PhoneViewer({
    *  plays as it appears. A reload landing on the file passes false. */
   autoplay: boolean
   onClose: () => void
-  onStep: (d: 1 | -1) => void
+  onStep: (d: StepDir) => void
   canStep: (d: 1 | -1) => boolean
   /** A markdown link to a local file; the browser decides whether it opens. */
   onOpenLocal: (path: string) => void

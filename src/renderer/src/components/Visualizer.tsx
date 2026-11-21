@@ -2,8 +2,7 @@ import { useEffect, useRef, type JSX } from 'react'
 import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
 import { clamp } from '../lib/clamp'
 import { styleById, styleIsBuilt } from '../lib/viz/styles'
-import { analyzeDrops } from '../lib/viz/drops'
-import { watchDrops } from '../lib/viz/dropWatch'
+import { analyzeDropsAsync } from '../lib/viz/drops'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
 import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
 import { hexToRgb } from '../lib/colour'
@@ -109,7 +108,7 @@ export function Visualizer({
         const resp = await fetch(url, { signal })
         const bytes = await resp.arrayBuffer()
         if (signal.aborted) return []
-        return analyzeDrops(await getAudioContext().decodeAudioData(bytes))
+        return analyzeDropsAsync(await getAudioContext().decodeAudioData(bytes), 12, signal)
       },
       (times) => {
         dropTimesRef.current = times

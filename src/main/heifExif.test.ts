@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { heifIccProfile } from './heifExif'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { heifExifBlock, heifIccProfile } from './heifExif'
 import { colr, heicWith, iccProfile } from './photoBytes.testkit'
 
 let dir = ''
@@ -36,5 +36,27 @@ describe('heifIccProfile (#78, D8)', () => {
   it('answers null for a file with no meta box, or no file', async () => {
     expect(await heifIccProfile(await heic('junk.heic', Buffer.from('not a heic at all')))).toBeNull()
     expect(await heifIccProfile(join(dir, 'missing.heic'))).toBeNull()
+  })
+})
+
+describe('heifExifBlock refuses boxes that claim a huge size (audit #78)', () => {
+  const box = (kind: string, size: number, body = Buffer.alloc(0)): Buffer => {
+    const h = Buffer.alloc(8)
+    h.writeUInt32BE(size, 0)
+    h.write(kind, 4, 'latin1')
+    return Buffer.concat([h, body])
+  }
+  it('answers null without allocating the claimed size', async () => {
+    const iloc = box('iloc', 16, Buffer.alloc(8))
+    const iinf = box('iinf', 0x7ffffff0)
+    const inner = Buffer.concat([Buffer.alloc(4), iloc, iinf])
+    const file = await heic('huge.heic', Buffer.concat([box('ftyp', 16, Buffer.alloc(8)), box('meta', 8 + inner.length, inner)]))
+    const spy = vi.spyOn(Buffer, 'alloc')
+    try {
+      expect(await heifExifBlock(file)).toBeNull()
+      expect(spy.mock.calls.every(([n]) => n < 1 << 20)).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
