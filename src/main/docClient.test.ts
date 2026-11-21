@@ -95,11 +95,14 @@ describe('the document client', () => {
 describe('main never loads a converter', () => {
   it('index.ts and the ipc/ handlers reach documents only through the client', () => {
     const ipc = join(__dirname, 'ipc')
+    const startup = join(__dirname, 'startup')
     const src = [
       readFileSync(join(__dirname, 'index.ts'), 'utf8'),
-      ...readdirSync(ipc)
-        .filter((f) => f.endsWith('.ts'))
-        .map((f) => readFileSync(join(ipc, f), 'utf8'))
+      ...[ipc, startup].flatMap((dir) =>
+        readdirSync(dir)
+          .filter((f) => f.endsWith('.ts'))
+          .map((f) => readFileSync(join(dir, f), 'utf8'))
+      )
     ].join('\n')
     expect(src).not.toMatch(/from '\.\.?\/docSanitize'/)
     expect(src).not.toMatch(/\bconvertDoc\b/)
