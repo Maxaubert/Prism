@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyCarry, buffersLeaving, carryOf, ownedBufferKeys, type CarrySinks, type CarrySources } from './tabCarry'
+import { adoptCarriedBuffers, applyCarry, buffersLeaving, carryOf, ownedBufferKeys, type CarrySinks, type CarrySources } from './tabCarry'
 import { newTab, type Tab } from './tabs'
 import { newBrowse } from '../browse'
 import type { ViewerFile } from '@shared/types'
@@ -102,5 +102,22 @@ describe('what leaves the source page', () => {
     expect(buffersLeaving(leaving, [tabAt('t2', 0)], s.buffers, s.owners)).toEqual([notes.toLowerCase()])
     expect(buffersLeaving(leaving, [tabAt('t2', 1)], s.buffers, s.owners)).toEqual([])
     expect(ownedBufferKeys(tabAt('t3', 0), s.buffers, s.owners)).toEqual([])
+  })
+})
+
+describe('adoptCarriedBuffers (audit #62)', () => {
+  it('keeps this window\'s different unsaved text for the same path', () => {
+    const buffers = new Map([['c:\\x.txt', { path: 'C:\\x.txt', text: 'mine' }]])
+    const owned = adoptCarriedBuffers(buffers, [
+      { path: 'C:\\X.txt', text: 'theirs' },
+      { path: 'C:\\y.txt', text: 'new' }
+    ])
+    expect(buffers.get('c:\\x.txt')?.text).toBe('mine')
+    expect(buffers.get('c:\\y.txt')?.text).toBe('new')
+    expect(owned).toEqual(['c:\\y.txt'])
+  })
+  it('takes identical text, and owns it', () => {
+    const buffers = new Map([['c:\\x.txt', { path: 'C:\\x.txt', text: 'same' }]])
+    expect(adoptCarriedBuffers(buffers, [{ path: 'C:\\x.txt', text: 'same' }])).toEqual(['c:\\x.txt'])
   })
 })

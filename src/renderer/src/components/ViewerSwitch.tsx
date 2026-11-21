@@ -1,5 +1,6 @@
 import { lazy, Suspense, type JSX, type ReactNode } from 'react'
 import type { ViewerFile } from '@shared/types'
+import type { StepDir } from '../lib/slideshow'
 import { isMarkdown } from '@shared/fileKind'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE, type TransportStyle } from '../lib/transport'
 import { ImageView } from './ImageView'
@@ -55,7 +56,7 @@ export interface ViewerSwitchProps {
   /** Behind the Explorer's list with the preview shut: a film stays silent. */
   shut?: boolean
   onAutoAdvance?: () => void
-  onStep?: (dir: 1 | -1) => void
+  onStep?: (dir: StepDir) => void
   canStep?: (dir: 1 | -1) => boolean
   transportStyle?: TransportStyle
   transportBg?: number

@@ -175,6 +175,9 @@ export async function heifIccProfile(file: string): Promise<Buffer | null> {
   }
 }
 
+/** The iinf and iloc index boxes are kilobytes; anything claiming more is a misparse. */
+const INDEX_MAX = 1 << 20
+
 /** The TIFF block from a HEIC's Exif item, or null if it has none. */
 export async function heifExifBlock(file: string): Promise<Buffer | null> {
   let fh: FileHandle | null = null
@@ -185,6 +188,9 @@ export async function heifExifBlock(file: string): Promise<Buffer | null> {
     const iinf = kids.find((b) => b.kind === 'iinf')
     const iloc = kids.find((b) => b.kind === 'iloc')
     if (!iinf || !iloc) return null
+    // The two index boxes are kilobytes; a header claiming more is corrupt, and would
+    // otherwise be allocated as claimed (audit #78).
+    if (iinf.size > INDEX_MAX || iloc.size > INDEX_MAX) return null
 
     const iinfBuf = Buffer.alloc(iinf.size)
     await fh.read(iinfBuf, 0, iinf.size, iinf.at)
