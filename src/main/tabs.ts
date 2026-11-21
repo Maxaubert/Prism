@@ -235,15 +235,6 @@ export function parseTabs(raw: string): SavedTabs {
   return { tabs, active }
 }
 
-export function readTabs(path: string): SavedTabs {
-  try {
-    // sync-ok: startup, the tab restore (once per page load, before the strip shows)
-    return parseTabs(readFileSync(path, 'utf8'))
-  } catch {
-    return NONE // no file yet, or one we cannot read
-  }
-}
-
 /**
  * The session file's text, read ONCE, before the first window (2026-10-29):
  * its bounds size that window, and its strip is what the first window's
