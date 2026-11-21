@@ -245,4 +245,46 @@ describe('thumbs:want', () => {
     await flush()
     expect(s.made).toHaveLength(3)
   })
-})
+
+  it('a window that goes drops what its tabs still wait for (audit #36)', async () => {
+    const s = setup({ hold: true })
+    await s.ep.want(s.sink(1), 'tab', 1, wants(Array.from({ length: 10 }, (_, i) => `C:\\f\\${i}.jpg`)))
+    await s.ep.want(s.sink(2), 'other', 1, wants(['C:\\g\\a.jpg']))
+    await flush()
+    const started = s.made.filter((f) => f.startsWith('C:\\f\\')).length
+    s.ep.forgetSender(1)
+    for (let i = 0; i < 20; i++) {
+      s.finishMake.splice(0).forEach((f) => f())
+      await flush()
+    }
+    // Window 2's picture is still made; window 1's queue is not worked through.
+    expect(s.made.filter((f) => f.startsWith('C:\\f\\')).length).toBe(started)
+    expect(s.made).toContain('C:\\g\\a.jpg')
+  })
+
+  it('a rebuilt page asking for the same tab from gen 0 is answered (audit #59)', async () => {
+    const s = setup()
+    s.hits.add('C:\\f\\a.jpg')
+    await s.ep.want(s.sink(1), 'tab', 5, wants(['C:\\f\\a.jpg']))
+    // The window crashed and came back as page 2, same tab id, gen restarts.
+    const r = await s.ep.want(s.sink(2), 'tab', 1, wants(['C:\\f\\a.jpg']))
+    expect(Object.keys(r.ready)).toEqual(['C:\\f\\a.jpg'])
+    // The same page still cannot go backwards.
+    expect(await s.ep.want(s.sink(2), 'tab', 0, wants(['C:\\f\\a.jpg']))).toEqual({ ready: {} })
+  })
+
+  it('a tear-off source page cancelling later does not drop the floating page (audit #59)', async () => {
+    const s = setup({ hold: true })
+    await s.ep.want(s.sink(1), 'tab', 1, wants(['C:\\f\\a.jpg']))
+    await s.ep.want(s.sink(2), 'tab', 1, wants(['C:\\f\\b.jpg', 'C:\\f\\c.jpg', 'C:\\f\\d.jpg', 'C:\\f\\e.jpg', 'C:\\f\\f.jpg']))
+    s.ep.cancel('tab', 1) // the source page lets go of the tab
+    for (let i = 0; i < 10; i++) {
+      s.finishMake.splice(0).forEach((f) => f())
+      await flush()
+    }
+    vi.advanceTimersByTime(60)
+    expect(s.made).toContain('C:\\f\\f.jpg')
+    expect(s.sent.some((m) => m.sink === 2)).toBe(true)
+    // The floating page's own cancel (or main's) still works.
+    s.ep.cancel('tab', 2)
+  })})

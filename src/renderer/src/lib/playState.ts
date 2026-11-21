@@ -111,6 +111,13 @@ export function intendToPlay(key: string): void {
   for (const fn of intents.get(key) ?? []) fn()
 }
 
+/** May a pick of the row start this player (audit #22)? Another tab's player of
+ *  the same file hears the pick too (review of #491): one that is hidden (a
+ *  background deck, `aria-hidden`) or shut stays as it is, or the file sounds
+ *  twice, once unseen. */
+export function startsOnIntent(el: HTMLMediaElement | null, shut = false): el is HTMLMediaElement {
+  return !!el && el.paused && !shut && !el.closest('[aria-hidden="true"]')
+}
 const intents = new Map<string, Set<() => void>>()
 
 /** Hear every pick of `key` while mounted. Returns the unsubscribe. */

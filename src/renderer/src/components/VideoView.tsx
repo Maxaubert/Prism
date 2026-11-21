@@ -11,7 +11,7 @@ import { IconFull } from './icons/transport'
 import { useWaveform } from '../hooks/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useMediaLook } from '../lib/viz/mediaLook'
-import { wasPlaying, whenIntended } from '../lib/playState'
+import { startsOnIntent, wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { StageNotice } from './StageNotice'
 import { videoMenu } from '../menus/viewers/video'
@@ -351,10 +351,7 @@ export function VideoView({
     () =>
       whenIntended(url, () => {
         const el = video.current
-        // Another tab's player of the same film hears this too (review of
-        // #491): it stays as it is, or the film sounds twice, once hidden.
-        if (el && el.paused && !shut && !el.closest('[aria-hidden="true"]'))
-          void el.play().catch(() => undefined)
+        if (startsOnIntent(el, shut)) void el.play().catch(() => undefined)
       }),
     [url, shut]
   )

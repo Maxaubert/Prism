@@ -1,6 +1,7 @@
 import { execFile } from './spawnWorker'
 import { readdir, readFile, stat } from './userFs'
 import { basename, dirname, extname, join } from 'path'
+import { decodeText, sniffEncoding } from './textFile'
 import type { SubtitleTrack } from '@shared/ipcTypes'
 
 // Sidecar subtitles, the convention every player follows: "Episode.mkv" is
@@ -120,6 +121,17 @@ export function stripVttStyles(vtt: string): string {
     .join('\n\n')
 }
 
+/** A subtitle file's bytes as text (audit #17): a BOM names UTF-16 or UTF-8;
+ *  with none, UTF-8 if it is valid, else Windows-1252, which is what most old
+ *  SRTs with accents are. */
+export function decodeSubtitle(buf: Buffer): string {
+  if (sniffEncoding(buf.subarray(0, 4)) !== 'utf8') return decodeText(buf).text
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    return new TextDecoder('windows-1252').decode(buf)
+  }
+}
 /** A track's text as WebVTT, whatever it was on disk.
  *
  *  Async because of the .ass/.ssa branch: ffmpeg through execFileSync stopped
@@ -142,7 +154,7 @@ export async function readAsVtt(path: string, ffmpeg?: string | null): Promise<s
       })
       return out ? stripVttStyles(out.toString('utf-8')) : null
     }
-    const text = await readFile(path, 'utf-8')
+    const text = decodeSubtitle(await readFile(path))
     return stripVttStyles(ext === '.srt' ? srtToVtt(text) : text)
   } catch {
     return null

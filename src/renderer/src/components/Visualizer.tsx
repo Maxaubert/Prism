@@ -1,7 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
 import { clamp } from '../lib/clamp'
-import { styleById } from '../lib/viz/styles'
+import { styleById, styleIsBuilt } from '../lib/viz/styles'
 import { analyzeDropsAsync } from '../lib/viz/drops'
 import { watchDrops } from '../lib/viz/dropWatch'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
@@ -253,7 +253,7 @@ export function Visualizer({
         const changed =
           Math.round(r.width) !== idleW ||
           Math.round(r.height) !== idleH ||
-          styleRef.current !== builtFor
+          !styleIsBuilt(styleRef.current, builtFor)
         if (idleFrame(idle, stillFrames, SETTLE_FRAMES, changed) === 'park') {
           parked = true
           raf = 0

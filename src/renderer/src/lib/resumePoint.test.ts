@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { positionToSave, resumeAt } from './resumePoint'
+import { mayApplyResume, positionToSave, resumeAt } from './resumePoint'
+
+describe('mayApplyResume (audit #91)', () => {
+  it('applies a place to the file it was asked for, at its start', () => {
+    expect(mayApplyResume(1234, 0, 'a.mkv', 'a.mkv')).toBe(true)
+  })
+  it('never applies film A place to film B on the reused element', () => {
+    expect(mayApplyResume(1234, 0, 'a.mkv', 'b.mkv')).toBe(false)
+  })
+  it('keeps the old rules: nothing stored, or the film already moved on', () => {
+    expect(mayApplyResume(null, 0, 'a.mkv', 'a.mkv')).toBe(false)
+    expect(mayApplyResume(1234, 30, 'a.mkv', 'a.mkv')).toBe(false)
+  })
+})
 
 describe('resumeAt', () => {
   it('goes back to a place inside a long film, and nowhere else', () => {

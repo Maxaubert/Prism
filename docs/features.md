@@ -3,6 +3,77 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit wave B: behaviour fixes (2026-11-21)
+
+- **A window made from standby takes the kept session entry over** (audit #5). `openAsFirst` hands the
+  old entry to the new window and drops every other kept one, so a stale strip cannot outrank a later
+  Win+E window and the file does not grow per cycle. Held by `src/main/session.test.ts`.
+- **Archive members and folder copies go in the run's member folder** (audit #15, #26). Viewing or
+  copying a member, and "Copy" on an archive folder, no longer leave a temp folder per use: members get
+  one slot per unchanged container under the size cap, and everything goes at quit or the next start.
+  Held by `src/main/archiveTempRun.test.ts`.
+- **A decrypted AES member does not stay in temp** (audit #16): extracting it out or renaming it removes
+  its 7-Zip folder. Held by `src/main/zipAesTemp.test.ts`.
+- **Thumbnails of a closed window stop** (audit #36) and **a window's film flag goes with it** (audit
+  #50): the window's destroy cancels its tabs' queue and clears its film, even if it never asked for a
+  tile. Held by `src/main/thumbsEndpoint.test.ts` and `src/main/ipc/thumbs.test.ts`.
+- **A rebuilt or torn-off tab's tiles are answered** (audit #59): a new page asking for a tab starts it
+  afresh, and a page's cancel counts only while it owns the tab. Held by `src/main/thumbsEndpoint.test.ts`.
+- **A stop that lands while a follow is starting wins** (audit #49): a stop, or a newer start for the same
+  file and window, cancels the older start, so no poll timer leaks and no chunk is appended twice. Held by
+  `src/main/fileTail.test.ts`.
+- **Open with reads the default app on any Windows language** (audit #13): the default value is asked
+  for with `/ve` and read by type, not by the English name. Held by `src/main/openWith.test.ts`.
+- **Subtitle files are decoded by BOM, then UTF-8, then Windows-1252** (audit #17). Held by
+  `src/main/subtitles.test.ts`.
+- **A right press on the progress bar does not seek** (audit #19): only the main button does. Held by
+  `src/renderer/src/lib/scrubPress.test.ts`.
+- **A film inside a zip honours the shut preview** (audit #4): `preview` and `shut` reach the member's
+  viewer. Held by `src/renderer/src/components/stage/Viewer.test.ts`.
+- **A hidden tab's player does not start on a repeat pick** (audit #22), for audio as for video. Held by
+  `src/renderer/src/lib/playState.test.ts`.
+- **A folder already in memory is read once** (audit #20): `navigate` and the location effect key the
+  read the same way. Held by `src/renderer/src/lib/visitedDirectories.test.ts`.
+- **A redo or undo that Windows refuses says so** (audit #35): a locked file on redo of a delete is
+  counted and said, and only what the bin took stays in the entry. Held by
+  `src/renderer/src/lib/undoApply.test.ts`.
+- **A file or folder dropped from Windows onto the window opens even outside the granted folders**
+  (audit #23). Held by `src/renderer/src/lib/droppedKind.test.ts`.
+- **Copying out of a zip says when members would not come out** (audit #32). Held by
+  `src/renderer/src/lib/archiveCopyNote.test.ts`.
+- **A zip that is gone before a drop or move answers "failed"** (audit #34). Held by
+  `src/main/archive.test.ts`.
+- **A cut whose copy landed counts as pasted when part of the source cannot be removed** (audit #51):
+  the leftover is said apart ("copied, but could not be fully removed"). Held by
+  `src/main/pasteLeft.test.ts` and `src/renderer/src/hooks/useFilePaste.test.ts`.
+- **A folder-verb request for an access-denied folder opens Home** (audit #88). Held by
+  `src/renderer/src/lib/readableDirectory.test.ts`.
+- **Quick access is read ahead even if the first idle turn was cancelled** (audit #89). Held by
+  `src/renderer/src/hooks/useListingPrefetch.test.ts`.
+- **A resume place is applied only to the film it was asked for** (audit #91). Held by
+  `src/renderer/src/lib/resumePoint.test.ts`.
+- **Find offsets stay on the original text** (audit #67, #71): a letter whose lower case is longer (U+0130)
+  no longer shifts the highlights after it, in documents or PDFs. Held by `src/renderer/src/lib/findInText.test.ts`
+  and `src/renderer/src/lib/pdf/pdfSearch.test.ts`.
+- **A stale stored visualizer style lets the idle loop park** (audit #57). Held by
+  `src/renderer/src/lib/viz/vizGuards.test.ts`.
+- **F2, Delete and Ctrl+C/X do nothing for a zip member or binned file in full view** (audit #77). Held by
+  `src/renderer/src/hooks/useAppKeys.test.ts`.
+- **Deleting a playing film waits a beat for the player to let go** (audit #76). Held by
+  `src/renderer/src/hooks/useFileOps.test.ts`.
+- **Each PDF viewer paints its find under its own highlight names** (audit #55), **and a page that cannot be
+  read counts as empty for find and sizing** (audit #86, #87). Held by `src/renderer/src/lib/highlightSlots.test.ts`,
+  `src/renderer/src/lib/pdfHighlightCss.test.ts` and `src/renderer/src/lib/pdf/pdfSearch.test.ts`.
+- **The document find scrolls only when its match changes** (audit #44). Held by
+  `src/renderer/src/components/DocFind.test.ts`.
+- **A JSON error with no position marks the end of the text** (audit #75). Held by
+  `src/renderer/src/lib/code/codeLint.test.ts`.
+- **The tab strip is draggable again after an outside drag leaves the window** (audit #45). Held by
+  `src/renderer/src/lib/drag/dragInFlight.test.ts`.
+- **The list scrollbar ends a thumb drag when it loses the pointer** (audit #37). Held by
+  `src/renderer/src/components/browse/OverlayScrollbar.test.ts`.
+- **The showcase tools name a missing control or missing ffprobe** (audit #96, #97). Held by
+  `tools/lib/captureGuard.test.mjs` and `tools/lib/durationOf.test.mjs`.
 ## Audit wave A, safety (2026-11-21)
 
 - **Undo's shell restore reads paths as data** (audit #1): `shellRestore` no longer builds file names into the

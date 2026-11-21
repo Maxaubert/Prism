@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { extractTo } from './archive'
+import { archiveUnwritable, extractTo } from './archive'
 import { listArchive } from './zipOps'
 
 // What stays on main: extracting members OUT, read with fs/promises and
@@ -177,5 +177,17 @@ describe('extracting out, watched (#166)', () => {
     const out = mkdtempSync(join(tmpdir(), 'prism-defl-out-'))
     expect(await extractTo(z, ['log.txt'], out)).toMatchObject({ ok: true, written: 1 })
     expect(readFileSync(join(out, 'log.txt')).equals(body)).toBe(true)
+  })
+})
+
+describe('archiveUnwritable (audit #34)', () => {
+  it('answers true for a zip that is gone, instead of throwing', async () => {
+    expect(await archiveUnwritable(join(tmpdir(), 'prism-no-such-zip', 'a.zip'))).toBe(true)
+  })
+  it('answers false for a small zip that is there', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-unwritable-'))
+    const z = join(dir, 'a.zip')
+    writeFileSync(z, new AdmZip().toBuffer())
+    expect(await archiveUnwritable(z)).toBe(false)
   })
 })

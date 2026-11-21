@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import { formatTime } from '../lib/format'
+import { seeksOnPress } from '../lib/scrubPress'
 import { MAX_VOL, type MediaControls } from '../hooks/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons/transport'
 import type { TransportStyle } from '../lib/transport'
@@ -84,6 +85,7 @@ function Scrubber({
     return Math.max(0, Math.min(1, (clientX - r.left) / r.width))
   }
   const onDown = (e: ReactPointerEvent): void => {
+    if (!seeksOnPress(e.button)) return
     e.currentTarget.setPointerCapture(e.pointerId)
     c.seekTo(frac(e.clientX) * dur)
     // The bar's own window: the preview window's drag never reaches this page's.

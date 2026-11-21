@@ -18,17 +18,47 @@ export interface Match {
   end: number
 }
 
+/**
+ * The text lower-cased, with a map back to the original. Lower-casing can change
+ * the length (U+0130 becomes two units), so an index into `folded` is not an
+ * index into the text. `starts[k]` is where the character behind folded unit k
+ * begins in the original, `ends[k]` where it ends.
+ */
+export interface Folded {
+  folded: string
+  starts: number[]
+  ends: number[]
+}
+
+export function foldCase(text: string): Folded {
+  let folded = ''
+  const starts: number[] = []
+  const ends: number[] = []
+  let i = 0
+  for (const ch of text) {
+    const lower = ch.toLowerCase()
+    const next = i + ch.length
+    for (let k = 0; k < lower.length; k += 1) {
+      starts.push(i)
+      ends.push(next)
+    }
+    folded += lower
+    i = next
+  }
+  return { folded, starts, ends }
+}
+
 /** Every occurrence of `query` in `text`, case-insensitively. */
 export function matchRanges(text: string, query: string): Match[] {
   const out: Match[] = []
   if (!query) return out
-  const hay = text.toLowerCase()
+  const { folded: hay, starts, ends } = foldCase(text)
   const needle = query.toLowerCase()
   let from = 0
   for (;;) {
     const i = hay.indexOf(needle, from)
     if (i === -1) return out
-    out.push({ start: i, end: i + needle.length })
+    out.push({ start: starts[i], end: ends[i + needle.length - 1] })
     // Advance past this match, so "aa" in "aaaa" is two matches and not three:
     // overlapping hits cannot both be highlighted anyway.
     from = i + needle.length
@@ -36,7 +66,6 @@ export function matchRanges(text: string, query: string): Match[] {
     if (out.length >= 5000) return out
   }
 }
-
 /** Which match to land on when the bar opens or the query changes. */
 export function firstAfter(matches: Match[], offset: number): number {
   if (!matches.length) return -1

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { EditorState } from '@codemirror/state'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { langFor } from './codeLang'
 import { jsonErrors, parseErrors } from './codeLint'
 
@@ -140,5 +140,21 @@ describe('jsonErrors', () => {
     // The position is already shown by the underline; the words shouldn't repeat it.
     expect(err.message).not.toMatch(/at position/)
     expect(err.message.length).toBeGreaterThan(0)
+  })
+})
+
+describe('jsonErrors when the engine names no position (audit #75)', () => {
+  it('points at the end of a text that stops too soon, not at the top', () => {
+    const parse = vi.spyOn(JSON, 'parse').mockImplementation(() => {
+      throw new SyntaxError('Unexpected end of JSON input')
+    })
+    try {
+      const text = '{"a":\n'
+      const [err] = jsonErrors(text)
+      expect(err.from).toBe(4)
+      expect(err.to).toBe(5)
+    } finally {
+      parse.mockRestore()
+    }
   })
 })
