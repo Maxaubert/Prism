@@ -252,28 +252,52 @@ async function main() {
 
   await beat('fit', 800, () => page.keyboard.press('0'))
 
-  await beat('tree', 900, () => page.keyboard.press('Control+b'))
+  // The file tree, its resize grip, treeitem rows and the Terminal button went on
+  // 2026-10-26 (Explorer only). The beats below drive today's Explorer instead.
+  // Every selector names the file in src/ that renders it.
+
+  /** A list row by its file name. src/renderer/src/components/browse/BrowseRow.tsx
+   *  (data-browse-path); the list is data-testid="browse-list" in BrowseList.tsx. */
+  //  The CSS string holds an escaped backslash ("\\"): a lone "\" would read the
+  //  next letters as a hex escape ("\c" in "\coast-road.mp3" is U+000C).
+  const row = (name) =>
+    page.locator(`[data-testid="browse-list"] [data-browse-path$="\\\\${name}" i]`).first()
+  /** Double-click a row, the way the Explorer opens it (BrowseList.tsx onDoubleClick). */
+  const open = async (locator, ms) => {
+    const [x, y] = await at(locator)
+    await move(x, y, ms)
+    await page.evaluate(() => window.__pc.tap())
+    await page.mouse.dblclick(x, y)
+  }
+  // The viewer's Back button returns to the folder list.
+  // src/renderer/src/components/browse/BrowseToolbar.tsx (aria-label="Back")
+  const back = () => go(page.locator('.browse-viewer-toolbar [aria-label="Back"]'), 620)
+
+  await beat('tree', 900, () => back())
 
   await beat('drag', 900, async () => {
-    // The panel is resizable, so the trailer resizes it: a handle nobody drags
-    // looks like a border.
-    const grip = page.getByLabel('Resize file tree')
-    const b = await needBox(grip, 'the "Resize file tree" handle')
+    // The preview pane is resizable, so the trailer resizes it: a handle nobody
+    // drags looks like a border. src/renderer/src/components/browse/ExplorerResize.tsx
+    // (role="separator", aria-label "Resize Explorer preview").
+    const grip = page.getByRole('separator', { name: 'Resize Explorer preview' })
+    const b = await needBox(grip, 'the "Resize Explorer preview" handle')
     const y = b.y + b.height / 2
     await move(b.x + b.width / 2, y, 560)
     await page.mouse.down()
-    const glide = page.evaluate(([x, y]) => window.__pc.to(x, y, 850), [b.x + 118, y])
+    const glide = page.evaluate(([x, y]) => window.__pc.to(x, y, 850), [b.x - 118, y])
     for (let i = 1; i <= 7; i += 1) {
       await sleep(120)
-      await page.mouse.move(b.x + b.width / 2 + (118 * i) / 7, y)
+      await page.mouse.move(b.x + b.width / 2 - (118 * i) / 7, y)
     }
     await glide
     await page.mouse.up()
   })
 
-  await beat('subfolder', 800, () => go(page.getByRole('treeitem', { name: 'Video' }), 700))
+  // The beats keep their old order: cut.mjs cuts tree->video, video->audio and
+  // audio->settings, so 'audio' must come after 'video'.
+  await beat('subfolder', 800, () => open(row('Video'), 700))
 
-  await beat('video', 2600, () => go(page.getByRole('treeitem', { name: 'wave-study.mp4' }), 620))
+  await beat('video', 2600, () => open(row('wave-study.mp4'), 620))
 
   await beat('scrub', 1500, async () => {
     const bar = page.locator('[class~="group/bar"]').first()
@@ -285,21 +309,32 @@ async function main() {
 
   await beat('fade', 2200, () => move(640, 330, 700))
 
-  await beat('audio', 3600, () => go(page.getByRole('treeitem', { name: 'coast-road.mp3' }), 700))
+  // coast-road.mp3 sits in the demo folder itself: back to the Video list, up to
+  // the demo folder, then open it. The list's own Up button is the BrowseToolbar
+  // (data-testid="browse-toolbar", aria-label="Up") that FolderBrowser.tsx renders,
+  // not the viewer's copy inside .browse-viewer-toolbar (App.tsx).
+  const up = page
+    .locator('[data-testid="browse-toolbar"]:not(.browse-viewer-toolbar [data-testid="browse-toolbar"])')
+    .locator('[aria-label="Up"]')
+  await beat('audio', 3600, async () => {
+    await back()
+    await sleep(400)
+    await go(up, 520)
+    await sleep(400)
+    await open(row('coast-road.mp3'), 700)
+  })
 
+  // Settings is the titlebar button (TitleButtons.tsx, aria-label="Settings"); it opens
+  // as a tab. Themes are the wall's cards (ThemeCard.tsx: role="radio", aria-label = the
+  // theme's name, inside #theme-wall in ThemeWall.tsx).
   await beat('settings', 900, () => go(page.getByRole('button', { name: 'Settings' }), 700))
 
-  await beat('terminal', 1600, () => go(page.getByRole('button', { name: 'Terminal' }).first(), 620))
+  const theme = (name) => page.locator('#theme-wall').getByRole('radio', { name, exact: true })
 
-  await beat('light', 2000, () =>
-    go(page.getByRole('button', { name: 'Light', exact: true }).first(), 560)
-  )
+  await beat('light', 2000, () => go(theme('Frost'), 560))
 
-  await beat('dark', 400, () =>
-    go(page.getByRole('button', { name: 'Dark', exact: true }).first(), 560)
-  )
-  await beat('aurora', 1500, () => go(page.getByRole('button', { name: 'Aurora' }).first(), 520))
-
+  await beat('dark', 400, () => go(theme('Void'), 560))
+  await beat('aurora', 1500, () => go(theme('Aurora'), 520))
   await beat('rest', 1800, () => page.keyboard.press('Escape'))
   marks.push({ name: 'end', at: (Date.now() - t0) / 1000 })
 
