@@ -21,6 +21,17 @@ files:
   - '!tools/**'
   - '!build/**'
   - '!dist/**'
+  # Package builds main never loads (2026-11-21, audit #47). Main runs as CJS, so
+  # each package resolves by its main: xlsx.js (which still needs
+  # dist/cpexcel.js), mammoth lib/index.js, exifr dist/full.umd.js, and
+  # heic-decode's libheif-js/wasm-bundle (libheif-wasm/libheif-bundle.js).
+  - '!**/node_modules/xlsx/dist/{xlsx.*,shim.min.js,cpexcel.full.mjs}'
+  - '!**/node_modules/mammoth/browser/**'
+  - '!**/node_modules/mammoth/mammoth.browser*.js'
+  - '!**/node_modules/exifr/dist/{*.esm.*,*.legacy.*,lite.*,mini.*,full.umd.cjs}'
+  - '!**/node_modules/exifr/src/**'
+  - '!**/node_modules/libheif-js/libheif/**'
+  - '!**/node_modules/libheif-js/libheif-wasm/{libheif.js,libheif.wasm,libheif-bundle.mjs}'
 # No native module is rebuilt at package time (2026-10-26: node-pty went with the
 # terminal). Prism's own addon, native/sweep, is built from source by
 # `npm run build:sweep`; left on, the default @electron/rebuild would insist
