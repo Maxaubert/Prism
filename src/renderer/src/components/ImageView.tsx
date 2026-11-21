@@ -32,6 +32,7 @@ import { imageStillLoading } from '../lib/imageLoading'
 import { isHugeImage, readyImage, type ReadyImage } from '../lib/imageReady'
 import { ownResizeObserver } from '../lib/ownResizeObserver'
 import { listenOn, ownWindow, useViewerWindows } from '../lib/ownWindow'
+import { CENTRED_PILL } from '../lib/pillLook'
 
 // Pictures past 40 MP are decoded off-thread to a display-sized bitmap and
 // shown on a canvas: the reasons and the numbers are in lib/imageReady.
@@ -573,7 +574,7 @@ export function ImageView({
       )}
       {!!img?.pages && img.pages > 1 && (
         <div
-          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] text-white/85"
+          className={`pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 ${CENTRED_PILL} rounded-full bg-black/55 px-2.5 py-1 text-[11px] text-white/85`}
           title={`This file holds ${img.pages} pages. Prism shows the first.`}
         >
           Page 1 of {img.pages}
@@ -686,7 +687,7 @@ export function ImageView({
           // did not match when the cursor sat on the counter in the middle of
           // it. Reaching for a control and pausing your hand has to hold it up
           // wherever on the bar the hand stopped.
-          className={`pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
+          className={`pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 ${CENTRED_PILL} items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
         >
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">

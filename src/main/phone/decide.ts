@@ -25,6 +25,9 @@ export type PlayPlan =
       tonemap: boolean
       /** Scale an encode down to this height; null keeps the source size. */
       height: number | null
+      /** The picture is taller than wide as shown: the height is a ceiling on
+       *  the WIDTH (the short side), see `scaleTo` in hls.ts. */
+      portrait?: boolean
       /** No picture at all: an audio playlist. */
       audioOnly: boolean
       /** The picture being COPIED is HEVC, which an mp4 muxer tags `hev1`
@@ -103,7 +106,14 @@ export function decide(info: MediaInfo | null, ext: string, can: Can): PlayPlan 
   const copyVideo = !audioOnly && can.has(vcodec)
   const encodeVideo = !audioOnly && !copyVideo
   const hdr = info.video !== null && isHdr(info.video.transfer)
-  const height = encodeVideo && info.video !== null && info.video.height > ENCODE_MAX_HEIGHT ? ENCODE_MAX_HEIGHT : null
+  // The ceiling is the SHORT side of the picture AS SHOWN (a quarter turn swaps
+  // the sides). A 1080x1920 portrait film with no display matrix has a coded
+  // height of 1920 and is already 1080 wide: it keeps its size.
+  const quarter = Math.abs(info.video?.rotation ?? 0) % 180 === 90
+  const shownW = info.video ? (quarter ? info.video.height : info.video.width) : 0
+  const shownH = info.video ? (quarter ? info.video.width : info.video.height) : 0
+  const portrait = shownH > shownW
+  const height = encodeVideo && info.video !== null && Math.min(shownW, shownH) > ENCODE_MAX_HEIGHT ? ENCODE_MAX_HEIGHT : null
   return {
     mode: 'hls',
     copyVideo,
@@ -111,6 +121,7 @@ export function decide(info: MediaInfo | null, ext: string, can: Can): PlayPlan 
     copyAudio: acodec === 'aac' || (acodec !== null && HLS_COPY_AUDIO.has(acodec) && can.has(acodec)),
     tonemap: encodeVideo && hdr,
     height,
+    ...(portrait ? { portrait: true } : {}),
     audioOnly,
     ...(info.video?.rotation ? { rotation: info.video.rotation } : {})
   }

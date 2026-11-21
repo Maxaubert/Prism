@@ -35,11 +35,11 @@ export type DialogBoxOptions = {
 // nothing to follow; the same field in a positioned box answers a thin bar
 // that moves with every key. Chromium's, so the box carries the fix.
 export function dialogBox(o: DialogBoxOptions = {}): string {
-  return `relative w-full ${BOX_WIDTH[o.width ?? 420]} rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] ${BOX_PAD[o.pad ?? 'normal']} shadow-[0_24px_70px_rgba(0,0,0,.6)]`
+  return `relative w-full ${BOX_WIDTH[o.width ?? 420]} max-h-[calc(100vh-3rem)] overflow-y-auto rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] ${BOX_PAD[o.pad ?? 'normal']} shadow-[0_24px_70px_rgba(0,0,0,.6)]`
 }
 export const DIALOG_BOX = dialogBox()
-export const DIALOG_TITLE = 'text-[14.5px] font-semibold text-[var(--p-text)]'
-export const DIALOG_BODY = 'mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]'
+export const DIALOG_TITLE = 'break-words text-[14.5px] font-semibold text-[var(--p-text)]'
+export const DIALOG_BODY = 'mt-1.5 break-words text-[12.5px] leading-relaxed text-[var(--p-dim)]'
 // A name or a path inside a question's body, a step brighter than the line.
 export const DIALOG_EMPHASIS = 'text-[var(--p-text)]'
 

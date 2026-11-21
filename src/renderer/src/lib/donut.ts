@@ -99,3 +99,41 @@ export function donutBytes(b: number): string {
   if (b < 1024) return '1 KB'
   return formatBytes(b, { decimals: { KB: 0, MB: 0, TB: 2 }, trim: true })
 }
+
+/**
+ * Where the legend's scroll goes to show one row, touching ONLY the legend (audit #79). `scrollIntoView` scrolls
+ * every scrollable ancestor too, the dialog box among them, so hovering a slice moved the whole dialog under the
+ * pointer. The row's edges are in the legend's scroll content, as is `scrollTop`; this is `block: 'nearest'`.
+ */
+export function legendScrollFor(
+  scrollTop: number,
+  viewHeight: number,
+  rowTop: number,
+  rowBottom: number
+): number {
+  if (rowTop < scrollTop) return rowTop
+  if (rowBottom > scrollTop + viewHeight) return Math.max(0, rowBottom - viewHeight)
+  return scrollTop
+}
+
+/**
+ * Where the slice tip goes (audit #80): at the pointer's bottom right, flipped to the left of the pointer or above
+ * it when it would pass the window's edge, and held inside the window when it is wider than either side.
+ */
+export function placeDonutTip(
+  x: number,
+  y: number,
+  tip: { width: number; height: number },
+  view: { width: number; height: number }
+): { left: number; top: number } {
+  const GAP_X = 12
+  const GAP_Y = 18
+  let left = x + GAP_X
+  if (left + tip.width > view.width) left = x - GAP_X - tip.width
+  let top = y + GAP_Y
+  if (top + tip.height > view.height) top = y - GAP_Y - tip.height
+  return {
+    left: Math.max(0, Math.min(left, view.width - tip.width)),
+    top: Math.max(0, Math.min(top, view.height - tip.height))
+  }
+}

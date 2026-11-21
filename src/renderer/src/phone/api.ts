@@ -50,6 +50,15 @@ export function mediaUrl(path: string): string {
   return mediaPath(path)
 }
 
+/** The page hears of a 401 on ANY read (audit #53): the PC forgot this
+ *  phone mid-session, and the shell goes back to the pairing screen instead
+ *  of showing every folder as unreadable. */
+const unpairedListeners = new Set<() => void>()
+export function onUnpaired(fn: () => void): () => void {
+  unpairedListeners.add(fn)
+  return () => void unpairedListeners.delete(fn)
+}
+
 export async function getJson<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   return answer<T>(await fetch(apiUrl(path, params)))
 }
@@ -91,9 +100,22 @@ async function answer<T>(r: Response): Promise<T> {
     } catch {
       /* not json */
     }
+    if (r.status === 401) for (const fn of [...unpairedListeners]) fn()
     throw new PhoneError(r.status, msg)
   }
   return (await r.json()) as T
+}
+
+/** After a pairing attempt failed: is this phone paired anyway? Its cookie
+ *  may still be good (a spent or expired code link, a rate limit), and only a
+ *  401 from the PC means "show the pairing screen" (audit #54). */
+export async function pairedAnyway(): Promise<'paired' | 'unpaired' | 'unknown'> {
+  try {
+    await getJson(routePath(ROUTE.me))
+    return 'paired'
+  } catch (e) {
+    return e instanceof PhoneError && e.status === 401 ? 'unpaired' : 'unknown'
+  }
 }
 
 /** The code the QR link carries, upper-cased the way the server compares it. */

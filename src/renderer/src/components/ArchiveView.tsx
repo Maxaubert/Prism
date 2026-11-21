@@ -449,7 +449,7 @@ function ArchiveInner({
           name, what it holds), and the members live in a bounded panel under
           it - the label on the box. Navigation is Explorer-shaped inside the
           panel; the crumb row appears once you are inside a folder. */}
-      <div className="flex h-full flex-col items-center px-8 pb-6 pt-6">
+      <div className="flex h-full min-w-0 flex-col items-center px-8 pb-6 pt-6">
         <span className="mb-2.5 grid h-[52px] w-[52px] place-items-center">
           {sysIcon ? (
             <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
@@ -457,7 +457,7 @@ function ArchiveInner({
             <KindIcon kind="archive" color={iconColour('archive')} />
           )}
         </span>
-        <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">
+        <div className="max-w-[min(100%,36rem)] truncate text-[14px] font-semibold text-[var(--p-text)]">
           {renamingSelf ? (
             // Renaming the archive itself, in place like every rename (#523). The
             // answer goes to App, which owns renaming (taken names, following the
@@ -543,7 +543,7 @@ function ArchiveInner({
           <div
             data-archive-crumbs
             data-archive-subfolder={cwd ? '' : undefined}
-            className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]"
+            className="mb-1 flex h-6 min-w-0 items-center gap-1 px-1 text-[12px]"
           >
             {trail?.map((a, i) => (
               <span key={i} className="flex min-w-0 items-center gap-1">
@@ -560,7 +560,7 @@ function ArchiveInner({
               </span>
             ))}
             <button
-              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
+              className={`no-drag min-w-0 truncate rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
               onClick={() => setCwd('')}
             >
               {file.name}
@@ -572,12 +572,12 @@ function ArchiveInner({
                     grey with `/` between, which read as a sentence rather than
                     as a path you can click your way back along. */}
                 {crumbs.map((seg, i) => (
-                  <span key={i} className="flex items-center gap-1">
+                  <span key={i} className="flex min-w-0 items-center gap-1">
                     <span aria-hidden className="text-[var(--p-dim2)]">
                       ›
                     </span>
                     <button
-                      className={`no-drag rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
+                      className={`no-drag min-w-0 truncate rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
                       onClick={() => setCwd(crumbs.slice(0, i + 1).join('/'))}
                     >
                       {seg}

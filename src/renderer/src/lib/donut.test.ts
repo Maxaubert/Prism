@@ -5,6 +5,8 @@ import {
   donutBytes,
   donutSlices,
   folderRing,
+  legendScrollFor,
+  placeDonutTip,
   sharePercent,
   usedFraction
 } from './donut'
@@ -107,5 +109,26 @@ describe('folderRing', () => {
     const ring = folderRing({ bytes: 4 * GB, files: 4 * GB, folders: [] }, 'Clips')
     expect(ring).toHaveLength(1)
     expect(ring[0]).toMatchObject({ name: 'Files in Clips', fraction: 1, files: true })
+  })
+})
+describe('legendScrollFor (audit #79)', () => {
+  it('leaves a row that is in view, and scrolls the least that shows one that is not', () => {
+    expect(legendScrollFor(50, 100, 60, 90)).toBe(50)
+    expect(legendScrollFor(50, 100, 20, 40)).toBe(20)
+    expect(legendScrollFor(50, 100, 140, 170)).toBe(70)
+    expect(legendScrollFor(0, 100, 0, 30)).toBe(0)
+  })
+})
+
+describe('placeDonutTip (audit #80)', () => {
+  const view = { width: 560, height: 400 }
+  it('sits at the pointer bottom right when it fits', () => {
+    expect(placeDonutTip(100, 100, { width: 120, height: 30 }, view)).toEqual({ left: 112, top: 118 })
+  })
+  it('flips left of the pointer and above it at the window edges', () => {
+    expect(placeDonutTip(500, 380, { width: 120, height: 30 }, view)).toEqual({ left: 368, top: 332 })
+  })
+  it('stays inside a window narrower than the tip', () => {
+    expect(placeDonutTip(100, 100, { width: 700, height: 30 }, view).left).toBe(0)
   })
 })
