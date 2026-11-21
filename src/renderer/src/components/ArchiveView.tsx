@@ -7,7 +7,7 @@ import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
-import { baseName, extOf, parentDir } from '@shared/path'
+import { extOf, parentDir } from '@shared/path'
 import type { BrowseSort } from '@shared/browse'
 import { ARCHIVE_DEFAULT_SORT, sortMembers } from '../lib/archiveSort'
 import { SWEEP_BAND_LOOK } from './browse/sweepLook'
@@ -19,12 +19,20 @@ import { EntryIcon, GROUND_SIDE } from './icons/EntryIcon'
 import { PATHS } from './icons/paths'
 import { Spinner } from './LoadingState'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
+import {
+  DRAG_MIME,
+  overPayload,
+  ownDrop,
+  setDrag,
+  windowsDrag,
+  type DragPayload
+} from '../lib/drag/dragDrop'
 import { dropVerb, effectOf, type DropTarget } from '../lib/drag/dropVerb'
-import { archivePassword } from '../lib/archivePass'
 import { askArchivePassword } from '../lib/archiveQuestion'
 import { useArchiveOps } from './archive/useArchiveOps'
-import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, type Entry } from './archive/entry'
+import { COL_PACKED, COL_SIZE, COL_TYPE, COL_WHEN, rowsOf, type Entry } from './archive/entry'
+import { useArchiveVerbs } from './archive/useArchiveVerbs'
+import { useArchiveKeys } from './archive/useArchiveKeys'
 import { MemberView } from './archive/MemberView'
 import { LockBadge } from './archive/LockBadge'
 import { RenameInput } from './archive/RenameInput'
@@ -33,9 +41,7 @@ import { useArchiveListing } from './archive/useArchiveListing'
 import { useBandSelect } from './archive/useBandSelect'
 import { RenameField } from './RenameField'
 import type { UndoEntry } from '../lib/undo'
-import { isTypingTarget } from '../lib/focusGuards'
 import { Icon } from './icons/Icon'
-import { extractAll as extractArchive } from '../lib/extractAll'
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
 // one folder of the archive: clicking a folder walks into it, the breadcrumb
@@ -158,9 +164,13 @@ function ArchiveInner({
   const [opening, setOpening] = useState<string | null>(null)
   /** The member overlay, so Escape can tell whether a DEEPER one is inside it. */
   const memberBox = useRef<HTMLDivElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; at: EventTarget; entry: Entry; multi?: string[] } | null>(
-    null
-  )
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    at: EventTarget
+    entry: Entry
+    multi?: string[]
+  } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [listFocused, setListFocused] = useState(false)
   // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
@@ -214,122 +224,53 @@ function ArchiveInner({
   // The password lives in lib/archivePass, one per archive, so the SIDEBAR
   // can use it too when a member is dragged out to a folder (#70).
   const ops = useArchiveOps({ refresh: () => load(), noteUndo: onUndoable })
-  const {
-    withPassword: runWithPass,
-    extract: extractOut,
-    rename: renameIn,
-    askDelete,
-    addInto: addIn,
-    moveInside,
-    copyBetween,
-    say: setOops
-  } = ops
+  const { addInto: addIn, moveInside, copyBetween } = ops
 
   /** The column the rows are ordered by (#519); a header click changes it. */
   const [sort, setSort] = useState<BrowseSort>(ARCHIVE_DEFAULT_SORT)
   // The rows of the CURRENT folder only: folders first, then by the sort.
   const rows = useMemo((): Entry[] => {
-    if (!entries || entries === 'error' || entries === 'locked') return []
     return sortMembers(
-      entries.filter((e) => parentDir(e.path) === cwd),
+      rowsOf(entries).filter((e) => parentDir(e.path) === cwd),
       sort
     )
   }, [entries, cwd, sort])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
     if (!entries || entries === 'error' || entries === 'locked') return ''
-    const folders = entries.filter((e) => e.dir).length
-    const files = entries.length - folders
+    const all = rowsOf(entries)
+    const folders = all.filter((e) => e.dir).length
+    const files = all.length - folders
     const parts = [contents(files, folders)]
     if (file.size) parts.push(`${formatBytes(file.size)} compressed`)
     return parts.join(' · ')
   }, [entries, file.size])
   const crumbs = cwd ? cwd.split('/') : []
 
-  const view = useCallback(
-    (entry: Entry): void => {
-      setOpening(entry.name)
-      runWithPass(file.path, entry.name, (pw) =>
-        window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
-          setOpening(null)
-          if (r.ok) {
-            setMember({ name: entry.name, path: r.path, kind: r.kind })
-            return 'ok'
-          }
-          return r.reason
-        })
-      )
-    },
-    [file.path, runWithPass]
-  )
-  /** The archive's own folder: where "Extract here" lands a member. */
-  const besideArchive = parentDir(file.path)
-  /** Members OUT to a real folder (2026-09-03, owner: "Extract here" and
-   *  "Extract to..." on a member row, file or folder alike). `here` lands
-   *  beside the archive, inside the root; otherwise main's dialog picks,
-   *  which is the consent that lets it write anywhere. The extraction
-   *  window and the password question are useArchiveOps' (#166). */
-  const extractMembers = useCallback(
-    (entry: Entry, entries: string[], here: boolean): void =>
-      extractOut(file.path, entries, entry.name, here ? besideArchive : null),
-    [file.path, besideArchive, extractOut]
-  )
-
-  const copyOut = useCallback(
-    (entry: Entry): void =>
-      runWithPass(file.path, entry.name, (pw) =>
-        window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
-          if (r.ok) {
-            void copyFilePaths([r.path])
-            return 'ok'
-          }
-          return r.reason
-        })
-      ),
-    [file.path, runWithPass]
-  )
-  const submitRename = useCallback(
-    (entry: Entry, name: string): void => {
-      setEditing(null)
-      renameIn(file.path, entry.path, entry.name, name)
-    },
-    [file.path, renameIn]
-  )
-  /** Asks before deleting one member. */
-  const setConfirmDel = useCallback(
-    (entry: Entry): void => askDelete(file.path, [entry.path], [entry.name]),
-    [file.path, askDelete]
-  )
-  /** Asks before deleting several; the marks go with them. */
-  const setConfirmDelMany = useCallback(
-    (paths: string[]): void =>
-      askDelete(file.path, paths, paths.map(baseName), () => setSel(emptySelection)),
-    [file.path, askDelete]
-  )
-
-  // Escape closes the member preview; Backspace climbs out of a folder.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (member && e.key === 'Escape') {
-        // A nested archive puts a second overlay INSIDE this one, and both
-        // handlers sit on the window, so an unguarded Escape closed this level
-        // and its parent at once - out of a file, out of the archive holding
-        // it, in one press. Whichever overlay has no deeper one inside it is
-        // the one that answers, which is the same `data-owns-escape` contract
-        // App already yields on.
-        if (memberBox.current?.querySelector('[data-owns-escape]')) return
-        e.stopPropagation()
-        setMember(null)
-      } else if (!member && e.key === 'Backspace' && cwd && !editing && !ops.open) {
-        const el = document.activeElement
-        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
-        e.preventDefault()
-        setCwd(parentDir(cwd))
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [member, cwd, editing, ops.open, setCwd])
+  const {
+    view,
+    extractMembers,
+    copyOut,
+    submitRename,
+    setConfirmDel,
+    setConfirmDelMany,
+    copyMany,
+    copyFolder,
+    extractFolderHere,
+    extractAll,
+    addFiles
+  } = useArchiveVerbs({
+    path: file.path,
+    cwd,
+    rows,
+    ops,
+    setSel,
+    setBusy,
+    setJustDone,
+    setOpening,
+    setMember,
+    setEditing
+  })
 
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
@@ -338,105 +279,19 @@ function ArchiveInner({
     },
     [order]
   )
-  /** Copy every selected FILE out at once; folders don't extract. */
-  const copyMany = useCallback(
-    (paths: string[]): void => {
-      const files = paths.filter((p) => rows.find((r) => r.path === p && !r.dir))
-      void (async () => {
-        const out: string[] = []
-        let locked = 0
-        for (const p of files) {
-          const r = await window.prism.archiveExtract(file.path, p, archivePassword(file.path))
-          if (r.ok) out.push(r.path)
-          else if (r.reason === 'password' || r.reason === 'aes') locked += 1
-        }
-        if (out.length) void copyFilePaths(out)
-        if (locked)
-          setOops(
-            `${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`
-          )
-      })()
-    },
-    [file.path, rows, setOops]
-  )
-  /**
-   * Copy a FOLDER out as a folder.
-   *
-   * `copyMany` extracts each member on its own and puts the loose files on
-   * the clipboard, which is right for a multi-selection of files and wrong
-   * for a folder: you right-clicked one thing and got a flat pile of what was
-   * inside it. Main extracts the whole subtree to one temp directory with its
-   * shape intact, and that directory is what goes on the clipboard.
-   */
-  const copyFolder = useCallback(
-    (entry: string): void => {
-      setBusy('copy')
-      void window.prism.archiveExtractDir(file.path, entry).then((r) => {
-        setBusy(null)
-        if (r.ok) void copyFilePaths([r.path])
-        else if (r.reason === 'password' || r.reason === 'aes')
-          setOops(
-            'That folder is password protected. Open a member first to unlock the archive, then copy again.'
-          )
-        else
-          setOops(
-            r.message
-              ? `That folder couldn't be copied. ${r.message}`
-              : "That folder couldn't be copied."
-          )
-      })
-    },
-    [file.path, setOops]
-  )
-  /** One folder from inside the archive, out beside the archive itself.
-   *  The window, its progress and its error are all main's (#166). */
-  const extractFolderHere = useCallback(
-    (entry: string): void => {
-      void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
-        if (r.ok) setJustDone(true)
-      })
-    },
-    [file.path]
-  )
-
   /** How many entries a folder holds, all the way down: what the Size column
    *  says for a row that has no size of its own. */
   const childCount = useCallback(
     (path: string): string => {
       if (!entries || entries === 'error' || entries === 'locked') return ''
-      const n = entries.filter((e) => e.path.startsWith(path + '/')).length
+      const n = rowsOf(entries).filter((e) => e.path.startsWith(path + '/')).length
       return n ? plural(n, 'item') : 'empty'
     },
     [entries]
   )
 
-  /** Extract the whole thing. Main asks where (its dialog IS the consent, and
-   *  is why the destination need not be inside a Prism root), and puts the
-   *  contents in a folder named after the archive. */
-  const extractAll = useCallback(
-    (here = false): void => {
-      // THE EXTRACTION WINDOW (2026-09-19, #166), superseding the chip this
-      // ran on since 2026-09-03 and the "Extracting..." the button used to
-      // read. Owner: "I would like it to just be one kind of view that
-      // appears, and I want it to be a pop-up window that you can't close,
-      // kind of like it is with WinRAR." Main opens it once its own folder
-      // dialog is answered, feeds it, and turns it into the error when there
-      // is one (7-Zip's own line included), so every route looks the same
-      // because no route draws anything.
-      void extractArchive(file.path, here).then((r) => {
-        if (r.ok) setJustDone(true)
-      })
-    },
-    [file.path]
-  )
-
   // The drag-select band (archive/useBandSelect).
-  const {
-    panelBox,
-    hasFocus,
-    onPanelPointerDown,
-    band
-  } = useBandSelect({
+  const { panelBox, hasFocus, onPanelPointerDown, band } = useBandSelect({
     setSel,
     selRef
   })
@@ -462,25 +317,18 @@ function ArchiveInner({
     return () => window.removeEventListener('pointerdown', away, true)
   }, [hasFocus, panelBox])
 
-  /** Ctrl+A marks everything in the folder you are looking at - this folder,
-   *  not the whole archive, which is what Explorer means by it too. Only
-   *  while the panel is the surface you last touched, and never while
-   *  something is being typed into. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
-      if (!hasFocus.current || member) return
-      const el = e.target as HTMLElement | null
-      if (isTypingTarget(el)) return
-      // The keyboard went on to the Explorer's list since the last press
-      // here (Tab): its own Ctrl+A answers (#330), not both.
-      if (el?.closest('.browse-list')) return
-      e.preventDefault()
-      setSel({ anchor: order[0] ?? null, items: new Set(order) })
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [order, member, hasFocus])
+  useArchiveKeys({
+    member,
+    setMember,
+    memberBox,
+    cwd,
+    setCwd,
+    editing,
+    opsOpen: ops.open,
+    order,
+    hasFocus,
+    setSel
+  })
 
   const onRowDragStart = useCallback(
     (e: React.DragEvent, path: string): void => {
@@ -495,15 +343,6 @@ function ArchiveInner({
     },
     [file.path]
   )
-  /** Add real files to the folder you are looking at. zip only: the 7-Zip
-   *  containers are read-only, and their button is not offered. */
-  const addFiles = useCallback((): void => {
-    setBusy('add')
-    void window.prism.pickFiles().then((paths) => {
-      setBusy(null)
-      if (paths.length) addIn(file.path, paths, cwd, false)
-    })
-  }, [addIn, file.path, cwd])
 
   /** A folder of this archive as the one drop rule sees it (#70). */
   const dropTargetOf = useCallback(
@@ -585,7 +424,7 @@ function ArchiveInner({
   /** Every FILE member inside a folder, at any depth. A folder in a zip is a
    *  prefix, not a container, so its verbs act on what carries that prefix. */
   const under = (folder: string): string[] =>
-    (entries === null || entries === 'error' || entries === 'locked' ? [] : entries)
+    rowsOf(entries)
       .filter((e) => !e.dir && (e.path === folder || e.path.startsWith(folder + '/')))
       .map((e) => e.path)
 
@@ -678,11 +517,7 @@ function ArchiveInner({
               />
             )}
             {onRenameSelf && caps.write && (
-              <ArcVerb
-                label="Rename…"
-                onClick={() => setRenamingSelf(true)}
-                path={PATHS.pencil}
-              />
+              <ArcVerb label="Rename…" onClick={() => setRenamingSelf(true)} path={PATHS.pencil} />
             )}
             {caps.explorer && (
               <ArcVerb
@@ -828,7 +663,9 @@ function ArchiveInner({
                           tabIndex={0}
                           data-arc-row={r.path}
                           aria-selected={sel.items.has(r.path)}
-                          data-selected={(sel.items.has(r.path) && dropTarget !== r.path) || undefined}
+                          data-selected={
+                            (sel.items.has(r.path) && dropTarget !== r.path) || undefined
+                          }
                           className={`flex h-[28px] w-full cursor-pointer items-center gap-2 px-4 text-left text-[12.5px] outline-none ${
                             dropTarget === r.path
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
@@ -839,7 +676,9 @@ function ArchiveInner({
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
                           data-join-up={
-                            (rowIndex > 0 && sel.items.has(r.path) && sel.items.has(rows[rowIndex - 1].path)) ||
+                            (rowIndex > 0 &&
+                              sel.items.has(r.path) &&
+                              sel.items.has(rows[rowIndex - 1].path)) ||
                             undefined
                           }
                           data-join-down={
@@ -866,7 +705,13 @@ function ArchiveInner({
                                 ? [...sel.items]
                                 : undefined
                             if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
-                            setMenu({ x: e.clientX, y: e.clientY, at: e.currentTarget, entry: r, multi })
+                            setMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              at: e.currentTarget,
+                              entry: r,
+                              multi
+                            })
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -991,7 +836,12 @@ function ArchiveInner({
               >
                 {file.name}
               </button>
-              <Icon name="chevronRight" size={12} weight="2" className="shrink-0 text-[var(--p-dim2)]" />
+              <Icon
+                name="chevronRight"
+                size={12}
+                weight="2"
+                className="shrink-0 text-[var(--p-dim2)]"
+              />
               <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
                 {member.name}
               </span>
@@ -1056,7 +906,6 @@ function ArchiveInner({
         />
       )}
       {ops.dialogs}
-
     </div>
   )
 }
