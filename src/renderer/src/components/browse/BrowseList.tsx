@@ -564,7 +564,7 @@ export function BrowseList(props: BrowseListProps): JSX.Element {
                 </div>
               )}
             </div>
-          )}{' '}
+          )}
           {sweep.sweeping && <SweepBand bandRef={sweep.bandRef} as="div" />}
         </div>
         <OverlayScrollbar target={scroller} />

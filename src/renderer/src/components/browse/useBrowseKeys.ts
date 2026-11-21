@@ -80,7 +80,7 @@ export function useBrowseKeys(a: KeysIn): {
     typed,
     zoomTo
   } = a
-  /** Bring a row into view, stepping off a divider the way 	oward points. */
+  /** Bring a row into view, stepping off a divider the way `toward` points. */
   const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
     const node = scrollerRef.current
     if (!node) return null

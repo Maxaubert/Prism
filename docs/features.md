@@ -7,12 +7,13 @@ changing a feature: each entry records what the owner decided, why, and what hol
 
 - **BrowseList.tsx split (audit #9, no behaviour change).** The list went from 1,724 to 575 lines.
   Row and tile building (`entryHandlers`, `entryRows`, `entryTile`, the rename field) moved to
-  `components/browse/BrowseEntry.tsx`. Scroll restore, follow-the-selection and the reveal moved to
-  `useBrowseScroll.ts`, the key table to `useBrowseKeys.ts`, the sweep to `useBrowseSweep.ts`, zoom
+  `components/browse/BrowseEntry.tsx`. Scroll restore, follow-the-selection and `revealPath` moved to
+  `useBrowseScroll.ts`, the key table (with the keyboard's reveal) to `useBrowseKeys.ts`, the sweep to `useBrowseSweep.ts`, zoom
   anchoring to `useBrowseZoom.ts`, and the props type to `listProps.ts`. Refs shared between the
   pieces are made in BrowseList and passed in (named `...Ref`, so the React lint rules see them as
   refs). Same DOM, classes and data attributes. `browseListSize.test.ts` holds the size (a ratchet:
   575 lines plus 50).
+
 ## Audit wave D: code health (2026-11-21)
 
 - **`src/main/index.ts` may not grow** (audit #7, step 1). The tab tear-off and preview-window IPC
