@@ -24,6 +24,5 @@ const pref = createPref<PreviewOpensIn>({
   fallback: 'panel'
 })
 
-export const previewOpensIn = pref.get
 export const setPreviewOpensIn = (v: PreviewOpensIn): void => pref.set(previewOpensInOf(v))
 export const usePreviewOpensIn = pref.use
