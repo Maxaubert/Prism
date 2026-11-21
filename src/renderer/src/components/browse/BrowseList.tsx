@@ -1188,103 +1188,107 @@ export function BrowseList(props: Props): JSX.Element {
     setCursor(null)
     props.onExtend?.(landed.entry.path)
   }
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    // Ctrl+Plus, Ctrl+Minus and Ctrl+0 are the wheel's keys (nothing else in
-    // the Explorer binds them; the app menu is gone). Only while the list or
-    // one of its rows has the keyboard, never a field inside it.
-    if (e.ctrlKey && !e.altKey && !e.metaKey) {
-      const change =
-        e.key === '+' || e.key === '='
-          ? 1
-          : e.key === '-' || e.key === '_'
-            ? -1
-            : e.key === '0'
-              ? 0
-              : null
-      const at = e.target as HTMLElement
-      if (
-        change !== null &&
-        (at === e.currentTarget ||
-          (at.matches('.browse-row, .browse-tile') && !at.isContentEditable))
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        const step = explorerZoom()
-        zoomTo.current(change === 0 ? 1 : change > 0 ? zoomIn(step) : zoomOut(step), null)
-        return
-      }
-    }
-    // THE GRID'S ARROWS come before the common keys: Left and Right are the
-    // grid's alone (the list leaves them to the viewer), and the rest of the
-    // arrows, Home, End and the Page keys move by line there. Never from a
-    // field inside the list (the rename box).
-    if (layout && count) {
-      const g = gridKey(e, true)
-      const at = e.target as HTMLElement
-      if (g && !at.isContentEditable && !/^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName)) {
-        e.preventDefault()
-        e.stopPropagation()
-        gridMove(g)
-        return
-      }
-    }
+  // THE LIST'S KEYS: an ordered table, first handler to claim a key wins.
+  // A handler returns true when it is done with the key (claimed or not) and
+  // false to let the next one look. The order is the old handler's order.
+  type ListKeyHandler = (e: KeyboardEvent<HTMLDivElement>) => boolean
+  /** Whether the list or one of its rows (never a field inside it) has the keyboard. */
+  const listOwnsKeyboard = (e: KeyboardEvent<HTMLDivElement>): boolean => {
+    const at = e.target as HTMLElement
+    return at === e.currentTarget || (at.matches('.browse-row, .browse-tile') && !at.isContentEditable)
+  }
+  // Ctrl+Plus, Ctrl+Minus and Ctrl+0 are the wheel's keys (nothing else in
+  // the Explorer binds them; the app menu is gone). Only while the list or
+  // one of its rows has the keyboard, never a field inside it.
+  const zoomKeys: ListKeyHandler = (e) => {
+    if (!e.ctrlKey || e.altKey || e.metaKey) return false
+    const change =
+      e.key === '+' || e.key === '='
+        ? 1
+        : e.key === '-' || e.key === '_'
+          ? -1
+          : e.key === '0'
+            ? 0
+            : null
+    if (change === null || !listOwnsKeyboard(e)) return false
+    e.preventDefault()
+    e.stopPropagation()
+    const step = explorerZoom()
+    zoomTo.current(change === 0 ? 1 : change > 0 ? zoomIn(step) : zoomOut(step), null)
+    return true
+  }
+  // THE GRID'S ARROWS come before the common keys: Left and Right are the
+  // grid's alone (the list leaves them to the viewer), and the rest of the
+  // arrows, Home, End and the Page keys move by line there. Never from a
+  // field inside the list (the rename box).
+  const gridKeys: ListKeyHandler = (e) => {
+    if (!layout || !count) return false
+    const g = gridKey(e, true)
+    const at = e.target as HTMLElement
+    if (!g || at.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName)) return false
+    e.preventDefault()
+    e.stopPropagation()
+    gridMove(g)
+    return true
+  }
+  const commonKeys: ListKeyHandler = (e) => {
     const common = listKey(e)
-    if (common) {
-      // Escape is a nearer closer's first (a peek, the PDF's find bar, a
-      // menu): those listen on the window, after this (review of #330).
-      if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return
-      // The preview window first (owner, 2026-11-08): Escape closes it and
-      // leaves the marks; the next Escape clears them as before.
-      if (common === 'clear' && e.key === 'Escape' && props.previewWindowOpen && !e.repeat) {
-        const front = props.covered || menuOrDialogUp()
-        if (!front) {
-          e.preventDefault()
-          e.stopPropagation()
-          props.onPreviewWindowClose?.()
-          return
-        }
-      }
-      if (LIST_OWN.has(common) && listOwnKey(common)) {
-        // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
-        // Home a seek) yield to a key the list took.
+    if (!common) return false
+    // Escape is a nearer closer's first (a peek, the PDF's find bar, a
+    // menu): those listen on the window, after this (review of #330).
+    if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return true
+    // The preview window first (owner, 2026-11-08): Escape closes it and
+    // leaves the marks; the next Escape clears them as before.
+    if (common === 'clear' && e.key === 'Escape' && props.previewWindowOpen && !e.repeat) {
+      const front = props.covered || menuOrDialogUp()
+      if (!front) {
         e.preventDefault()
         e.stopPropagation()
+        props.onPreviewWindowClose?.()
+        return true
       }
-      return
     }
-    // SPACE TOGGLES THE PREVIEW PANE (owner, 2026-11-08: "can you bind
-    // preview to space bar", then "Toggle the preview panel"): the toolbar
-    // button's own toggle, with or without a row picked, but only while the
-    // list or one of its rows has the keyboard (never a field inside it).
-    // A space inside a type-to-jump run is part of the name instead.
-    const space = spaceKey(e, typed.current, performance.now())
-    if (space) {
-      const at = e.target as HTMLElement
-      const own =
-        at === e.currentTarget || (at.matches('.browse-row, .browse-tile') && !at.isContentEditable)
-      if (!own) return
+    if (LIST_OWN.has(common) && listOwnKey(common)) {
+      // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
+      // Home a seek) yield to a key the list took.
       e.preventDefault()
       e.stopPropagation()
-      // Something in front of the list (a menu opened with the mouse leaves
-      // the focus on its row, a question, Settings): the key is taken but
-      // nothing behind it changes.
-      const front = props.covered || menuOrDialogUp()
-      if (space === 'preview' && !front) props.onPreviewToggle?.()
-      if (space !== 'type') return
     }
-    if (e.altKey || e.ctrlKey || e.metaKey) return
-    if (!count) {
-      if (
-        props.searchState?.running &&
-        ['Home', 'End', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(e.key)
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        pendingFocus.current = e.key === 'End' ? Infinity : 0
-      }
-      return
+    return true
+  }
+  // SPACE TOGGLES THE PREVIEW PANE (owner, 2026-11-08: "can you bind
+  // preview to space bar", then "Toggle the preview panel"): the toolbar
+  // button's own toggle, with or without a row picked, but only while the
+  // list or one of its rows has the keyboard (never a field inside it).
+  // A space inside a type-to-jump run is part of the name instead.
+  const spaceKeys: ListKeyHandler = (e) => {
+    const space = spaceKey(e, typed.current, performance.now())
+    if (!space) return false
+    if (!listOwnsKeyboard(e)) return true
+    e.preventDefault()
+    e.stopPropagation()
+    // Something in front of the list (a menu opened with the mouse leaves
+    // the focus on its row, a question, Settings): the key is taken but
+    // nothing behind it changes.
+    const front = props.covered || menuOrDialogUp()
+    if (space === 'preview' && !front) props.onPreviewToggle?.()
+    return space !== 'type'
+  }
+  const modifierKeys: ListKeyHandler = (e) => e.altKey || e.ctrlKey || e.metaKey
+  const emptyListKeys: ListKeyHandler = (e) => {
+    if (count) return false
+    if (
+      props.searchState?.running &&
+      ['Home', 'End', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(e.key)
+    ) {
+      e.preventDefault()
+      e.stopPropagation()
+      pendingFocus.current = e.key === 'End' ? Infinity : 0
     }
-    const page = Math.max(1, Math.floor(height / rowHeight) - 1) * cols
+    return true
+  }
+  /** The row the plain arrows start from. */
+  const keyboardIndex = (): number => {
     const rememberedIndex =
       selectedIndex >= 0
         ? selectedIndex
@@ -1292,55 +1296,82 @@ export function BrowseList(props: Props): JSX.Element {
           ? selectionPosition.current.index
           : -1
     // The plain arrows carry on from a cursor the Ctrl keys moved (#330).
-    const currentIndex =
+    return (
       pendingFocus.current ??
       (cursorIndex >= 0
         ? cursorIndex
         : rememberedIndex < 0
           ? Math.max(0, Math.floor((logicalTop - lead) / rowHeight)) * cols - 1
           : rememberedIndex)
+    )
+  }
+  const moveKeys: ListKeyHandler = (e) => {
+    const page = Math.max(1, Math.floor(height / rowHeight) - 1) * cols
     let next: number
-    if (e.key === 'ArrowDown') next = Math.min(count - 1, currentIndex + 1)
-    else if (e.key === 'ArrowUp') next = Math.max(0, currentIndex - 1)
+    if (e.key === 'ArrowDown') next = Math.min(count - 1, keyboardIndex() + 1)
+    else if (e.key === 'ArrowUp') next = Math.max(0, keyboardIndex() - 1)
     else if (e.key === 'Home') next = 0
     else if (e.key === 'End') next = count - 1
-    else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, currentIndex) + page)
-    else if (e.key === 'PageUp') next = Math.max(0, currentIndex - page)
-    else if (e.key === 'Enter' && props.selectedPath) {
-      e.preventDefault()
-      e.stopPropagation()
-      const entry =
-        rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
-      // A HELD ENTER IS ONE OPEN (#494; review, 2026-11-09): the key repeating
-      // handed the program to Windows thirty times a second, and an Enter
-      // held from a question or the search box repeated onto this row.
-      // `openGuards` e2e.
-      if (entry && !(e.repeat && entry.file && goesToWindows(entry.file))) props.onActivate(entry)
-      return
-    } else if (e.key.length === 1 && !e.shiftKey) {
-      const now = performance.now()
-      typed.current = {
-        text:
-          now - typed.current.at < 700
-            ? typed.current.text + e.key.toLowerCase()
-            : e.key.toLowerCase(),
-        at: now
-      }
-      const match = props.entries.findIndex((entry) =>
-        entry.name.toLowerCase().startsWith(typed.current.text)
-      )
-      if (match < 0) return
-      const matched = props.entries[match]
-      next = props.indexedRows
-        ? ([...props.indexedRows].find(([, entry]) => entry?.path === matched.path)?.[0] ?? -1)
-        : divided
-          ? divided.rowOf(match)
-          : match
-      if (next < 0) return
-    } else return
+    else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, keyboardIndex()) + page)
+    else if (e.key === 'PageUp') next = Math.max(0, keyboardIndex() - page)
+    else return false
     e.preventDefault()
     e.stopPropagation()
     focusRow(next)
+    return true
+  }
+  const enterKey: ListKeyHandler = (e) => {
+    if (e.key !== 'Enter' || !props.selectedPath) return false
+    e.preventDefault()
+    e.stopPropagation()
+    const entry =
+      rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
+    // A HELD ENTER IS ONE OPEN (#494; review, 2026-11-09): the key repeating
+    // handed the program to Windows thirty times a second, and an Enter
+    // held from a question or the search box repeated onto this row.
+    // `openGuards` e2e.
+    if (entry && !(e.repeat && entry.file && goesToWindows(entry.file))) props.onActivate(entry)
+    return true
+  }
+  const typeAheadKeys: ListKeyHandler = (e) => {
+    if (e.key.length !== 1 || e.shiftKey) return true
+    const now = performance.now()
+    typed.current = {
+      text:
+        now - typed.current.at < 700
+          ? typed.current.text + e.key.toLowerCase()
+          : e.key.toLowerCase(),
+      at: now
+    }
+    const match = props.entries.findIndex((entry) =>
+      entry.name.toLowerCase().startsWith(typed.current.text)
+    )
+    if (match < 0) return true
+    const matched = props.entries[match]
+    const next = props.indexedRows
+      ? ([...props.indexedRows].find(([, entry]) => entry?.path === matched.path)?.[0] ?? -1)
+      : divided
+        ? divided.rowOf(match)
+        : match
+    if (next < 0) return true
+    e.preventDefault()
+    e.stopPropagation()
+    focusRow(next)
+    return true
+  }
+  const LIST_KEY_HANDLERS: ListKeyHandler[] = [
+    zoomKeys,
+    gridKeys,
+    commonKeys,
+    spaceKeys,
+    modifierKeys,
+    emptyListKeys,
+    moveKeys,
+    enterKey,
+    typeAheadKeys
+  ]
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    for (const handle of LIST_KEY_HANDLERS) if (handle(e)) return
   }
 
   /** The inline rename field (#523) for the entry being renamed. */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { EMPTY_FOLDER, NO_MATCHES, NO_MATCHES_STOPPED, plural } from '../../lib/emptyText'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon, PreviewGlyph } from '../icons/BrowseIcon'
@@ -526,6 +526,129 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     />
   )
 
+  /** The common keys (#330) that act on the folder or a row. The row with the
+   * keyboard (a cursor the Ctrl keys moved), else the selected one. */
+  const runCommonKey = (e: ReactKeyboardEvent<HTMLDivElement>, common: string, target: HTMLElement): void => {
+    const at = target.closest<HTMLElement>('[data-browse-path]')?.dataset.browsePath
+    const focused =
+      (at && (entries.find((entry) => entry.path === at) ?? [...(indexedRows?.values() ?? [])].find((entry) => entry?.path === at))) ||
+      selected
+    if (common === 'search') {
+      // No search in the bin (D11): the key is claimed and does nothing.
+      if (!bin) routeFind(e)
+    } else if (common === 'copy-paths') {
+      const paths = many ? markedPaths() : focused ? [focused.path] : []
+      if (paths.length) props.onCopyPathText?.(bin ? paths.map(originalOf) : paths)
+    } else if (bin) {
+      // Delete permanently is the bin's own Delete (D16); the rest of the
+      // common keys (New folder, Properties, Open in new tab) stand down.
+      if (common === 'bin') deleteSelection()
+    } else if (archive) {
+      // Inside a zip the rest of the common keys do nothing.
+    } else if (common === 'new-folder') props.onNewFolder?.(props.directory)
+    else if (common === 'bin') deleteSelection()
+    else if (common === 'properties') {
+      if (focused) props.onProperties?.(focused)
+    } else if (common === 'open-new-tab') {
+      if (focused?.isFolder) props.onOpenNewTab?.(focused.path, true)
+    }
+  }
+  const runClipboardKey = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const key = e.key.toLowerCase()
+    // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
+    // container by a cut, and a paste into one is not a route yet.
+    if (archive && key !== 'c') return
+    // The bin is not a place you write to or copy from (D16): Cut, Copy
+    // and Paste do nothing here, and the clipboard keeps what it had.
+    if (bin) return
+    if (key === 'v') props.onPaste?.(props.directory)
+    else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
+    else if (selected && key === 'x') props.onCut?.(selected)
+    else if (selected) props.onCopy?.(selected)
+  }
+  const runHistoryKey = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    retainListFocus()
+    if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
+    if (e.key === 'ArrowRight' && props.canForward) props.onForward()
+    if (e.key === 'ArrowUp') props.onUp()
+  }
+  const runFind = (e: ReactKeyboardEvent<HTMLDivElement>, typing: boolean): void => {
+    // No search in the bin (D11).
+    if (bin) return
+    // Typing in the Explorer's own fields is its search, as it was.
+    if (typing) openSearch()
+    else routeFind(e)
+  }
+  /** A pure key router: classify the key, then hand it to one small handler. */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const target = e.target as HTMLElement
+    const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
+    if (inOverlay(target) || target.closest('[data-busy-bar]')) return
+    const inList = !!target.closest('.browse-list')
+    // THE COMMON KEYS (#330) that act on the folder or a row rather than
+    // on the marks (the list answers those itself). From the list only,
+    // never while typing, and CLAIMED even where they do nothing (inside
+    // a zip), so no window-wide viewer key answers them instead: F3 was
+    // the PDF's find from anywhere.
+    // NEW FOLDER ANSWERS FROM ANYWHERE in the browser but a text field
+    // (owner, 2026-11-10: "if i click the left sidebar and click documents
+    // then ctrl shift n it doesnt open the new folder panel"): it acts on
+    // the folder shown, which the sidebar, a toolbar button and the empty
+    // list all show. The keys that act on the SELECTED rows stay the
+    // list's: from the sidebar the user is looking at a place, not a row.
+    const pressed = typing ? null : listKey(e)
+    const common = pressed && (inList || pressed === 'new-folder') ? pressed : null
+    const action = folderKeyAction(e, {
+      typing: !!typing,
+      inList,
+      common,
+      hasSelected: !!selected,
+      many,
+      bin,
+      hasRefresh: !!props.onRefresh,
+      hasDelete: !!props.onDelete,
+      hasRename: !!props.onRename,
+      inOwnFind: !!target.closest('.cm-editor,[data-doc-scroller],[data-pdf-scroller]')
+    })
+    if (action === 'common') {
+      e.preventDefault()
+      e.stopPropagation()
+      if (common) runCommonKey(e, common, target)
+      return
+    }
+    if (!action) return
+    e.preventDefault()
+    e.stopPropagation()
+    switch (action) {
+      case 'refresh':
+        retainListFocus()
+        props.onRefresh?.()
+        break
+      case 'delete':
+        deleteSelection()
+        break
+      case 'edit-path':
+        shell.current?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')?.click()
+        break
+      case 'find':
+        runFind(e, !!typing)
+        break
+      case 'back-or-up':
+        retainListFocus()
+        if (props.canBack) props.onBack()
+        else props.onUp()
+        break
+      case 'history':
+        runHistoryKey(e)
+        break
+      case 'rename':
+        if (selected) props.onRename?.(selected)
+        break
+      case 'clipboard':
+        runClipboardKey(e)
+        break
+    }
+  }
   return (
     <div
       ref={shell}
@@ -553,118 +676,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       // draws its mark dimmed, File Explorer's inactive selection.
       data-active-area={area}
       data-inactive={area === 'places' || undefined}
-      onKeyDown={(e) => {
-        const target = e.target as HTMLElement
-        const typing = target.closest(`${FIELD},${EDITOR},${OVERLAY}`)
-        if (inOverlay(target) || target.closest('[data-busy-bar]')) return
-        const inList = !!target.closest('.browse-list')
-        // THE COMMON KEYS (#330) that act on the folder or a row rather than
-        // on the marks (the list answers those itself). From the list only,
-        // never while typing, and CLAIMED even where they do nothing (inside
-        // a zip), so no window-wide viewer key answers them instead: F3 was
-        // the PDF's find from anywhere.
-        // NEW FOLDER ANSWERS FROM ANYWHERE in the browser but a text field
-        // (owner, 2026-11-10: "if i click the left sidebar and click documents
-        // then ctrl shift n it doesnt open the new folder panel"): it acts on
-        // the folder shown, which the sidebar, a toolbar button and the empty
-        // list all show. The keys that act on the SELECTED rows stay the
-        // list's: from the sidebar the user is looking at a place, not a row.
-        const pressed = typing ? null : listKey(e)
-        const common = pressed && (inList || pressed === 'new-folder') ? pressed : null
-        const action = folderKeyAction(e, {
-          typing: !!typing,
-          inList,
-          common,
-          hasSelected: !!selected,
-          many,
-          bin,
-          hasRefresh: !!props.onRefresh,
-          hasDelete: !!props.onDelete,
-          hasRename: !!props.onRename,
-          inOwnFind: !!target.closest('.cm-editor,[data-doc-scroller],[data-pdf-scroller]')
-        })
-        if (action === 'common') {
-          e.preventDefault()
-          e.stopPropagation()
-          // The row with the keyboard (a cursor the Ctrl keys moved), else
-          // the selected one.
-          const at = target.closest<HTMLElement>('[data-browse-path]')?.dataset.browsePath
-          const focused =
-            (at && (entries.find((entry) => entry.path === at) ?? [...(indexedRows?.values() ?? [])].find((entry) => entry?.path === at))) ||
-            selected
-          if (common === 'search') {
-            // No search in the bin (D11): the key is claimed and does nothing.
-            if (!bin) routeFind(e)
-          } else if (common === 'copy-paths') {
-            const paths = many ? markedPaths() : focused ? [focused.path] : []
-            if (paths.length) props.onCopyPathText?.(bin ? paths.map(originalOf) : paths)
-          } else if (bin) {
-            // Delete permanently is the bin's own Delete (D16); the rest of the
-            // common keys (New folder, Properties, Open in new tab) stand down.
-            if (common === 'bin') deleteSelection()
-          } else if (archive) return
-          else if (common === 'new-folder') props.onNewFolder?.(props.directory)
-          else if (common === 'bin') {
-            // Ctrl+D and Shift+Delete are Delete (owner, 2026-10-07: Shift+
-            // Delete is NOT permanent here): the question, then the bin.
-            deleteSelection()
-          } else if (common === 'properties') {
-            if (focused) props.onProperties?.(focused)
-          } else if (common === 'open-new-tab') {
-            if (focused?.isFolder) props.onOpenNewTab?.(focused.path, true)
-          }
-          return
-        }
-        if (!action) return
-        e.preventDefault()
-        e.stopPropagation()
-        switch (action) {
-          case 'refresh':
-            retainListFocus()
-            props.onRefresh?.()
-            break
-          case 'delete':
-            deleteSelection()
-            break
-          case 'edit-path':
-            shell.current?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')?.click()
-            break
-          case 'find':
-            // No search in the bin (D11).
-            if (bin) return
-            // Typing in the Explorer's own fields is its search, as it was.
-            if (typing) openSearch()
-            else routeFind(e)
-            break
-          case 'back-or-up':
-            retainListFocus()
-            if (props.canBack) props.onBack()
-            else props.onUp()
-            break
-          case 'history':
-            retainListFocus()
-            if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
-            if (e.key === 'ArrowRight' && props.canForward) props.onForward()
-            if (e.key === 'ArrowUp') props.onUp()
-            break
-          case 'rename':
-            if (selected) props.onRename?.(selected)
-            break
-          case 'clipboard': {
-            const key = e.key.toLowerCase()
-            // Inside a zip, Cut and Paste are inert (#300): nothing leaves a
-            // container by a cut, and a paste into one is not a route yet.
-            if (archive && key !== 'c') return
-            // The bin is not a place you write to or copy from (D16): Cut, Copy
-            // and Paste do nothing here, and the clipboard keeps what it had.
-            if (bin) return
-            if (key === 'v') props.onPaste?.(props.directory)
-            else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
-            else if (selected && key === 'x') props.onCut?.(selected)
-            else if (selected) props.onCopy?.(selected)
-            break
-          }
-        }      }}
+      onKeyDown={onKeyDown}
     >
       <BrowseToolbar
         {...props}

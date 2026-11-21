@@ -695,22 +695,6 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
   const tabActive = tabs
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
-  const divider =
-    style.borders === 'none'
-      ? 'transparent'
-      : style.borders === 'strong'
-        ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
-        : style.borders === 'faint'
-          ? // A third of a hairline: edges you sense more than see.
-            rgba(ink, style.mode === 'light' ? 0.035 : 0.022)
-          : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
-
-  // The same hairline, but OPAQUE (2026-08-23). --p-divider is an alpha over
-  // whatever sits behind it, which is right for edges inside a panel and
-  // wrong for the one edge that stands against the VIEWER: over a playing
-  // video the line sampled the picture and appeared to shimmer, lighter and
-  // darker down its length. Mixed into the panel's own flat colour it looks
-  // identical and holds still.
   const dividerAlpha =
     style.borders === 'none'
       ? 0
@@ -719,6 +703,14 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
         : style.borders === 'faint'
           ? style.mode === 'light' ? 0.035 : 0.022
           : style.mode === 'light' ? 0.1 : 0.07
+  const divider = dividerAlpha === 0 ? 'transparent' : rgba(ink, dividerAlpha)
+
+  // The same hairline, but OPAQUE (2026-08-23). --p-divider is an alpha over
+  // whatever sits behind it, which is right for edges inside a panel and
+  // wrong for the one edge that stands against the VIEWER: over a playing
+  // video the line sampled the picture and appeared to shimmer, lighter and
+  // darker down its length. Mixed into the panel's own flat colour it looks
+  // identical and holds still.
   // As SEEN: a see-through panel over a solid window is the blend of the two.
   const flatSide = sideGround(style)
   const edgeLine = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)

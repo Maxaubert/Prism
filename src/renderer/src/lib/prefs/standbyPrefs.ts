@@ -18,6 +18,5 @@ const pref = createPref<boolean>({
   fallback: true
 })
 
-export const stayReady = pref.get
 export const setStayReady = pref.set
 export const useStayReady = pref.use

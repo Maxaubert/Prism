@@ -1,8 +1,9 @@
 import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runPaste } from './pasteJob'
+import { cancelCopies } from './copyJobs'
 
 async function setup(): Promise<{ src: string; dest: string }> {
   const root = await mkdtemp(join(tmpdir(), 'prism-pastejob-'))
@@ -68,5 +69,71 @@ describe('runPaste (#538 item 15)', () => {
     expect(r.pasted).toBe(0)
     expect(r.failed).toBe(1)
     expect(r.failures?.[0].reason).toBe('into itself')
+  })
+})
+
+describe('runPaste names, throttle and cancel', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('predicts one name per source, apart from each other and from the folder', async () => {
+    const { src, dest } = await setup()
+    await mkdir(join(src, 'x'))
+    await mkdir(join(src, 'y'))
+    await writeFile(join(src, 'x', 'r.md'), 'x')
+    await writeFile(join(src, 'y', 'r.md'), 'y')
+    await writeFile(join(dest, 'r.md'), 'old')
+    const sent: Array<{ start?: { items: Array<{ name: string }> } }> = []
+    const r = await runPaste(
+      { send: (_c, p) => void sent.push(p as never), written: async () => {}, textShape: new Map() },
+      dest,
+      [join(src, 'x', 'r.md'), join(src, 'y', 'r.md')],
+      false,
+      'names'
+    )
+    expect(sent[0].start?.items.map((i) => i.name)).toEqual(['r (2).md', 'r (3).md'])
+    expect(r.paths).toEqual([join(dest, 'r (2).md'), join(dest, 'r (3).md')])
+    expect(await readFile(join(dest, 'r (3).md'), 'utf8')).toBe('y')
+  })
+
+  it('says a landing at most once per tick and flushes the last one', async () => {
+    const { src, dest } = await setup()
+    const files = ['a', 'b', 'c'].map((n) => join(src, `${n}.txt`))
+    for (const f of files) await writeFile(f, 'data')
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const sent: Array<{ item?: number }> = []
+    await runPaste(
+      { send: (_c, p) => void sent.push(p as never), written: async () => {}, textShape: new Map() },
+      dest,
+      files,
+      false,
+      'throttle'
+    )
+    const landings = sent.filter((m) => m.item !== undefined && !('start' in m))
+    // The clock never moves: one landing is due, the rest wait, and the
+    // last one is said once at the end.
+    expect(landings.length).toBeLessThan(files.length)
+    expect(landings[landings.length - 1].item).toBe(2)
+  })
+
+  it('stops between items when cancelled and reports it', async () => {
+    const { src, dest } = await setup()
+    const files = ['a', 'b'].map((n) => join(src, `${n}.txt`))
+    for (const f of files) await writeFile(f, 'data')
+    const r = await runPaste(
+      {
+        send: (_c, p) => {
+          if ((p as { start?: unknown }).start) cancelCopies('cancel')
+        },
+        written: async () => {},
+        textShape: new Map()
+      },
+      dest,
+      files,
+      false,
+      'cancel'
+    )
+    expect(r.cancelled).toBe(true)
+    expect(r.pasted).toBe(0)
+    expect(await readdir(dest)).toEqual([])
   })
 })
