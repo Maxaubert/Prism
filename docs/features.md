@@ -3,6 +3,18 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit splits and leftovers (2026-11-21)
+
+- **src/main/index.ts split, step 2** (audit #7 and #11, owner's yes 2026-11-21). Code moved, not
+  rewritten; startup order, IPC registration order and app events are as before. windowFactory.ts
+  holds createWindow and the session restore it runs; launchRouter.ts holds onLaunch (the
+  Win+E branch, and one elaunchWithPaths helper for the quit-then-relaunch step);
+  mainState.ts holds the process state those parts share (MainState, handed in, not global);
+  startup/ holds the whenReady groups (preferences, probe, 	humbs, liveVideo, phone),
+  the tear-off parts (	earWiring), standby (standbyParts), the sweep box (sweepWiring) and
+  the e2e window hooks (2eHooks). index.ts went from 2,521 to 1,192 lines. Held by
+  src/main/indexSize.test.ts (index.ts, windowFactory.ts and 	earWiring.ts each stay within
+  50 lines of today's count); syncCalls.test.ts and spawnCalls.test.ts read the new files too.
 ## Audit wave D: code health (2026-11-21)
 
 - **`src/main/index.ts` may not grow** (audit #7, step 1). The tab tear-off and preview-window IPC
