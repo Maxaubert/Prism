@@ -17139,7 +17139,15 @@ async function dropBackScenario(fixtures) {
     z.addFile('member.txt', Buffer.from('the member, out of the zip'))
     z.writeZip(zipPath)
   }
-  const zipNames = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+  // A zip main is still rewriting has no end header yet: read it as empty
+  // ("not yet") so until() keeps waiting instead of the scenario crashing.
+  const zipNames = () => {
+    try {
+      return new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+    } catch {
+      return []
+    }
+  }
   const { app, win } = await launch(join(dir, 'anchor.txt'))
   const INTO = '[data-testid="browse-list"] [data-browse-path$="\\\\into" i]'
   /** Drop `paths` (real files) on the element `target` names (the `into` row
@@ -24090,7 +24098,15 @@ async function zipPreviewClicksScenario(fixtures) {
     const dim = await tokenColour('--p-sel-tint-dim')
     const full = await tokenColour('--p-sel-tint')
     ok(dim && full && dim !== full, `the list's selection tints differ (full ${full}, dim ${dim})`)
-    const zipNames = () => new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+    // A zip main is still rewriting has no end header yet: read it as empty
+    // ("not yet") so until() keeps waiting instead of the scenario crashing.
+    const zipNames = () => {
+      try {
+        return new AdmZip(zipPath).getEntries().map((e) => e.entryName)
+      } catch {
+        return []
+      }
+    }
     const dialogText = async () => (await win.locator('[role="dialog"]').allTextContents().catch(() => [])).join(' | ')
 
     // A FILE FROM THE LIST ONTO THE CARD is added to the zip, where the card is.
