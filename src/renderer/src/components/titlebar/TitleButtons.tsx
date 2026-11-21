@@ -61,7 +61,7 @@ export function TitleButtons({
       <div className="no-drag flex items-center gap-0.5">
         {!setup && editable && (
           <button
-            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
             onClick={onToggleEdit}
             title={editing ? 'Stop editing' : 'Edit'}
             aria-label="Edit"
@@ -91,7 +91,7 @@ export function TitleButtons({
         )}
         {!setup && (
           <button
-            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
             onClick={onToggleSettings}
             title="Settings"
             aria-label="Settings"
@@ -104,7 +104,7 @@ export function TitleButtons({
         )}
         {!setup && (
           <button
-            className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
             // detail 0 is Enter or Space: the menu then takes the focus.
             onClick={(e) => onMore(e.currentTarget, e.detail === 0)}
             title="More"

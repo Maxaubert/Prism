@@ -16,6 +16,14 @@ export const MENU_ROW =
 export const MENU_ROW_INK =
   'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
 
+/** The red of a danger row and an error line (audit #39). Mixed with the theme's own ink, like the delete
+ *  question's outline, so it reads on a light panel as well as a dark one. */
+export const DANGER_INK = 'text-[color-mix(in_srgb,#b4353f_70%,var(--p-text))]'
+
+/** A danger row's ink and hover: a red wash that stays visible on any panel. */
+export const MENU_ROW_DANGER =
+  DANGER_INK + ' hover:bg-[color-mix(in_srgb,#b4353f_16%,transparent)] hover:text-[color-mix(in_srgb,#b4353f_80%,var(--p-text))]'
+
 /** Which row an arrow key lands on, wrapping at both ends. t is -1 when
  *  no row has the focus: Down takes the first, Up the last. */
 export function stepRow(count: number, at: number, key: 'ArrowDown' | 'ArrowUp'): number {

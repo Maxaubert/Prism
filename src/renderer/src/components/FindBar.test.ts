@@ -60,3 +60,12 @@ describe('the find bar keys', () => {
     expect(() => src('pdf/PdfFindBar.tsx')).toThrow()
   })
 })
+describe('the find bar on a narrow pane (audit #84)', () => {
+  it('is capped by its pane and the field shrinks', () => {
+    const html = renderToStaticMarkup(
+      createElement(FindBar, { query: '', onQuery: () => {}, count: 0, at: -1, onStep: () => {}, onClose: () => {} })
+    )
+    expect(html).toContain('max-w-[calc(100%-24px)]')
+    expect(html).toMatch(/<input[^>]*class="[^"]*min-w-0 flex-1/)
+  })
+})

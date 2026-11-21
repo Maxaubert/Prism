@@ -122,6 +122,9 @@ export function hlsArgs(o: {
   const encodeVideo = !plan.audioOnly && !plan.copyVideo
   const turned = !!plan.rotation && plan.rotation % 360 !== 0
   const turn = turned && Math.abs(plan.rotation ?? 0) % 180 === 90
+  // The ceiling goes on the short side: the width when the picture is shown
+  // portrait, whether it got there by a turn or was coded that way.
+  const portrait = plan.portrait ?? turn
   // Hardware decode is asked for only when the picture is being encoded: a
   // copy never touches the frames, and audio-only has no frames to touch.
   const pre: string[] = []
@@ -131,9 +134,9 @@ export function hlsArgs(o: {
     else pre.push('-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda')
   }
   let filter: string
-  if (plan.tonemap) filter = gpu ? TONEMAP_GPU(plan.height, turn) : TONEMAP_CPU(plan.height, turn)
-  else if (gpu && !turned) filter = `scale_cuda=${plan.height ? `-2:${plan.height}` : 'iw:ih'}:format=nv12`
-  else filter = `${plan.height ? `${scaleTo(plan.height, turn)},` : ''}format=yuv420p`
+  if (plan.tonemap) filter = gpu ? TONEMAP_GPU(plan.height, portrait) : TONEMAP_CPU(plan.height, portrait)
+  else if (gpu && !turned) filter = `scale_cuda=${plan.height ? (portrait ? `${plan.height}:-2` : `-2:${plan.height}`) : 'iw:ih'}:format=nv12`
+  else filter = `${plan.height ? `${scaleTo(plan.height, portrait)},` : ''}format=yuv420p`
   const video: string[] = plan.audioOnly
     ? ['-vn']
     : plan.copyVideo
