@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { parseInfo, restoreFromBin, sidOf } from './binRestore'
+import { parseInfo, restoreFromBin, restoreInput, restoreScript, sidOf } from './binRestore'
 
 /** An `$I` record as Windows 8 and later write it. */
 function infoV2(path: string, deletedAt: bigint): Buffer {
@@ -121,5 +121,20 @@ describe('sidOf', () => {
   it("reads the SID out of whoami's csv", () => {
     expect(sidOf('"desktop-1\\admin","S-1-5-21-111-222-333-1001"\r\n')).toBe('S-1-5-21-111-222-333-1001')
     expect(sidOf('')).toBeNull()
+  })
+})
+
+describe('the shell restore (audit #1)', () => {
+  // U+2018 to U+201B are single quotes to PowerShell: a name holding one ended
+  // the old script's string and ran the rest. No path is in the script now.
+  const names = ['a\u2018; calc; \u2019b.txt', "it's.txt", 'x\u201A\u201Bq.txt', 'plain.txt']
+  it('keeps every path out of the script text', () => {
+    for (const n of names) expect(restoreScript).not.toContain(n)
+    expect(restoreScript).not.toMatch(/[\u2018-\u201B]/)
+    expect(restoreScript).toContain('[Console]::In.ReadToEnd()')
+  })
+  it('sends the paths as JSON data, exactly', () => {
+    const paths = names.map((n) => 'C:\\Users\\me\\' + n)
+    expect(JSON.parse(restoreInput(paths))).toEqual({ paths })
   })
 })
