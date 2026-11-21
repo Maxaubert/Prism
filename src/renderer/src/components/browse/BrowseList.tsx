@@ -5,204 +5,44 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type JSX,
-  type DragEvent as ReactDragEvent,
-  type KeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode
+  type JSX
 } from 'react'
-import type { ArchiveMeta } from '@shared/types'
-import { browsableArchive, memberOf } from '@shared/archivePlace'
-import { goesToWindows } from '../../lib/unsupported'
-import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
-import { DRAG_MIME, setDrag } from '../../lib/drag/dragDrop'
-import { noteReady } from '../../lib/drag/dragOut'
 import { SweepBand } from './SweepBand'
 import { BusyBar } from './BusyBar'
 import { useFolderIcons } from '../../lib/folderIcons'
 import { OverlayScrollbar } from './OverlayScrollbar'
 import { explorerHeadVars } from '../../lib/explorerSize'
-import {
-  atStep,
-  explorerZoom,
-  headSizeOf,
-  setExplorerZoom,
-  useExplorerZoom,
-  ZOOM_MAX_AVAILABLE,
-  zoomIn,
-  zoomOut
-} from '../../lib/explorerZoom'
-import { anchorAt, anchorScroll, type Anchor } from '../../lib/zoomAnchor'
-import { createZoomWheel } from '../../lib/zoomWheel'
-import { GRID_GAP, GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
+import { atStep, headSizeOf, useExplorerZoom } from '../../lib/explorerZoom'
+import { GRID_PAD, gridLayout, rowsWindow } from '../../lib/gridLayout'
 import { gridHeaderColumns } from '../../lib/gridHeader'
-import { bandBox, nearestRow, rowsInBox } from '../../lib/marquee'
-import { cellSpan, cellsInBox, nearestCell } from '../../lib/cellsInBox'
-import { useSweep } from '../../hooks/useSweep'
 import { useFolderDrop } from './useFolderDrop'
-import type { BrowseEntry, FolderBrowserProps } from './types'
-import type { ListPending } from '../../hooks/usePendingHint'
-import { divideRows, type DateDivider } from '../../lib/dateGroups'
-import { listKey, spaceKey, stepTo, type ListKey } from '../../lib/listKeys'
-import { nearerEscape } from '../../lib/nearerEscape'
-import { menuOrDialogUp } from '../../lib/pageDocuments'
-import { createScrollSettle } from '../../lib/scrollSettle'
+import type { BrowseEntry } from './types'
+import { divideRows } from '../../lib/dateGroups'
 import { tierFor } from '@shared/thumbTypes'
 import { visibleWants } from '../../lib/thumbKind'
 import { useDocumentShown, useThumbFeed } from '../../lib/useThumbs'
 import { BrowseColumnHeader } from './BrowseColumnHeader'
 import { headerColumnsFor } from './browseColumns'
-import { BrowseRow, DividerRow, PendingRow } from './BrowseRow'
-import { rowPicture, tilePicture, type EntryPictures } from './EntryMedia'
+import { type EntryPictures } from './EntryMedia'
 import { BrowseGrid } from './BrowseGrid'
-import { GridTile } from './GridTile'
-import { RenameField } from '../RenameField'
 import { layerShift } from '../../lib/layerShift'
-import { gridKey, gridStep, type GridKey } from '../../lib/gridNav'
+import { entryRows, entryTile, type EntryView } from './BrowseEntry'
+import type { BrowseListProps } from './listProps'
+import { rowIndexOf, useBrowseFollow, useLiveScroll, type Hand } from './useBrowseScroll'
+import { useBrowseSweep } from './useBrowseSweep'
+import { useBrowseZoom } from './useBrowseZoom'
+import { useBrowseKeys } from './useBrowseKeys'
 
 const OVERSCAN = 12
-/** How long after the hand's last input (a wheel notch, a sweep's step) a
- *  scroll still counts as the hand's: a wheel's smooth scroll runs on after it. */
-const HAND_MS = 800
-/** A path's row in the list as drawn (dividers counted), or -1. */
-function rowIndexOf(
-  path: string | null | undefined,
-  entries: readonly BrowseEntry[],
-  indexedRows: Map<number, BrowseEntry | null> | undefined,
-  divided: ReturnType<typeof divideRows> | null
-): number {
-  if (!path) return -1
-  if (indexedRows) {
-    for (const [index, entry] of indexedRows) if (entry?.path === path) return index
-    return -1
-  }
-  const at = entries.findIndex((entry) => entry.path === path)
-  return divided && at >= 0 ? divided.rowOf(at) : at
-}
-/** The common keys the list answers itself (#330). */
-const LIST_OWN: ReadonlySet<ListKey> = new Set<ListKey>([
-  'select-all',
-  'clear',
-  'extend-up',
-  'extend-down',
-  'extend-home',
-  'extend-end',
-  'focus-up',
-  'focus-down',
-  'focus-home',
-  'focus-end',
-  'toggle-mark'
-])
-
-
-type Props = Pick<
-  FolderBrowserProps,
-  | 'directory'
-  | 'selectedPath'
-  | 'scrollTop'
-  | 'sort'
-  | 'onSelect'
-  | 'onScroll'
-  | 'onSortChange'
-  | 'onContextMenu'
-  | 'onRename'
-  | 'renamingPath'
-  | 'onRenameSubmit'
-  | 'onRenameCancel'
-  | 'onCopy'
-  | 'query'
-  | 'searchState'
-  | 'onCancelSearch'
-  | 'onSearchRange'
-  | 'onDropInto'
-  | 'onPreviewToggle'
-  | 'covered'
-  | 'listSlideWidth'
-  | 'previewWindowOpen'
-  | 'onPreviewWindowClose'
-> & {
-  /** This Explorer tab: the thumbnail asks are made and cancelled under it. */
-  tabId?: string
-  entries: BrowseEntry[]
-  indexedRows?: Map<number, BrowseEntry | null>
-  total: number
-  onActivate: (entry: BrowseEntry) => void
-  message: string | null
-  loading: boolean
-  /** A folder that has not answered (#271): 'quiet' dims the rows it keeps,
-   *  'slow' runs the thin bar under the header. Never a loading message. */
-  pending?: ListPending
-  /** The pointer rests on a folder row (null: it left): read it ahead. */
-  onFolderHover?: (path: string | null) => void
-  onVisibleFolders?: (paths: string[]) => void
-  /** Every marked row (the selection plus a sweep's or a Ctrl click's), or
-   *  null when the one `selectedPath` is the whole selection. */
-  marked?: ReadonlySet<string> | null
-  /** Items a paste is still copying here, by lower-cased path, and how far
-   *  each has got (0-100): drawn as inert rows with a bar (owner, 2026-10-28). */
-  landing?: ReadonlyMap<string, number>
-  /** A job over a second is changing this folder: the list is inert under the
-   *  loading bar (owner, 2026-11-09, lib/holds). */
-  held?: boolean
-  /** A click that carries Ctrl or Shift: FolderBrowser builds the selection. */
-  onPick?: (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }) => void
-  /** A sweep let go with the rectangle up: these rows, the keyboard on `near`.
-   *  `add` is a Ctrl sweep, which keeps what was marked before it. */
-  onSweep?: (paths: string[], near: string | null, add: boolean) => void
-  /** Downloads' date groups (#285): a label row before each group's first
-   *  entry. Never with `indexedRows` (a search is not grouped). */
-  dividers?: readonly DateDivider[]
-  /** This is Downloads: Date modified's first click sorts newest first. */
-  downloads?: boolean
-  /** The place on screen is inside an archive (#300): the Packed column, and
-   *  a row dragged out carries archive members, not files on disk. */
-  archive?: ArchiveMeta | null
-  /** The place on screen is the Recycle Bin (D7): its columns, no drag out,
-   *  no drops, no pictures. */
-  bin?: boolean
-  /** Drawn above the column header: the archive's strip. */
-  strip?: ReactNode
-  /** THE COMMON KEYS (#330), each quiet (#263): Shift+arrows mark the run
-   *  from the anchor to `path`; Ctrl+Space puts `path` in or out of the marks;
-   *  Ctrl+A marks every row; Ctrl+Shift+A and Escape clear, answering whether
-   *  there was anything to clear (an Escape with nothing marked is not taken). */
-  onExtend?: (path: string) => void
-  onToggleMark?: (path: string) => void
-  onSelectAll?: () => void
-  onClear?: () => boolean
-  /** Bring this row into view once per `seq` (#101: what an action just made
-   *  is marked and scrolled to). Scroll only: the focus stays where it is. */
-  revealPath?: { path: string; seq: number } | null
-  /** A right press on the list's empty space (inside an archive, #300). */
-  onEmptyContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void
-}
-
-export function BrowseList(props: Props): JSX.Element {
+export function BrowseList(props: BrowseListProps): JSX.Element {
   const cut = useFileCut()
   // The bin takes no drop at all (D16): the handler is absent, so every
   // target says "no" explicitly (useFolderDrop).
-  const folderDrop = useFolderDrop(props.loading || props.bin ? undefined : props.onDropInto, props.archive)
-  /** What a press or drag on this row carries inside an archive: the row, or
-   *  the whole selection when the row is in it, as members with their places. */
-  const memberCargo = (
-    path: string
-  ): { archive: string; entries: string[]; places: string[] } | null => {
-    const archive = props.archive
-    if (!archive) return null
-    const all = props.marked
-    const paths = all && all.size > 1 && all.has(path) ? [...all] : [path]
-    const entries: string[] = []
-    const places: string[] = []
-    for (const p of paths) {
-      const inner = memberOf(archive, p)
-      if (!inner) continue
-      entries.push(inner)
-      places.push(p)
-    }
-    return entries.length ? { archive: archive.container, entries, places } : null
-  }
+  const folderDrop = useFolderDrop(
+    props.loading || props.bin ? undefined : props.onDropInto,
+    props.archive
+  )
   // There is no search in the bin (D11): a query carried in never shows as one.
   const searching = !!props.query.trim() && !props.bin
   // The row is Settings > Style > Explorer size: Medium is the tree's own row
@@ -264,78 +104,10 @@ export function BrowseList(props: Props): JSX.Element {
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
-  /**
-   * THE LIVE SCROLL IS THE LIST'S OWN (review, 2026-10-16). Every native
-   * scroll event used to patch the tab, which re-rendered the whole App,
-   * re-sorted the folder and sent every tab's history to main, per frame.
-   * Now a scroll re-renders this list alone, and the position is handed up
-   * once it settles (lib/scrollSettle.ts) or at once for a key's move. The
-   * tab's `scrollTop` is taken over only when it changes from outside (a
-   * restore, a sort's reset, Back) or the place on screen does; one this list
-   * handed up itself is already where it is (`from`), so the list never
-   * jumps back to a position a frame old.
-   */
-  const placeKey = `${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
-  const [liveState, setLive] = useState(() => ({
-    key: placeKey,
-    from: props.scrollTop,
-    top: props.scrollTop,
-    taken: 0
-  }))
-  let live = liveState
-  if (live.key !== placeKey || live.from !== props.scrollTop) {
-    live = { key: placeKey, from: props.scrollTop, top: props.scrollTop, taken: live.taken + 1 }
-    setLive(live)
-  }
-  const [settle] = useState(createScrollSettle)
-  useEffect(() => () => settle.flush(), [settle])
-  const handOwner = useRef(props.onScroll)
-  useLayoutEffect(() => {
-    handOwner.current = props.onScroll
-  })
-  /** The list scrolled itself: re-render this list, hand it up when it settles. */
-  const scrolledTo = (top: number): void => {
-    setLive((l) => (l.top === top ? l : { ...l, top }))
-    const up = props.onScroll
-    const key = placeKey
-    settle.scrolled(up, top, (settled) => {
-      setLive((l) => (l.key === key && handOwner.current === up ? { ...l, from: settled } : l))
-      up(settled)
-    })
-  }
-  /** A key moved the list: hand the position up at once. */
-  const handUp = (top: number): void => {
-    settle.cancel()
-    setLive((l) => ({ ...l, top, from: top }))
-    props.onScroll(top)
-  }
-  /** Where the list's OWN last scroll put it (a restore, a zoom's anchor, a
-   *  reveal, a follow): the scroll event that lands there is never the hand's,
-   *  whatever input came just before it. */
-  const own = useRef<number | null>(null)
-  /** Set the scroll as the list's own move. */
-  const ownScroll = (node: HTMLDivElement, top: number): void => {
-    node.scrollTop = top
-    own.current = node.scrollTop
-  }
-  const liveTop = live.top
-  useLayoutEffect(() => {
-    const node = scroller.current
-    if (!node || props.loading) return
-    ownScroll(node, live.top)
-    // A POSITION THE FOLDER CANNOT REACH IS NOT KEPT (owner, 2026-11-14, a
-    // screenshot: Back to a zip's 20 rows drew them eight rows down under a
-    // blank band). Back puts a place's saved scroll back, but a folder that
-    // now fits (a taller window, a smaller zoom) clamps it to where it can go,
-    // and when the list was already there no scroll event says so: the rows
-    // were drawn at the saved position. They are drawn where the list IS.
-    const at = node.scrollTop
-    if (Math.abs(at - live.top) > 1) setLive((l) => (l.taken === live.taken ? { ...l, top: at } : l))
-    // Only when a position is TAKEN from the tab (or the load ends), never
-    // per scroll: the list is already where it scrolled to.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live.taken, props.loading])
-
+  const { placeKey, live, liveTop, ownRef, ownScroll, scrolledTo, handUp } = useLiveScroll(
+    props,
+    scroller
+  )
   // DOWNLOADS' DATE GROUPS (#285): a divider is a row of the list's own
   // height, so the rows below it simply move down one index; `rowAt` answers
   // null on it, which every walk of the list (arrows, Home and End, a pending
@@ -415,7 +187,8 @@ export function BrowseList(props: Props): JSX.Element {
   // tier follows it (tile edge x devicePixelRatio, thumbTypes.tierFor).
   const pictureEdge = gridOn ? look.edge : look.thumb
   // The bin never wears pictures (D8): its files are Windows' entries.
-  const thumbsOn = pictureEdge > 0 && !searching && !props.archive && !props.bin && !props.indexedRows
+  const thumbsOn =
+    pictureEdge > 0 && !searching && !props.archive && !props.bin && !props.indexedRows
   const thumbsActive = thumbsOn && !props.held && !props.loading && windowShown
   useEffect(() => {
     thumbFeed?.setActive(thumbsActive)
@@ -436,24 +209,13 @@ export function BrowseList(props: Props): JSX.Element {
   useEffect(() => {
     thumbFeed?.visible(wanted)
   })
-  /**
-   * THE SWEEP (#257). From the list's blank space a drag draws the rectangle
-   * and marks every row it touches, live. Rows are found by index, never by
-   * element: only the rows in view exist, and a row scrolled away under the
-   * rectangle is still in it.
-   *
-   * THE WHOLE ROW IS THE FILE'S (#320; owner, 2026-10-07: "its not possible
-   * to pick up items unless you left click drag when hovering over the file
-   * name. the whole row should let me left click drag ... that drag should
-   * only be from empty spaces either under or beside the file row"). Until
-   * then a row's Type, Size and Date cells swept. Now a press anywhere on a
-   * row drags it, and the sweep starts only off the rows: under the last one,
-   * or beside them, since a row ends where its last column does and a gutter
-   * is always left on the right (browse.css), File Explorer's Details view.
-   */
-  const [sweeping, setSweeping] = useState<{ paths: string[]; add: boolean } | null>(null)
-  const sweepAdd = useRef(false)
-  const geometry = useRef({
+  /** The hand's last scrolling input, and a scroll it is holding. */
+  const hand = useRef<Hand>({ at: -Infinity, hold: null })
+  const { geometry, logicalTopAt, sweep, onListPointerDown, isMarked } = useBrowseSweep({
+    props,
+    scrollerRef: scroller,
+    handRef: hand,
+    rowAt,
     count,
     spaceHeight,
     height,
@@ -464,163 +226,6 @@ export function BrowseList(props: Props): JSX.Element {
     lead,
     layout
   })
-  const rowAtRef = useRef(rowAt)
-  // Mirrored after render (refs are not written while rendering); the sweep
-  // reads them from pointer events, which only come after.
-  useLayoutEffect(() => {
-    geometry.current = {
-      count,
-      spaceHeight,
-      height,
-      scale,
-      rowHeight,
-      contentH,
-      cols,
-      lead,
-      layout
-    }
-    rowAtRef.current = rowAt
-  })
-  /** The list's top, in row coordinates, for a scroll position: the rule the
-   *  render uses, so the rectangle and the rows agree when the list is huge. */
-  const logicalTopAt = (top: number): number => {
-    const g = geometry.current
-    return top >= g.spaceHeight - g.height - 1 ? Math.max(0, g.contentH - g.height) : top * g.scale
-  }
-  /** The hand's last scrolling input, and a scroll it is holding (the
-   *  scrollbar's thumb, a finger, the middle button's autoscroll). */
-  const hand = useRef<{ at: number; hold: 'bar' | 'touch' | 'auto' | null }>({
-    at: -Infinity,
-    hold: null
-  })
-  const sweep = useSweep({
-    scroller: () => scroller.current,
-    // Read at the press and after a scroll only (#332): never per move.
-    measure: () => {
-      const node = scroller.current
-      if (!node) return null
-      const r = node.getBoundingClientRect()
-      return {
-        left: r.left,
-        top: r.top,
-        scrollTop: node.scrollTop,
-        scrollLeft: node.scrollLeft,
-        scrollWidth: node.scrollWidth,
-        // The visible rows, in the page's client: the native box's clip (#338).
-        clip: {
-          left: r.left + node.clientLeft,
-          top: r.top + node.clientTop,
-          right: r.left + node.clientLeft + node.clientWidth,
-          bottom: r.top + node.clientTop + node.clientHeight
-        }
-      }
-    },
-    toList: (x, y, m) => {
-      const g = geometry.current
-      return {
-        x: Math.min(m.scrollWidth, Math.max(0, x - m.left + m.scrollLeft)),
-        y: Math.max(
-          0,
-          Math.min(Math.max(g.contentH, g.height), logicalTopAt(m.scrollTop) + y - m.top)
-        )
-      }
-    },
-    // toList's inverse, with the same compressed-scroll rule (logicalTopAt).
-    fromList: (p, m) => ({
-      x: p.x - m.scrollLeft + m.left,
-      y: p.y - logicalTopAt(m.scrollTop) + m.top
-    }),
-    clipOf: (m) => m.clip,
-    place: (band, m) => {
-      // Row coordinates to the scroll box's own: the rows sit at
-      // scrollTop + (y - logicalTop). Clamped to what is in view, so a sweep
-      // across a hundred thousand rows is still one small element. From the
-      // measured scroll, not the rendered one, so it holds while the list
-      // auto-scrolls under it. Known and accepted: in the compressed scroll
-      // (`scale > 1`, about 180k rows and up) the rows are placed from the
-      // RENDERED `liveTop`, a frame later, so while the list
-      // auto-scrolls there the box and the rows can disagree for a frame by
-      // the scroll step times `scale - 1`. Below that `logicalTopAt(s) === s`.
-      const b = bandBox(band)
-      const top = m.scrollTop + b.top - logicalTopAt(m.scrollTop)
-      const lo = Math.max(top, m.scrollTop - 2)
-      const hi = Math.min(top + b.height, m.scrollTop + geometry.current.height + 2)
-      return { x0: b.left, x1: b.left + b.width, y0: lo, y1: Math.max(lo, hi) }
-    },
-    rowAcross: () => {
-      // A grid's tiles are found by their cells, never by a drawn row.
-      if (geometry.current.layout) return { left: 0, right: scroller.current?.scrollWidth ?? 0 }
-      // What is drawn as a row across (#326): the list's left to the end of
-      // its last column, a gutter short of the edge (#320), measured off any
-      // row in view, since every row is the one grid. A row out of view is
-      // the same width, so it is still hit by its index.
-      const node = scroller.current
-      const drawn = node?.querySelector<HTMLElement>('.browse-row-layer > .browse-row')
-      if (!node || !drawn) return null
-      const r = node.getBoundingClientRect()
-      const d = drawn.getBoundingClientRect()
-      return { left: d.left - r.left + node.scrollLeft, right: d.right - r.left + node.scrollLeft }
-    },
-    hitsIn: (box, py, drawnAcross, px) => {
-      const g = geometry.current
-      if (g.layout) {
-        // THE GRID'S SWEEP (Stage 6): the tiles whose rect the box touches,
-        // by the columns and lines it spans (cellsInBox), so a box over a gap
-        // marks nothing and ten thousand tiles cost the lines crossed.
-        const span = cellSpan(box, g.layout)
-        if (!span) return { paths: [], near: null }
-        const paths: string[] = []
-        for (const i of cellsInBox(box, g.layout)) {
-          const entry = rowAtRef.current(i)
-          if (entry) paths.push(entry.path)
-        }
-        const near = rowAtRef.current(nearestCell(g.layout, px ?? box.right, py, span))
-        return { paths, near: near?.path ?? paths[paths.length - 1] ?? null }
-      }
-      const across = drawnAcross ?? { left: 0, right: scroller.current?.scrollWidth ?? 0 }
-      const span = rowsInBox(box, { ...across, height: g.rowHeight }, g.count)
-      if (!span) return { paths: [], near: null }
-      const paths: string[] = []
-      for (let i = span.first; i <= span.last; i++) {
-        const entry = rowAtRef.current(i)
-        if (entry) paths.push(entry.path)
-      }
-      const near = rowAtRef.current(nearestRow(py, g.rowHeight, span.first, span.last))
-      return { paths, near: near?.path ?? paths[paths.length - 1] ?? null }
-    },
-    scrollBy: (dy) => {
-      const node = scroller.current
-      if (!node) return
-      // The sweep's autoscroll is the hand's: the pointer at the edge asks it.
-      hand.current.at = performance.now()
-      node.scrollTop += dy / geometry.current.scale
-    },
-    onChange: (paths) => setSweeping({ paths, add: sweepAdd.current }),
-    onEnd: (paths, near) => {
-      setSweeping(null)
-      props.onSweep?.(paths, near, sweepAdd.current)
-    },
-    onCancel: () => setSweeping(null)
-  })
-  const onListPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
-    if (e.button !== 0 || props.loading || props.message || !props.onSweep) return
-    // A file's row or tile, every part of it: its own drag. The sweep starts
-    // on blank space only: a grid's gaps, its right margin, under the last line.
-    if ((e.target as HTMLElement).closest('.browse-row[data-browse-path], .browse-tile[data-browse-path]'))
-      return
-    sweepAdd.current = e.ctrlKey
-    sweep.begin(e)
-  }
-  /** What reads as marked: the sweep in progress (plus, for Ctrl, what was
-   *  marked before it), else the selection FolderBrowser holds. */
-  const shownMarks: ReadonlySet<string> | null = sweeping
-    ? new Set([
-        ...(sweeping.add ? (props.marked ?? (props.selectedPath ? [props.selectedPath] : [])) : []),
-        ...sweeping.paths
-      ])
-    : (props.marked ?? null)
-  const isMarked = (path: string): boolean =>
-    shownMarks ? shownMarks.has(path) : path === props.selectedPath
   const onVisibleFolders = props.onVisibleFolders
   const onSearchRange = props.onSearchRange
   const indexed = !!props.indexedRows
@@ -639,150 +244,23 @@ export function BrowseList(props: Props): JSX.Element {
   useLayoutEffect(() => {
     if (indexed) onSearchRange?.(Math.floor(logicalTop / rowHeight))
   }, [indexed, logicalTop, onSearchRange, rowHeight])
-  /**
-   * ZOOM (2026-11-09). Ctrl+wheel, a pinch and Ctrl+Plus/Minus/0 change the
-   * step; the row under the pointer stays under it (zoomAnchor.ts). The item
-   * and where the pointer is in it are noted BEFORE the step changes, and the
-   * layout effect below scrolls to put it back before anything paints.
-   */
-  const zoomPending = useRef<(Anchor & { pointerY: number; boxTop: number }) | null>(null)
-  const zoomTo = useRef<(next: number, pointerY: number | null, pointerX?: number) => void>(
-    () => {}
-  )
-  useLayoutEffect(() => {
-    zoomTo.current = (next, pointerY, pointerX) => {
-      const node = scroller.current
-      const g = geometry.current
-      if (!node || next === explorerZoom()) return
-      if (g.count > 0) {
-        const box = node.getBoundingClientRect()
-        let y = pointerY
-        let anchor: Anchor | null = null
-        if (y === null) {
-          // From the keyboard: the focused row stays put, else the first one in view.
-          const at = document.activeElement?.closest<HTMLElement>('[data-browse-index]')
-          const top = at && node.contains(at) ? at.getBoundingClientRect().top - box.top : -1
-          if (at && top >= 0 && top < node.clientHeight) {
-            y = top
-            anchor = { index: Number(at.dataset.browseIndex), within: 0 }
-          } else y = 0
-        }
-        // In a grid the column under the pointer picks the item in its line.
-        const col =
-          g.layout && pointerX !== undefined
-            ? Math.floor((pointerX - GRID_PAD) / (g.layout.cellW + GRID_GAP))
-            : 0
-        anchor ??= anchorAt({
-          top: logicalTopAt(node.scrollTop),
-          pointerY: y,
-          cellH: g.rowHeight,
-          count: g.count,
-          cols: g.cols,
-          col,
-          lead: g.lead
-        })
-        zoomPending.current = { ...anchor, pointerY: y, boxTop: box.top }
-      }
-      setExplorerZoom(next)
-    }
+  const zoomTo = useBrowseZoom({
+    props,
+    scrollerRef: scroller,
+    geometry,
+    logicalTopAt,
+    ownScroll,
+    handUp,
+    measured,
+    gridOn,
+    count,
+    scale,
+    rowHeight,
+    cols,
+    lead,
+    logicalTop,
+    zoomStep
   })
-  /** Items are there to place: a listing that is empty or still loading has no
-   *  layout to keep (a pane toggle re-reads the folder; the scroll must not be
-   *  measured, or handed up, while it is empty). */
-  const settled = count > 0 && !props.loading
-  /** Last settled commit's top and shape, for the layout effect below: a width
-   *  that changes the columns keeps the first item in view. */
-  const lastShape = useRef({ rowHeight, cols, lead, top: 0, measured: false })
-  useLayoutEffect(() => {
-    const pending = zoomPending.current
-    zoomPending.current = null
-    const node = scroller.current
-    const prev = lastShape.current
-    if (!node) return
-    if (pending) {
-      // Logical coordinates, then back through the compression, as the keys do.
-      // The list itself can move: Large's header band is taller than Medium's
-      // (MEASURED, 4px), so the pointer is that much nearer the list's top.
-      const pointerY = pending.pointerY - (node.getBoundingClientRect().top - pending.boxTop)
-      const target = anchorScroll({
-        ...pending,
-        pointerY,
-        cellH: rowHeight,
-        count,
-        viewH: node.clientHeight,
-        cols,
-        lead
-      })
-      ownScroll(node, target / scale)
-      handUp(node.scrollTop)
-    } else if (
-      gridOn &&
-      settled &&
-      prev.measured &&
-      measured.current &&
-      prev.cols !== cols &&
-      prev.rowHeight === rowHeight &&
-      prev.lead === lead
-    ) {
-      // The preview pane or the window changed the width and with it the
-      // columns: the first item in view (as the last frame had it) stays there.
-      const a = anchorAt({
-        top: prev.top,
-        pointerY: 0,
-        cellH: rowHeight,
-        count,
-        cols: prev.cols,
-        lead
-      })
-      ownScroll(
-        node,
-        anchorScroll({
-          ...a,
-          pointerY: 0,
-          cellH: rowHeight,
-          count,
-          viewH: node.clientHeight,
-          cols,
-          lead
-        }) / scale
-      )
-      handUp(node.scrollTop)
-    }
-    // When the cells' size or count per line changed (the zoom, or the width,
-    // having landed), and on every step: a step that changes no cell (a zip at
-    // a tile step keeps 40px rows) still consumes what it noted, or the next
-    // listing would be scrolled by it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowHeight, cols, settled, zoomStep])
-  useLayoutEffect(() => {
-    if (settled)
-      lastShape.current = { rowHeight, cols, lead, top: logicalTop, measured: measured.current }
-  })
-  useLayoutEffect(() => {
-    const node = scroller.current
-    if (!node) return
-    const wheel = createZoomWheel()
-    const onZoomWheel = (event: WheelEvent): void => {
-      if (!event.ctrlKey) return
-      // Chromium's own page zoom never fires over the list.
-      event.preventDefault()
-      const step = explorerZoom()
-      const steps = wheel.feed(event, performance.now(), {
-        zoomIn: step < ZOOM_MAX_AVAILABLE,
-        zoomOut: step > 0
-      })
-      if (steps) {
-        const box = node.getBoundingClientRect()
-        zoomTo.current(
-          steps > 0 ? zoomIn(step) : zoomOut(step),
-          event.clientY - box.top,
-          event.clientX - box.left + node.scrollLeft
-        )
-      }
-    }
-    node.addEventListener('wheel', onZoomWheel, { passive: false })
-    return () => node.removeEventListener('wheel', onZoomWheel)
-  }, [])
   useLayoutEffect(() => {
     const top = Math.max(0, Math.floor((logicalTop - lead) / rowHeight)) * cols
     const visibleCount = (Math.ceil(height / rowHeight) + 1) * cols
@@ -875,626 +353,54 @@ export function BrowseList(props: Props): JSX.Element {
   /** A path's row in the list as drawn (dividers counted), or -1. */
   const indexOfPath = (path: string): number =>
     rowIndexOf(path, props.entries, props.indexedRows, divided)
-  /** Bring a row into view, stepping off a divider the way `toward` points;
-   *  the row's entry, or null when it is not there to land on. */
-  /** Scroll so the row at `index` is in view (its divider too, at a group's
-   *  top), and hand the position up. */
-  // Where an item's cell starts and ends in the scrolled space. In a grid the
-  // first line starts at 0 (its padding shows) and the last ends with its
-  // padding; in a list `lead` is 0 and a cell is a row.
-  const cellTop = (i: number): number =>
-    layout && i < cols ? 0 : lead + Math.floor(i / cols) * rowHeight
-  const cellBottom = (i: number): number => {
-    const line = Math.floor(i / cols)
-    return (
-      lead +
-      line * rowHeight +
-      (layout ? layout.cellH + (line === layout.rows - 1 ? lead : 0) : rowHeight)
-    )
-  }
-  const scrollToRow = (node: HTMLDivElement, index: number): void => {
-    const top = cellTop(divided?.divider(index - 1) ? index - 1 : index)
-    const bottom = cellBottom(index)
-    const visibleTop = node.scrollTop * scale
-    if (top < visibleTop) ownScroll(node, top / scale)
-    else if (bottom > visibleTop + node.clientHeight)
-      ownScroll(node, (bottom - node.clientHeight) / scale)
-    handUp(node.scrollTop)
-  }
-  const reveal = (index: number, toward: 1 | -1): { index: number; entry: BrowseEntry } | null => {
-    const node = scroller.current
-    if (!node) return null
-    while (index >= 0 && index < count && rowAt(index) === null) index += toward
-    if (index < 0 || index >= count) return null
-    scrollToRow(node, index)
-    const entry = rowAt(index)
-    if (!entry) return null
-    requestAnimationFrame(() =>
-      node
-        .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
-        ?.focus({ preventScroll: true })
-    )
-    return { index, entry }
-  }
-  // WHAT AN ACTION MADE COMES INTO VIEW (#101), once per request.
-  const revealedSeq = useRef(0)
-  useLayoutEffect(() => {
-    const want = props.revealPath
-    const node = scroller.current
-    if (!want || want.seq === revealedSeq.current || !node || props.loading) return
-    const index = indexOfPath(want.path)
-    if (index < 0) return
-    revealedSeq.current = want.seq
-    scrollToRow(node, index)
-  })
-  /**
-   * THE LIST FOLLOWS THE SELECTION (owner, 2026-11-12: "i always want the
-   * selcted file unless i scroll awayu form it manually to always be in view,
-   * if i use the arrow keys to navigate when somethign not in view, the next
-   * one shoudl bring me back"). Whenever the selected row (or the keyboard's
-   * cursor, while the Ctrl keys hold it apart) would be out of view, for any
-   * reason, it is scrolled minimally into view, at the nearest edge, as the
-   * arrows do: a selection set from outside (a file opened by its path, a
-   * link, Win+E, back from the viewer in rows and the grid alike, the next
-   * row after a delete, an undo, a paste landing), and the view changing
-   * under a selection that stays (the listing arriving or refreshing, rows
-   * inserted above it, a sort, a zoom step, list to grid, a resize).
-   *
-   * THE HAND WINS. Once the user scrolls by hand (the wheel or a touchpad,
-   * the scrollbar's thumb, a finger, the middle button's autoscroll, a
-   * sweep's autoscroll) so that the selection leaves the view, following
-   * stops until the selection CHANGES (an arrow, a click, a pick from
-   * outside). The hand is told apart from the list's own scrolls by its
-   * INPUT, never by the scroll event: a scroll counts as the hand's while one
-   * of those inputs holds it or for HAND_MS after the last of them, unless it
-   * lands where the list's own last write put it (`own`). Scrolling back to
-   * the selection by hand follows again. The hand's choice is remembered per
-   * tab and place (`handLeft`), so a tab switch or Back that puts the same
-   * position back does not snap to the selection either.
-   *
-   * Cheap: the index is walked only when the selection or the listing
-   * changes (`rowIndexOf`, memoized), and a scroll asks a sum or two.
-   */
-  const followPath = cursor ?? props.selectedPath ?? null
-  const cursorIndex = useMemo(
-    () => (cursor === null ? -1 : rowIndexOf(cursor, props.entries, props.indexedRows, divided)),
-    [cursor, props.entries, props.indexedRows, divided]
-  )
-  const followIndex = cursor !== null ? cursorIndex : loadedSelectedIndex
-  /** The row at `index` is wholly inside the list's box. */
-  const cellInView = (node: HTMLDivElement, index: number): boolean => {
-    const visibleTop = node.scrollTop * scale
-    return cellTop(index) >= visibleTop - 1 && cellBottom(index) <= visibleTop + node.clientHeight + 1
-  }
-  const detached = useRef(false)
-  /** The tab and the place on screen (one list serves every tab). */
-  const viewKey = `${props.tabId ?? ''}\u0000${placeKey}`
-  /**
-   * Where the hand LEFT a selection out of view, per tab and place: a tab
-   * switch, Back or Forward that puts that same position back is still the
-   * hand's choice and is not followed. Any other position (a new history
-   * entry, a sort's reset) follows again.
-   */
-  const handLeft = useRef(new Map<string, { path: string; top: number }>())
-  /** The selection, the place and the restore the follow last judged. */
-  const followed = useRef<{ view: string; path: string | null; taken: number } | null>(null)
-  /** Ctrl+A dropped the Ctrl cursor: the selection it falls back to is no new pick. */
-  const cursorDropped = useRef(false)
-  const followNow = useRef({ index: followIndex, inView: cellInView, path: followPath, view: viewKey })
-  useLayoutEffect(() => {
-    followNow.current = { index: followIndex, inView: cellInView, path: followPath, view: viewKey }
-  })
-  /** The selection is out of view by the user's own doing: keep it that way here. */
-  const leave = (node: HTMLDivElement, view: string, path: string | null, away: boolean): void => {
-    detached.current = away
-    if (away && path) handLeft.current.set(view, { path, top: node.scrollTop })
-    else handLeft.current.delete(view)
-  }
-  /** A scroll event: the hand's, it decides whether the list still follows. */
-  const scrollFollow = (node: HTMLDivElement): void => {
-    const mine = own.current
-    if (mine !== null && Math.abs(node.scrollTop - mine) < 1) return
-    own.current = null
-    const h = hand.current
-    if (!h.hold && performance.now() - h.at > HAND_MS) return
-    const { index, inView, path, view } = followNow.current
-    leave(node, view, path, index >= 0 && !inView(node, index))
-  }
-  useLayoutEffect(() => {
-    const node = scroller.current
-    const area = node?.closest<HTMLElement>('.browse-list-area')
-    if (!node || !area) return
-    const now = (): number => performance.now()
-    const onWheel = (e: WheelEvent): void => {
-      if (!e.ctrlKey) hand.current = { at: now(), hold: null }
-    }
-    const onDown = (e: PointerEvent): void => {
-      const h = hand.current
-      // A press ends the middle button's autoscroll (Chromium's own), and
-      // that press is the hand's too.
-      if (h.hold === 'auto') hand.current = { at: now(), hold: null }
-      const at = e.target as HTMLElement
-      if (at.closest('.browse-overlay-scroll')) hand.current = { at: now(), hold: 'bar' }
-      else if (!node.contains(at)) return
-      else if (e.pointerType === 'touch') hand.current = { at: now(), hold: 'touch' }
-      else if (e.button === 1) hand.current = { at: now(), hold: 'auto' }
-    }
-    const onUp = (): void => {
-      const h = hand.current
-      // A finger's fling runs on after it lifts.
-      if (h.hold === 'bar') hand.current = { at: now(), hold: null }
-      else if (h.hold === 'touch') hand.current = { at: now() + 1200, hold: null }
-    }
-    const onKey = (): void => {
-      if (hand.current.hold === 'auto') hand.current = { at: now(), hold: null }
-    }
-    const onDragOver = (): void => {
-      hand.current = { ...hand.current, at: now() }
-    }
-    node.addEventListener('wheel', onWheel, { passive: true, capture: true })
-    node.addEventListener('dragover', onDragOver, { passive: true })
-    area.addEventListener('pointerdown', onDown, { capture: true })
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('pointercancel', onUp, true)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      node.removeEventListener('wheel', onWheel, { capture: true })
-      node.removeEventListener('dragover', onDragOver)
-      area.removeEventListener('pointerdown', onDown, { capture: true })
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('pointercancel', onUp, true)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [])
-  // After the tab's own scroll is put back (the effect at the top) and after
-  // a zoom's anchor: neither is fought while the selection is in view anyway.
-  useLayoutEffect(() => {
-    const node = scroller.current
-    const was = followed.current
-    if (!was || was.view !== viewKey || was.taken !== live.taken) {
-      // A place shown again (a tab switch, Back, the tab's scroll put back):
-      // the position the hand left this same selection out of view at is
-      // kept; anything else follows.
-      const left = handLeft.current.get(viewKey)
-      detached.current = !!left && left.path === followPath && Math.abs(left.top - live.top) <= 1
-      if (!detached.current) handLeft.current.delete(viewKey)
-    } else if (was.path !== followPath) {
-      // A new selection: the list follows again, whatever the hand did. Ctrl+A
-      // letting go of the Ctrl cursor picks nothing new: the row the selection
-      // was already on is not scrolled to.
-      if (cursorDropped.current && node)
-        leave(node, viewKey, followPath, followIndex >= 0 && !cellInView(node, followIndex))
-      else {
-        detached.current = false
-        handLeft.current.delete(viewKey)
-      }
-    }
-    cursorDropped.current = false
-    followed.current = { view: viewKey, path: followPath, taken: live.taken }
-    if (!node || props.loading || props.message || detached.current || followIndex < 0) return
-    if (followIndex >= count) return
-    if (!cellInView(node, followIndex)) scrollToRow(node, followIndex)
-    // cellInView and scrollToRow read this render's geometry, listed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    viewKey,
-    followPath,
-    followIndex,
+  const { scrollToRow, scrollFollow, cursorIndex, cursorDropped } = useBrowseFollow({
+    props,
+    scrollerRef: scroller,
+    handRef: hand,
+    ownRef,
+    ownScroll,
+    handUp,
+    live,
+    placeKey,
+    cursor,
+    divided,
+    loadedSelectedIndex,
+    indexOfPath,
     count,
-    rowHeight,
+    scale,
+    layout,
     cols,
     lead,
+    rowHeight,
     height,
     width,
-    scale,
-    zoomStep,
-    live.taken,
-    props.loading,
-    props.message
-  ])
-  const focusRow = (index: number): void => {
-    const node = scroller.current
-    if (!node) return
-    setCursor(null)
-    const direction = index === 0 ? 1 : index < selectedIndex || index === count - 1 ? -1 : 1
-    while (index >= 0 && index < count && rowAt(index) === null) index += direction
-    if (index < 0 || index >= count) return
-    // A group's first row going up brings its divider into view with it.
-    scrollToRow(node, index)
-    const entry = rowAt(index)
-    if (entry) {
-      pendingFocus.current = null
-      props.onSelect(entry.path)
-      requestAnimationFrame(() =>
-        node
-          .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
-          ?.focus({ preventScroll: true })
-      )
-    } else {
-      pendingFocus.current = index
-      node.focus({ preventScroll: true })
-      props.onSearchRange?.(Math.floor((node.scrollTop * scale) / rowHeight))
-    }
-  }
-  /** The common keys that act on the list's own rows (#330); the rest of them
-   *  (new folder, the bin, F3, Properties...) are FolderBrowser's. True when
-   *  the key was taken. */
-  const listOwnKey = (k: ListKey): boolean => {
-    if (k === 'clear') return !!props.onClear?.()
-    if (k === 'select-all') {
-      if (!count || !props.onSelectAll) return false
-      if (cursor !== null && cursor !== props.selectedPath) cursorDropped.current = true
-      setCursor(null)
-      props.onSelectAll()
-      return true
-    }
-    // From the keyboard's place: the cursor while it is apart, else the row
-    // the selection is on (or was on, when it has scrolled away).
-    const here = cursor !== null ? indexOfPath(cursor) : -1
-    const from = here >= 0 ? here : selectedIndex >= 0 ? selectedIndex : -1
-    if (k === 'toggle-mark') {
-      const path = here >= 0 ? cursor : props.selectedPath
-      if (!path || !props.onToggleMark) return false
-      props.onToggleMark(path)
-      // The focus stays on the row whether it went in or out.
-      setCursor(path)
-      return true
-    }
-    const move = /^(extend|focus)-(up|down|home|end)$/.exec(k)
-    if (!move) return false
-    const to = stepTo(count, from, move[2] as 'up' | 'down' | 'home' | 'end')
-    if (to === null) return true
-    const toward: 1 | -1 = move[2] === 'up' || move[2] === 'end' ? -1 : 1
-    const landed = reveal(to, toward)
-    if (!landed) return true
-    if (move[1] === 'focus') {
-      setCursor(landed.entry.path)
-      return true
-    }
-    // Shift: the marks run from the anchor to here, and here is the place.
-    setCursor(null)
-    props.onExtend?.(landed.entry.path)
-    return true
-  }
-  /**
-   * THE GRID'S ARROWS (Stage 5, spec 5.2): the keyboard's place moves in two
-   * dimensions through `gridStep`, and the three modes are the list's own
-   * (a pick, Shift's range from the anchor, Ctrl's focus without marks), so
-   * the marks, the cursor and the reveal are the code the rows use.
-   */
-  const gridMove = (g: GridKey): void => {
-    const here = cursor !== null ? indexOfPath(cursor) : -1
-    const remembered =
-      selectedIndex >= 0
-        ? selectedIndex
-        : selectionPosition.current.path === props.selectedPath
-          ? selectionPosition.current.index
-          : -1
-    const pending = pendingFocus.current
-    const from = pending !== null && Number.isFinite(pending) ? pending : here >= 0 ? here : remembered
-    const to = gridStep(count, cols, from, g.to, Math.floor(height / rowHeight))
-    if (to === null) return
-    if (g.mode === 'move') {
-      focusRow(to)
-      return
-    }
-    const landed = reveal(to, g.to === 'up' || g.to === 'left' || g.to === 'end' ? -1 : 1)
-    if (!landed) return
-    if (g.mode === 'focus') {
-      setCursor(landed.entry.path)
-      return
-    }
-    // Shift: the marks run over the index range from the anchor to here.
-    setCursor(null)
-    props.onExtend?.(landed.entry.path)
-  }
-  // THE LIST'S KEYS: an ordered table, first handler to claim a key wins.
-  // A handler returns true when it is done with the key (claimed or not) and
-  // false to let the next one look. The order is the old handler's order.
-  type ListKeyHandler = (e: KeyboardEvent<HTMLDivElement>) => boolean
-  /** Whether the list or one of its rows (never a field inside it) has the keyboard. */
-  const listOwnsKeyboard = (e: KeyboardEvent<HTMLDivElement>): boolean => {
-    const at = e.target as HTMLElement
-    return at === e.currentTarget || (at.matches('.browse-row, .browse-tile') && !at.isContentEditable)
-  }
-  // Ctrl+Plus, Ctrl+Minus and Ctrl+0 are the wheel's keys (nothing else in
-  // the Explorer binds them; the app menu is gone). Only while the list or
-  // one of its rows has the keyboard, never a field inside it.
-  const zoomKeys: ListKeyHandler = (e) => {
-    if (!e.ctrlKey || e.altKey || e.metaKey) return false
-    const change =
-      e.key === '+' || e.key === '='
-        ? 1
-        : e.key === '-' || e.key === '_'
-          ? -1
-          : e.key === '0'
-            ? 0
-            : null
-    if (change === null || !listOwnsKeyboard(e)) return false
-    e.preventDefault()
-    e.stopPropagation()
-    const step = explorerZoom()
-    zoomTo.current(change === 0 ? 1 : change > 0 ? zoomIn(step) : zoomOut(step), null)
-    return true
-  }
-  // THE GRID'S ARROWS come before the common keys: Left and Right are the
-  // grid's alone (the list leaves them to the viewer), and the rest of the
-  // arrows, Home, End and the Page keys move by line there. Never from a
-  // field inside the list (the rename box).
-  const gridKeys: ListKeyHandler = (e) => {
-    if (!layout || !count) return false
-    const g = gridKey(e, true)
-    const at = e.target as HTMLElement
-    if (!g || at.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName)) return false
-    e.preventDefault()
-    e.stopPropagation()
-    gridMove(g)
-    return true
-  }
-  const commonKeys: ListKeyHandler = (e) => {
-    const common = listKey(e)
-    if (!common) return false
-    // Escape is a nearer closer's first (a peek, the PDF's find bar, a
-    // menu): those listen on the window, after this (review of #330).
-    if (common === 'clear' && e.key === 'Escape' && nearerEscape()) return true
-    // The preview window first (owner, 2026-11-08): Escape closes it and
-    // leaves the marks; the next Escape clears them as before.
-    if (common === 'clear' && e.key === 'Escape' && props.previewWindowOpen && !e.repeat) {
-      const front = props.covered || menuOrDialogUp()
-      if (!front) {
-        e.preventDefault()
-        e.stopPropagation()
-        props.onPreviewWindowClose?.()
-        return true
-      }
-    }
-    if (LIST_OWN.has(common) && listOwnKey(common)) {
-      // Claimed: the player's window-wide keys (Ctrl+Space is play, Shift+
-      // Home a seek) yield to a key the list took.
-      e.preventDefault()
-      e.stopPropagation()
-    }
-    return true
-  }
-  // SPACE TOGGLES THE PREVIEW PANE (owner, 2026-11-08: "can you bind
-  // preview to space bar", then "Toggle the preview panel"): the toolbar
-  // button's own toggle, with or without a row picked, but only while the
-  // list or one of its rows has the keyboard (never a field inside it).
-  // A space inside a type-to-jump run is part of the name instead.
-  const spaceKeys: ListKeyHandler = (e) => {
-    const space = spaceKey(e, typed.current, performance.now())
-    if (!space) return false
-    if (!listOwnsKeyboard(e)) return true
-    e.preventDefault()
-    e.stopPropagation()
-    // Something in front of the list (a menu opened with the mouse leaves
-    // the focus on its row, a question, Settings): the key is taken but
-    // nothing behind it changes.
-    const front = props.covered || menuOrDialogUp()
-    if (space === 'preview' && !front) props.onPreviewToggle?.()
-    return space !== 'type'
-  }
-  const modifierKeys: ListKeyHandler = (e) => e.altKey || e.ctrlKey || e.metaKey
-  const emptyListKeys: ListKeyHandler = (e) => {
-    if (count) return false
-    if (
-      props.searchState?.running &&
-      ['Home', 'End', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(e.key)
-    ) {
-      e.preventDefault()
-      e.stopPropagation()
-      pendingFocus.current = e.key === 'End' ? Infinity : 0
-    }
-    return true
-  }
-  /** The row the plain arrows start from. */
-  const keyboardIndex = (): number => {
-    const rememberedIndex =
-      selectedIndex >= 0
-        ? selectedIndex
-        : selectionPosition.current.path === props.selectedPath
-          ? selectionPosition.current.index
-          : -1
-    // The plain arrows carry on from a cursor the Ctrl keys moved (#330).
-    return (
-      pendingFocus.current ??
-      (cursorIndex >= 0
-        ? cursorIndex
-        : rememberedIndex < 0
-          ? Math.max(0, Math.floor((logicalTop - lead) / rowHeight)) * cols - 1
-          : rememberedIndex)
-    )
-  }
-  const moveKeys: ListKeyHandler = (e) => {
-    const page = Math.max(1, Math.floor(height / rowHeight) - 1) * cols
-    let next: number
-    if (e.key === 'ArrowDown') next = Math.min(count - 1, keyboardIndex() + 1)
-    else if (e.key === 'ArrowUp') next = Math.max(0, keyboardIndex() - 1)
-    else if (e.key === 'Home') next = 0
-    else if (e.key === 'End') next = count - 1
-    else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, keyboardIndex()) + page)
-    else if (e.key === 'PageUp') next = Math.max(0, keyboardIndex() - page)
-    else return false
-    e.preventDefault()
-    e.stopPropagation()
-    focusRow(next)
-    return true
-  }
-  const enterKey: ListKeyHandler = (e) => {
-    if (e.key !== 'Enter' || !props.selectedPath) return false
-    e.preventDefault()
-    e.stopPropagation()
-    const entry =
-      rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
-    // A HELD ENTER IS ONE OPEN (#494; review, 2026-11-09): the key repeating
-    // handed the program to Windows thirty times a second, and an Enter
-    // held from a question or the search box repeated onto this row.
-    // `openGuards` e2e.
-    if (entry && !(e.repeat && entry.file && goesToWindows(entry.file))) props.onActivate(entry)
-    return true
-  }
-  const typeAheadKeys: ListKeyHandler = (e) => {
-    if (e.key.length !== 1 || e.shiftKey) return true
-    const now = performance.now()
-    typed.current = {
-      text:
-        now - typed.current.at < 700
-          ? typed.current.text + e.key.toLowerCase()
-          : e.key.toLowerCase(),
-      at: now
-    }
-    const match = props.entries.findIndex((entry) =>
-      entry.name.toLowerCase().startsWith(typed.current.text)
-    )
-    if (match < 0) return true
-    const matched = props.entries[match]
-    const next = props.indexedRows
-      ? ([...props.indexedRows].find(([, entry]) => entry?.path === matched.path)?.[0] ?? -1)
-      : divided
-        ? divided.rowOf(match)
-        : match
-    if (next < 0) return true
-    e.preventDefault()
-    e.stopPropagation()
-    focusRow(next)
-    return true
-  }
-  const LIST_KEY_HANDLERS: ListKeyHandler[] = [
-    zoomKeys,
-    gridKeys,
-    commonKeys,
-    spaceKeys,
-    modifierKeys,
-    emptyListKeys,
-    moveKeys,
-    enterKey,
-    typeAheadKeys
-  ]
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    for (const handle of LIST_KEY_HANDLERS) if (handle(e)) return
-  }
-
-  /** The inline rename field (#523) for the entry being renamed. */
-  const renameField = (entry: BrowseEntry, where: 'row' | 'tile'): JSX.Element => {
-    // The keyboard goes back to the list, unless the field closed because the
-    // hand went somewhere else (a click on a button, the address field).
-    const back = (): void => {
-      requestAnimationFrame(() => {
-        const list = scroller.current
-        const at = document.activeElement
-        if (!list || (at && at !== document.body && !list.contains(at))) return
-        const row = list.querySelector<HTMLElement>('[data-browse-path][tabindex="0"]')
-        ;(row ?? list).focus({ preventScroll: true })
-      })
-    }
-    return (
-      <RenameField
-        name={entry.name}
-        className={`browse-rename-field ${where === 'tile' ? 'browse-rename-tile' : ''}`}
-        onSubmit={(name) => {
-          props.onRenameSubmit?.(name)
-          back()
-        }}
-        onCancel={() => {
-          props.onRenameCancel?.()
-          back()
-        }}
-      />
-    )
-  }
-
-  /**
-   * WHAT A PRESS, A DRAG, A DROP, A DOUBLE CLICK AND A RIGHT-CLICK ON AN ENTRY
-   * DO: one set for a row and a tile alike (Stage 4 pulled it out of the row,
-   * unchanged), so the two can never disagree.
-   */
-  const entryHandlers = (entry: BrowseEntry, selected: boolean) => ({
-    // Nothing is dragged out of the bin (D16): a bin path is not a place to
-    // copy from, and a drop elsewhere would move `$R` and leave `$I`.
-    draggable: !props.bin,
-    // A FOLDER takes a drop into itself; an ARCHIVE row too
-    // (#70 D6): a .zip adds what is dropped on it, a 7z or a
-    // rar shows no-drop (Prism cannot write them). Any other
-    // file row means the folder it is in.
-    ...folderDrop(
-      entry.isFolder || browsableArchive(entry.name)
-        ? entry.path
-        : (browseParent(entry.path) ?? props.directory),
-      entry.path
-    ),
-    onMouseDown: (event: ReactMouseEvent) => {
-      // THE PRESS ON A MEMBER EXTRACTS IT (#103, D5): a drag
-      // out of the window needs real files before it starts,
-      // so main unpacks the cargo now (64 MB and 64 members at
-      // most), while the pointer travels to the edge.
-      if (event.button !== 0 || !props.archive) return
-      const cargo = memberCargo(entry.path)
-      if (!cargo) return
-      // Its answer is what lets the edge hand off (`isReady`).
-      const req = { kind: 'members' as const, ...cargo }
-      void window.prism
-        .dragPrepare(req)
-        .then((r) => noteReady(req, r.ok))
-        .catch(() => noteReady(req, false))
-    },
-    onDragStart: (event: ReactDragEvent) => {
-      // A row inside a multi-selection carries all of it,
-      // the tree's rule.
-      const all = props.marked
-      const paths = all && all.size > 1 && all.has(entry.path) ? [...all] : [entry.path]
-      // Rows inside an archive are its MEMBERS (#300): dropped on
-      // a real folder they extract there, the archive view's own
-      // drag; dropped inside the same zip they move.
-      const cargo = memberCargo(entry.path)
-      if (cargo) {
-        setDrag({ kind: 'members', ...cargo })
-        event.dataTransfer.effectAllowed = 'copyMove'
-        event.dataTransfer.setData(DRAG_MIME, 'members')
-        return
-      }
-      setDrag({ kind: 'files', paths })
-      event.dataTransfer.effectAllowed = 'copyMove'
-      event.dataTransfer.setData(DRAG_MIME, 'files')
-    },
-    onDragEnd: () => setDrag(null),
-    onClick: (e: ReactMouseEvent) => {
-      if (e.detail === 1) firstPress.current = entry.path
-      setCursor(null)
-      if ((e.ctrlKey || e.shiftKey) && props.onPick)
-        props.onPick(entry, { ctrl: e.ctrlKey, shift: e.shiftKey })
-      else props.onSelect(entry.path)
-    },
-    // WHAT WAS PRESSED IS WHAT OPENS (#494; review, 2026-11-09). A new
-    // file slides the rows between the two presses, and Chromium
-    // counts a double-click by place and time, so the second one
-    // lands on whatever is there now. A row that leaves for Windows
-    // can start a program: only the row first pressed. `openGuards` e2e.
-    onDoubleClick: () => {
-      if (entry.file && goesToWindows(entry.file) && firstPress.current !== entry.path) return
-      props.onActivate(entry)
-    },
-    onPointerEnter:
-      entry.isFolder && props.onFolderHover ? () => props.onFolderHover?.(entry.path) : undefined,
-    onPointerLeave:
-      entry.isFolder && props.onFolderHover ? () => props.onFolderHover?.(null) : undefined,
-    onContextMenu: (e: ReactMouseEvent<HTMLElement>) => {
-      if (props.onContextMenu) {
-        e.preventDefault()
-        // A RIGHT-CLICK SELECTS, as File Explorer's does
-        // (#296; owner, 2026-10-06: "i see file explorer
-        // uses the same highlight if you select a file with
-        // left or rightclick. we should probably do the
-        // same"). An unmarked row becomes THE selection, in
-        // the one look a selection has; inside several marked
-        // rows the marks stay and the menu acts on them all.
-        // Quiet, as a Ctrl click is (#263): it marks, it does
-        // not preview, play or open anything.
-        if (!selected) props.onSelect(entry.path, true)
-        props.onContextMenu(e, entry)
-      }
-    }
+    zoomStep
   })
-
+  const { onKeyDown } = useBrowseKeys({
+    props,
+    scrollerRef: scroller,
+    count,
+    layout,
+    cols,
+    rowHeight,
+    height,
+    scale,
+    lead,
+    logicalTop,
+    rowAt,
+    divided,
+    selectedIndex,
+    cursor,
+    setCursor,
+    cursorIndex,
+    cursorDropped,
+    indexOfPath,
+    scrollToRow,
+    pendingFocus,
+    selectionPosition,
+    typed,
+    zoomTo
+  })
   const pictures: EntryPictures = {
     on: thumbsOn,
     feed: thumbFeed,
@@ -1509,7 +415,22 @@ export function BrowseList(props: Props): JSX.Element {
     archive: !!props.archive
   })
   const stripColumns = gridOn ? gridHeaderColumns(headerColumns, width) : headerColumns
-
+  const view: EntryView = {
+    props,
+    folderDrop,
+    firstPress,
+    setCursor,
+    scroller,
+    cursor,
+    cut,
+    isMarked,
+    look,
+    pictures,
+    count,
+    searching,
+    divided,
+    groupOf
+  }
   return (
     <div
       className="browse-list-area"
@@ -1628,88 +549,18 @@ export function BrowseList(props: Props): JSX.Element {
                   entries={rendered}
                   translateY={liveTop + first * rowHeight - logicalTop}
                   shiftByTop={props.renamingPath != null}
-                  tile={(entry, index, rect) => {
-                    const key = entry.path.toLowerCase()
-                    const selected = isMarked(entry.path)
-                    return (
-                      <GridTile
-                        key={entry.path}
-                        name={entry.name}
-                        path={entry.path}
-                        index={index}
-                        rect={rect}
-                        media={tilePicture(entry, selected, look, pictures)}
-                        selected={selected}
-                        primary={entry.path === props.selectedPath}
-                        cursor={cursor === entry.path}
-                        cut={cut.has(key)}
-                        landing={props.landing?.has(key) ? (props.landing.get(key) ?? 0) : undefined}
-                        posInSet={index + 1}
-                        setSize={count}
-                        handlers={entryHandlers(entry, selected)}
-                        renameField={props.renamingPath === entry.path ? renameField(entry, 'tile') : undefined}
-                      />
-                    )
-                  }}
+                  tile={(entry, index, rect) => entryTile(view, entry, index, rect)}
                 />
               )}
               {!layout && (
                 <div
                   className="browse-row-layer"
-                  style={layerShift(liveTop + first * rowHeight - logicalTop, props.renamingPath != null)}
+                  style={layerShift(
+                    liveTop + first * rowHeight - logicalTop,
+                    props.renamingPath != null
+                  )}
                 >
-                  {rendered.map((entry, offset) => {
-                    const itemIndex = firstItem + offset
-                    const divider = divided?.divider(itemIndex)
-                    if (divider)
-                      return (
-                        <DividerRow
-                          key={`group-${divider.group}`}
-                          group={divider.group}
-                          label={divider.label}
-                        />
-                      )
-                    if (!entry)
-                      return <PendingRow key={`pending-${itemIndex}`} unavailable={entry === null} />
-                    const key = entry.path.toLowerCase()
-                    const primary = entry.path === props.selectedPath
-                    const selected = isMarked(entry.path)
-                    // A marked run is one block: its edge is drawn round the
-                    // run, never between two marked neighbours (browse.css).
-                    const above = rendered[offset - 1]
-                    const below = rendered[offset + 1]
-                    const renamingHere = props.renamingPath === entry.path
-                    return (
-                      <BrowseRow
-                        key={entry.path}
-                        entry={entry}
-                        itemIndex={itemIndex}
-                        posInSet={(divided ? (divided.entryAt(itemIndex) ?? 0) : itemIndex) + 1}
-                        setSize={divided ? props.entries.length : count}
-                        primary={primary}
-                        selected={selected}
-                        joinUp={selected && !!above && isMarked(above.path)}
-                        joinDown={selected && !!below && isMarked(below.path)}
-                        cursor={cursor === entry.path}
-                        cut={cut.has(key)}
-                        landing={props.landing?.has(key) ? props.landing.get(key) : undefined}
-                        description={
-                          [
-                            groupOf?.[divided?.entryAt(itemIndex) ?? -1],
-                            cut.has(key) ? 'Cut' : ''
-                          ]
-                            .filter(Boolean)
-                            .join(', ') || undefined
-                        }
-                        searching={searching}
-                        bin={!!props.bin}
-                        archive={!!props.archive}
-                        picture={rowPicture(entry, selected, look, pictures)}
-                        renameField={renamingHere ? renameField(entry, 'row') : null}
-                        handlers={entryHandlers(entry, selected)}
-                      />
-                    )
-                  })}
+                  {entryRows(view, rendered, firstItem)}
                 </div>
               )}
             </div>
