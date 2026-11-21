@@ -258,8 +258,10 @@ async function main() {
 
   /** A list row by its file name. src/renderer/src/components/browse/BrowseRow.tsx
    *  (data-browse-path); the list is data-testid="browse-list" in BrowseList.tsx. */
+  //  The CSS string holds an escaped backslash ("\\"): a lone "\" would read the
+  //  next letters as a hex escape ("\c" in "\coast-road.mp3" is U+000C).
   const row = (name) =>
-    page.locator(`[data-testid="browse-list"] [data-browse-path$="\\${name}" i]`).first()
+    page.locator(`[data-testid="browse-list"] [data-browse-path$="\\\\${name}" i]`).first()
   /** Double-click a row, the way the Explorer opens it (BrowseList.tsx onDoubleClick). */
   const open = async (locator, ms) => {
     const [x, y] = await at(locator)
@@ -291,14 +293,9 @@ async function main() {
     await page.mouse.up()
   })
 
-  // coast-road.mp3 sits in the demo folder itself, so the audio beat comes first.
-  await beat('audio', 3600, () => open(row('coast-road.mp3'), 700))
-
-  await beat('subfolder', 800, async () => {
-    await back()
-    await sleep(500)
-    await open(row('Video'), 700)
-  })
+  // The beats keep their old order: cut.mjs cuts tree->video, video->audio and
+  // audio->settings, so 'audio' must come after 'video'.
+  await beat('subfolder', 800, () => open(row('Video'), 700))
 
   await beat('video', 2600, () => open(row('wave-study.mp4'), 620))
 
@@ -311,6 +308,21 @@ async function main() {
   })
 
   await beat('fade', 2200, () => move(640, 330, 700))
+
+  // coast-road.mp3 sits in the demo folder itself: back to the Video list, up to
+  // the demo folder, then open it. The list's own Up button is the BrowseToolbar
+  // (data-testid="browse-toolbar", aria-label="Up") that FolderBrowser.tsx renders,
+  // not the viewer's copy inside .browse-viewer-toolbar (App.tsx).
+  const up = page
+    .locator('[data-testid="browse-toolbar"]:not(.browse-viewer-toolbar [data-testid="browse-toolbar"])')
+    .locator('[aria-label="Up"]')
+  await beat('audio', 3600, async () => {
+    await back()
+    await sleep(400)
+    await go(up, 520)
+    await sleep(400)
+    await open(row('coast-road.mp3'), 700)
+  })
 
   // Settings is the titlebar button (TitleButtons.tsx, aria-label="Settings"); it opens
   // as a tab. Themes are the wall's cards (ThemeCard.tsx: role="radio", aria-label = the
