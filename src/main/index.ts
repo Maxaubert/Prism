@@ -146,6 +146,7 @@ import {
 import { registerOpenIpc } from './ipc/open'
 import { registerFolderIconIpc } from './ipc/folderIcons'
 import { registerPreferencesIpc, registerWinEIpc, registerSessionIpc } from './ipc/window'
+import { registerTearIpc, registerPreviewWindowIpc } from './ipc/tabs'
 import { createTabsSession } from './tabsSession'
 import { offerUpdate, startUpdates, updateOffered } from './updateFlow'
 import {
@@ -169,7 +170,7 @@ import { createTearOff } from './tearOff'
 import { GHOST_PAGE, ONE_FRAME, createTabGhost } from './tabGhost'
 import { createPreviewWindows } from './previewWindow'
 import { randomBytes } from 'crypto'
-import { TEAR, validCarry, validStripReport, validTearRequest, type Point } from '@shared/tabTear'
+import { TEAR, type Point } from '@shared/tabTear'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -1469,26 +1470,6 @@ if (E2E)
     __e2ePreviewFades: () => previewWindows.e2eFades(),
     __e2ePreviewOpens: () => previewWindows.e2eOpens()
   })
-/** The preview window's IPC: from a Prism page (never the spare), about its
- *  own window only. */
-function registerPreviewWindowIpc(): void {
-  const owner = (sender: Electron.WebContents): BrowserWindow | null => {
-    const r = windows.of(sender)
-    return r && !r.spare && !r.win.isDestroyed() ? r.win : null
-  }
-  ipcMain.handle(CALL.previewWindowArm, (e) => {
-    const w = owner(e.sender)
-    return w ? previewWindows.arm(w) : null
-  })
-  ipcMain.on(CALL.previewWindowShow, (e, animate: unknown) => {
-    const w = owner(e.sender)
-    if (w) previewWindows.show(w, animate !== false)
-  })
-  ipcMain.on(CALL.previewWindowClose, (e, animate: unknown) => {
-    const w = owner(e.sender)
-    if (w) previewWindows.close(w, animate !== false)
-  })
-}
 /**
  * THE SYSTEM'S WINDOWS, FOR THE TEAR (step 4, review 2026-10-30): which of
  * Prism's windows is really in front, and whether another app's window covers
@@ -1682,8 +1663,6 @@ const tear = createTearOff<BrowserWindow>({
   },
   log: (event, fields) => mainCrumb(event, fields)
 })
-const isPoint = (p: unknown): p is Point =>
-  !!p && Number.isFinite((p as Point).x) && Number.isFinite((p as Point).y)
 /** The lag profiler (made with the log, once the lock is won): off in standby. */
 let lagProfiler: { rotate(): void } | null = null
 /** The phone server's standby half (made at ready). */
@@ -1784,41 +1763,6 @@ if (E2E)
   Object.assign(globalThis, {
     __e2eStandby: () => ({ on: standby.on(), windows: BrowserWindow.getAllWindows().length, memory: memoryNow() })
   })
-
-/** The tear's IPC: from the source page (tear, end, the e2e's pointer) and
- *  from the floating one (it has drawn the tab). A spare never starts one. */
-function registerTearIpc(): void {
-  ipcMain.handle(CALL.tabTear, (e, req: unknown) => {
-    const r = windows.of(e.sender)
-    if (!r || r.spare || r.win.isDestroyed() || !validTearRequest(req)) return false
-    return tear.start(r.win, req)
-  })
-  // A drop brings the tab as it is now (packed at the drop, owner
-  // 2026-10-30: the source kept it on screen all through the drag).
-  ipcMain.handle(CALL.tabTearEnd, (e, how: unknown, carry: unknown) => {
-    const r = windows.of(e.sender)
-    if (!r || (how !== 'drop' && how !== 'cancel')) return { committed: false }
-    return tear.end(r.win, how, validCarry(carry) ? carry : undefined)
-  })
-  ipcMain.on(CALL.tabTearPoint, (e, p: unknown) => {
-    const r = windows.of(e.sender)
-    if (E2E && r && isPoint(p)) tear.point(r.win, p)
-  })
-  ipcMain.on(CALL.tabAdopted, (e, _id: unknown, tab: unknown) => {
-    const r = windows.of(e.sender)
-    if (r) tear.adopted(r.win, isPoint(tab) ? tab : null)
-  })
-  // Step 4: every window's strip, for the hit test, and the slot a strip has
-  // open for a tab hovering over it.
-  ipcMain.on(CALL.tabStrip, (e, report: unknown) => {
-    const r = windows.of(e.sender)
-    if (r) r.strip = validStripReport(report) ? report : null
-  })
-  ipcMain.on(CALL.tabHoverSlot, (e, id: unknown, slot: unknown) => {
-    const r = windows.of(e.sender)
-    if (r && typeof id === 'string' && typeof slot === 'number') tear.slot(r.win, id, slot)
-  })
-}
 
 /** What the IPC handlers in ipc/ reach (`MainCtx`, ipc/context.ts): index.ts's own state and helpers. */
 const ctx: MainCtx = {
@@ -2467,8 +2411,8 @@ if (!app.requestSingleInstanceLock()) {
     registerNewFilesIpc(ctx)
 
     registerWindowIpc()
-    registerTearIpc()
-    registerPreviewWindowIpc()
+    registerTearIpc(tear)
+    registerPreviewWindowIpc(previewWindows)
 
     // THE SESSION'S FIRST WINDOW, and the only one that reads the saved strip
     // (2026-10-29): the session file is read once, here, before it exists, so
