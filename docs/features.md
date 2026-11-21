@@ -3,6 +3,19 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit wave D: code health (2026-11-21)
+
+- **`src/main/index.ts` may not grow** (audit #7, step 1). The tab tear-off and preview-window IPC
+  live in `src/main/ipc/tabs.ts`; `src/main/indexSize.test.ts` fails when index.ts passes its line
+  count plus 50. The bigger splits (createWindow, session restore, onLaunch, App.tsx hooks,
+  BrowseList, #8, #9, #11, #12) wait for a written spec and the owner's yes.
+- **The asar leaves out package builds main never loads** (audit #47): the browser and ESM builds of
+  xlsx, mammoth, exifr and libheif-js (`electron-builder.yml`). `tools/check-packed.mjs` holds the
+  required set.
+- Key handling in the Explorer list and folder browser is a table of small handlers (audit #10, #30);
+  the archive view's verbs and keys are hooks next to `useArchiveOps` (audit #31). No behaviour change.
+- `.gitleaksignore` lists two old Chromium profile files in history (audit #93); they hold no secret.
+
 ## Audit wave B: behaviour fixes (2026-11-21)
 
 - **A window made from standby takes the kept session entry over** (audit #5). `openAsFirst` hands the
