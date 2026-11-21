@@ -21,6 +21,7 @@ import type { StripTear } from '../hooks/useTabTear'
 import { pinnedRoots, plusMenuList, recentRoots, togglePin } from '@renderer/lib/recentRoots'
 import { DRAG_MIME, overPayload, ownDrop, setDrag, windowsDrag, type DragPayload } from '../lib/drag/dragDrop'
 import { archiveTarget, dropVerb, effectOf, type DropKeys } from '../lib/drag/dropVerb'
+import { watchDragInFlight } from '../lib/drag/dragInFlight'
 import { createHoverSwitch, stillInside, type HoverSwitch } from '../lib/drag/hoverSwitch'
 import { ContextMenu } from './ContextMenu'
 import { plusButtonMenu, tabContextMenu } from '../menus/tabStrip'
@@ -216,16 +217,7 @@ export function TabStrip({
       setFileDropTab(null)
       hoverSwitch.current?.clear()
     }
-    window.addEventListener('dragstart', on, true)
-    window.addEventListener('dragenter', on, true)
-    window.addEventListener('dragend', off, true)
-    window.addEventListener('drop', off, true)
-    return () => {
-      window.removeEventListener('dragstart', on, true)
-      window.removeEventListener('dragenter', on, true)
-      window.removeEventListener('dragend', off, true)
-      window.removeEventListener('drop', off, true)
-    }
+    return watchDragInFlight(window, on, off)
   }, [])
   const [plusMenu, setPlusMenu] = useState<{
     x: number

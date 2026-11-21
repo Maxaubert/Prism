@@ -44,6 +44,18 @@ export function nextSlide(count: number, at: number): number {
   return (at + 1) % count
 }
 
+/** A step the slideshow can ask for: one picture either way, or the first of the folder. */
+export type StepDir = 1 | -1 | 'first'
+
+/**
+ * One tick of the slideshow clock: forward, or back to the first picture at the end.
+ * The wrap is ONE step to the first, never a loop of back steps: a step only queues
+ * a state change, so canStep cannot change inside a synchronous loop (audit #6).
+ */
+export function slideshowTick(canStep: (dir: 1 | -1) => boolean, onStep: (dir: StepDir) => void): void {
+  onStep(canStep(1) ? 1 : 'first')
+}
+
 /**
  * Should this keypress stop the slideshow?
  *

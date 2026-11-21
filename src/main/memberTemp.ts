@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 // The plain fs (userFs.ts): what lands here is the user's content, and a
 // member named *.asar must stat and remove as the file it is.
-import { mkdir, readdir, rm, stat, statfs, userFs } from './userFs'
+import { mkdir, mkdtemp, readdir, rm, stat, statfs, userFs } from './userFs'
 import { basename, isAbsolute, join, relative, resolve } from 'path'
 import { exists } from './fsUtil'
 
@@ -141,6 +141,14 @@ export class MemberTemp {
     })()
     this.inflight.set(dir, job as Promise<Unpacked<string>>)
     return job
+  }
+
+  /** A fresh empty folder in this run's folder, for a copy that has no slot
+   *  (a folder copied to the clipboard, audit #26). It goes at quit, or at the
+   *  next start with the rest of a dead run. */
+  async scratch(prefix: string): Promise<string> {
+    await mkdir(this.dir, { recursive: true })
+    return mkdtemp(join(this.dir, prefix))
   }
 
   /** Mark a file as just viewed, so the cap evicts it last. */

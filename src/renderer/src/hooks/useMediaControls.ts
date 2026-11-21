@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused, rememberTime, sessionTime, wasQuietPause } from '../lib/playState'
-import { positionToSave, resumeAt, RESUME_SAVE_STEP } from '../lib/resumePoint'
+import { mayApplyResume, positionToSave, resumeAt, RESUME_SAVE_STEP } from '../lib/resumePoint'
 import { applyVolume, idleIfSilent, wakeAudioContext } from '../lib/audio'
 import { setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
 import { forgetPlayer, reportPlaying } from '../lib/awake'
@@ -25,10 +25,8 @@ export const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 // job and token - so the phone never saw the PC's place, nor its own.
 // The old key is still READ, once, so nobody loses their place at upgrade.
 const RESUME_PREFIX = 'prism.resume.'
-/** A stored place is applied only while the element is still at the start:
- *  the answer comes back over IPC (or the wire), and a user who has already
- *  pressed play and scrubbed is not to be yanked back. */
-const RESUME_APPLY_BEFORE = 1
+// A stored place is applied only while the element is still at the start, and
+// only to the file asked about (lib/resumePoint.ts mayApplyResume).
 const SESSION_END_PAD = 0.5 // a file that ran to its end restarts, however short it is
 
 // Player identities for the keep-awake count. A counter, not the path: the
@@ -403,6 +401,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
         // element has moved on by then. The old localStorage key is the
         // fallback, read once and written through so it need not be again.
         const duration = m.duration
+        const askedSrc = m.currentSrc
         const legacy = resumeKey ? Number(readStored(RESUME_PREFIX + resumeKey)) : 0
         void window.prism
           .positionGet(resumePath)
@@ -419,7 +418,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
               }
             }
             const at = resumeAt(place, duration)
-            if (at === null || m.currentTime > RESUME_APPLY_BEFORE) return
+            if (!mayApplyResume(at, m.currentTime, askedSrc, m.currentSrc)) return
             m.currentTime = at
             setCur(at)
           })

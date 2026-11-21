@@ -1,6 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { BrowseDirectory } from '@shared/browse'
-import { createDirectoryRequests, createVisitedDirectories } from './visitedDirectories'
+import { createDirectoryRequests, createVisitedDirectories, readGeneration } from './visitedDirectories'
+
+describe('readGeneration (audit #20)', () => {
+  it('names the settle key, so a read keyed with it never joins one keyed without', () => {
+    expect(readGeneration(1, 2, 3)).toBe('1:2:3')
+    expect(readGeneration(1, 2, 3)).not.toBe(readGeneration(1, 2, 4))
+  })
+  it('lets navigate and the location effect join one read', async () => {
+    const read = vi.fn(async () => null)
+    const request = createDirectoryRequests(read)
+    await Promise.all([
+      request('t', 'C:\\a', readGeneration(0, 0, 2)),
+      request('t', 'C:\\a', readGeneration(0, 0, 2))
+    ])
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+})
 
 function withFiles(
   path: string,

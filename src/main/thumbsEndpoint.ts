@@ -142,6 +142,11 @@ export function createThumbsEndpoint(deps: EndpointDeps) {
     async want(sink: Sink, tab: unknown, gen: unknown, items: unknown): Promise<ThumbsWantReply> {
       const ask = parse(tab, gen, items)
       if (!ask) return { ready: {} }
+      // Another page now asks for this tab (a crash rebuild, a tear-off or a
+      // merge keep the tab id): its feed starts at gen 0 again, so the dead
+      // page's latest must not refuse it (audit #59).
+      const prev = sinks.get(ask.tab)
+      if (prev && prev.id !== sink.id) latest.delete(ask.tab)
       if (ask.gen < (latest.get(ask.tab) ?? -Infinity)) return { ready: {} }
       latest.set(ask.tab, ask.gen)
       sinks.set(ask.tab, sink)
@@ -163,9 +168,13 @@ export function createThumbsEndpoint(deps: EndpointDeps) {
       return { ready }
     },
 
-    /** The tab closed, changed folder, was held or left the front. */
-    cancel(tab: unknown): void {
+    /** The tab closed, changed folder, was held or left the front. A page's
+     *  own cancel (senderId) counts only while that page still owns the tab:
+     *  a tear-off's source page cancels after the floating page has asked. */
+    cancel(tab: unknown, senderId?: number): void {
       if (typeof tab !== 'string') return
+      const owner = sinks.get(tab)
+      if (senderId !== undefined && owner && owner.id !== senderId) return
       latest.delete(tab)
       sinks.delete(tab)
       queue.cancel(tab)
@@ -178,9 +187,16 @@ export function createThumbsEndpoint(deps: EndpointDeps) {
       queue.poke()
     },
 
-    /** A window went away. */
+    /** A window went away: its film, and every tab it asked for (a closed
+     *  page sends no cancel, nothing unmounts). */
     forgetSender(senderId: number): void {
       films.delete(senderId)
+      for (const [tab, sink] of [...sinks]) {
+        if (sink.id !== senderId) continue
+        latest.delete(tab)
+        sinks.delete(tab)
+        queue.cancel(tab)
+      }
       queue.poke()
     },
 

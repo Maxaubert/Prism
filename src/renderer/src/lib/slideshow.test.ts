@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_SECONDS, loadSlideSeconds, nextSlide, saveSlideSeconds, stopsSlideshow } from './slideshow'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SECONDS, loadSlideSeconds, nextSlide, saveSlideSeconds, slideshowTick, stopsSlideshow } from './slideshow'
 
 beforeEach(() => localStorage.clear())
 
@@ -54,5 +54,18 @@ describe('the interval', () => {
   it('reads a value that is not one of the offered ones as the default', () => {
     localStorage.setItem('prism.slideshow.seconds', '999')
     expect(loadSlideSeconds()).toBe(DEFAULT_SECONDS)
+  })
+})
+
+describe('slideshowTick: the wrap is one step, never a loop (audit #6)', () => {
+  it('steps forward while there is a next picture', () => {
+    const onStep = vi.fn()
+    slideshowTick((dir) => dir === 1, onStep)
+    expect(onStep.mock.calls).toEqual([[1]])
+  })
+  it('at the end asks once for the first picture, even if canStep(-1) never turns false', () => {
+    const onStep = vi.fn()
+    slideshowTick((dir) => dir === -1, onStep)
+    expect(onStep.mock.calls).toEqual([['first']])
   })
 })

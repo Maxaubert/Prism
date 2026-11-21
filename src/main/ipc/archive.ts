@@ -2,7 +2,6 @@ import { app, ipcMain } from 'electron'
 import { CALL, PUSH } from '@shared/channels'
 import { basename, dirname, extname, join } from 'path'
 import { mkdir, mkdtemp, stat } from '../userFs'
-import { tmpdir } from 'os'
 import { insideDesktop } from '../desktopAccess'
 import { container } from '../archiveBrowse'
 import type {
@@ -33,10 +32,10 @@ import {
   archiveStat,
   archiveTooLarge,
   deleteMember,
-  extractMember,
   extractTo,
   listArchive,
   renameMember,
+  unpackMember,
   type ArchiveStat
 } from '../archive'
 import { fileKind } from '@shared/fileKind'
@@ -535,16 +534,17 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
       // by a check that ran before the branch (2026-08-28).
       if (!exe && archiveTooLarge((await stat(p)).size)) return { ok: false, reason: 'failed' }
-      if (exe) {
-        const pw = password ?? ''
-        const s7 = await extractSeven(exe, p, entry, pw)
-        if (!s7.ok) return s7
-        if (pw) archivePasswords.set(p, pw)
-        wall.grantExtracted(s7.path)
-        return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
-      }
-      const r = await extractMember(p, entry, password)
+      const pw = password ?? ''
+      // Into the run's member folder (audit #15): one slot per member of an
+      // unchanged container, under the size cap, removed at quit or at the
+      // next start. A fresh temp folder per call was never removed.
+      const r = await memberTemp.ensure(p, entry, (dir) =>
+        exe ? extractSeven(exe, p, entry, pw, dir) : unpackMember(p, entry, dir, password)
+      )
       if (!r.ok) return r
+      if (exe && pw) archivePasswords.set(p, pw)
+      memberTemp.touch(r.path)
+      void memberTemp.evict((f) => f === r.path || holders.count([f]) > 0)
       wall.grantExtracted(r.path)
       return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
     } catch {
@@ -648,7 +648,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
       entry: string,
       here?: boolean,
       /** An empty folder to extract into (the run's member folder, #103)
-       *  instead of a fresh `prism-arcdir-` folder in temp nothing removes. */
+       *  instead of a folder nothing removes (audit #26). */
       stage?: string
     ): Promise<ExtractDirResult> => {
       // A copy out of a nested archive reads a temp copy main made (#300).
@@ -686,7 +686,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
          */
         const dir = here
           ? await mkdtemp(join(dirname(p), '.prism-extract-'))
-          : (stage ?? (await mkdtemp(join(tmpdir(), 'prism-arcdir-'))))
+          : (stage ?? (await memberTemp.scratch('copy-')))
         // The staging folder is this call's own, whole: it is what a
         // Cancel removes, and nothing else is.
         if (here) made.tree(dir)
@@ -791,7 +791,7 @@ export function registerArchiveIpc(ctx: MainCtx): ArchiveBodies {
    * A folder of an archive as a temp copy, for a drag out of Prism (#103):
    * the silent route "Copy" on a folder takes, but into the RUN'S MEMBER
    * FOLDER, one slot per folder of one state of the zip. A press on a folder
-   * row runs this, so it must not leave a `prism-arcdir-` folder behind each
+   * row runs this, so it must not leave a temp folder behind each
    * time: the member folder is reused while the zip is unchanged, counted by
    * the 2 GB cap at the folder's listed size, removed at quit.
    */

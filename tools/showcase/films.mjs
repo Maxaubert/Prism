@@ -15,9 +15,9 @@
  * the same masked line-rise on every reveal.
  */
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { durationOf } from '../lib/durationOf.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -333,12 +333,7 @@ const LAYOUT = {
 
 /* ------------------------------------------------------------------ generation */
 
-const seconds = (file) =>
-  Number(
-    spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], {
-      encoding: 'utf8'
-    }).stdout.trim() || 0
-  )
+const seconds = durationOf
 
 /**
  * Lay the beats out on a timeline, fitted to the clips that actually exist.

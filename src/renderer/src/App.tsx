@@ -65,7 +65,8 @@ import { useLinger } from './hooks/useLinger'
 import { usePreviewOpensIn } from './lib/prefs/previewPrefs'
 import { PreviewWindow } from './components/previewWindow/PreviewWindow'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
-import { useFilePaste } from './hooks/useFilePaste'
+import { rekeyPasted, useFilePaste, type PasteResult } from './hooks/useFilePaste'
+import type { StepDir } from './lib/slideshow'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -132,6 +133,7 @@ import { keptFolderIconFile } from './lib/folderIconFiles'
 import { folderIconFromFile, ICON_REFUSED } from './lib/iconFromFile'
 import { emptyUndo, remember, type UndoEntry, type UndoState } from './lib/undo'
 import { nextTabId } from './lib/sessionIds'
+import { droppedKind } from './lib/droppedKind'
 import { saveCopiesJob } from './lib/saveCopies'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -876,7 +878,14 @@ export default function App(): JSX.Element {
     (message: string) => setAsk({ kind: 'failed', message, op: 'paste' }),
     []
   )
-  const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
+  const onPasted = useCallback(
+    (result: PasteResult): void => {
+      rekeyPasted(result, buffers.current.values(), rekeyBuffer)
+      refreshFiles()
+    },
+    [buffers, rekeyBuffer, refreshFiles]
+  )
+  const pasteFiles = useFilePaste(onPasted, reportPasteError)
   // The pane shows the file on display, or nothing at all when a navigation
   // took that file away while the pane was open (`previewHeld`, #300 review):
   // it stays at its width with "Select a file to preview".
@@ -1079,8 +1088,9 @@ export default function App(): JSX.Element {
     [view]
   )
   const stepSameKind = useCallback(
-    (dir: 1 | -1) => {
-      const i = sameKindIndex(dir)
+    (dir: StepDir) => {
+      const kindNow = view?.files[view.index]?.kind
+      const i = dir === 'first' ? (view?.files.findIndex((f) => f.kind === kindNow) ?? -1) : sameKindIndex(dir)
       if (i < 0 || !active || !view) return
       const next = view.files[i]
       // The playlist carries its own intent (2026-08-28). Nothing autoplays on
@@ -1279,9 +1289,15 @@ export default function App(): JSX.Element {
       const f = e.dataTransfer?.files?.[0]
       if (!f) return
       const dropped = window.prism.getDroppedPath(f)
-      void window.prism.statFile(dropped).then((st) => {
-        if (st && !st.isFolder) arrive({ explorerFile: dropped, files: [], index: -1, root: '' })
-        else if (st) openInNewTab(dropped, true)
+      // No statFile first: it refuses a path outside the grants, a Desktop drop
+      // among them (audit #23). A file's arrival, or the new tab's own read,
+      // grants what it needs.
+      void droppedKind(dropped, {
+        stat: window.prism.statFile,
+        probe: (p) => window.prism.browseDirectory(nextTabId(), p, { details: false })
+      }).then((kind) => {
+        if (kind === 'file') arrive({ explorerFile: dropped, files: [], index: -1, root: '' })
+        else openInNewTab(dropped, true)
       })
     }
     // The ring clears in the CAPTURE phase (2026-09-03): a drop on a sidebar

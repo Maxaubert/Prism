@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
+import type { StepDir } from '../lib/slideshow'
 import { extOf } from '@shared/path'
 import { THIS_PC, answerFor, crumbs, fileFromHit, parentOf, samePath, scrollCrumbsToEnd, stepFile } from './browse'
 import { NO_MATCHES } from '../lib/emptyText'
@@ -238,9 +239,9 @@ export function Browser({
       query ? (rows ?? []).filter((h) => !h.isFolder).map(fileFromHit) : (listing?.files ?? []),
     [query, rows, listing]
   )
-  const step = (d: 1 | -1): void => {
+  const step = (d: StepDir): void => {
     if (!open) return
-    const next = stepFile(files, open.path, d)
+    const next = d === 'first' ? files[0] : stepFile(files, open.path, d)
     if (next) pick(next)
   }
 

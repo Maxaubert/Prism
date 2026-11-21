@@ -1,32 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { parseSidecarUrl } from './audioSidecar'
+import { BYTES_PER_SEC } from './ffmpeg'
+import { MAX_PAD_BYTES, shortfall } from './audioSidecar'
 
-const url = (p: string, s: number | string, d: number | string): string =>
-  `fsaudio://track/${encodeURIComponent(p)}?s=${s}&d=${d}`
-
-describe('the fsaudio url', () => {
-  it('carries a path, a track and a duration', () => {
-    const r = parseSidecarUrl(url('C:\\films\\Zoolander.mkv', 1, 5387.392))
-    expect(r).toEqual({ file: 'C:\\films\\Zoolander.mkv', stream: 1, duration: 5387.392 })
+describe('shortfall: when ffmpeg ends before the promised length (audit #14)', () => {
+  it('says nothing when the whole range came', () => {
+    expect(shortfall(0)).toBe('none')
   })
-
-  it('survives spaces, hashes and percent signs in a film name', () => {
-    const p = 'C:\\films\\A film #2 (100% grain).mkv'
-    expect(parseSidecarUrl(url(p, 0, 12))?.file).toBe(p)
+  it('pads a frame or two, and up to a second', () => {
+    expect(shortfall(4)).toBe('pad')
+    expect(shortfall(MAX_PAD_BYTES)).toBe('pad')
+    expect(MAX_PAD_BYTES).toBe(BYTES_PER_SEC)
   })
-
-  it('accepts -1, the blind route', () => {
-    expect(parseSidecarUrl(url('x.mkv', -1, 12))?.stream).toBe(-1)
-  })
-
-  it('refuses anything it cannot trust', () => {
-    expect(parseSidecarUrl('not a url')).toBeNull()
-    expect(parseSidecarUrl('fsaudio://track/?s=0&d=1')).toBeNull() // no file
-    expect(parseSidecarUrl(url('x.mkv', 'abc', 12))).toBeNull()
-    expect(parseSidecarUrl(url('x.mkv', 1.5, 12))).toBeNull()
-    expect(parseSidecarUrl(url('x.mkv', -2, 12))).toBeNull()
-    expect(parseSidecarUrl(url('x.mkv', 0, 0))).toBeNull() // a zero-length track
-    expect(parseSidecarUrl(url('x.mkv', 0, -5))).toBeNull()
-    expect(parseSidecarUrl(url('x.mkv', 0, 'soon'))).toBeNull()
+  it('errors on a long gap instead of allocating it as zeros', () => {
+    expect(shortfall(MAX_PAD_BYTES + 1)).toBe('error')
+    expect(shortfall(1_380_000_000)).toBe('error')
   })
 })

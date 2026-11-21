@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { argsFor, mruOrder, parseRegOutput, splitCommandLine } from './openWith'
+import { argsFor, defaultOf, mruOrder, parseRegOutput, splitCommandLine } from './openWith'
+
+describe('defaultOf (audit #13)', () => {
+  it('reads the default value whatever its localised name is', () => {
+    const fr = parseRegOutput(
+      'HKEY_CLASSES_ROOT\\.md\r\n    (Par défaut)    REG_SZ    mdfile\r\n'
+    )
+    const de = parseRegOutput('HKEY_CLASSES_ROOT\\.md\r\n    (Standard)    REG_SZ    mdfile\r\n')
+    expect(defaultOf(fr)).toBe('mdfile')
+    expect(defaultOf(de)).toBe('mdfile')
+  })
+  it('answers nothing for a key with no default', () => {
+    expect(defaultOf(parseRegOutput('HKEY_CLASSES_ROOT\\.md\r\n    (value not set)\r\n'))).toBeUndefined()
+  })
+})
 
 const REG_SAMPLE = [
   '',

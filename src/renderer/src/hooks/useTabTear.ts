@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, type Dispatch, type RefObject, type Se
 import type { OpenPayload } from '@shared/types'
 import type { Point, Rect, Size, TabLook, TearEnd } from '@shared/tabTear'
 import { closeTab, newTab, type Tab, type TabState } from '../lib/tabs/tabs'
-import { applyCarry, buffersLeaving, carryOf, ownedBufferKeys } from '../lib/tabs/tabCarry'
+import { adoptCarriedBuffers, applyCarry, buffersLeaving, carryOf, ownedBufferKeys } from '../lib/tabs/tabCarry'
 import { forgetTabVolume, setTabRate, setTabVolume, tabRate, tabVolume } from '../lib/tabs/tabVolume'
 import { markOf, rememberPaused, rememberTime } from '../lib/playState'
 import { rememberDocPos, sessionDocPos } from '../lib/docPosition'
@@ -158,8 +158,7 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
           rememberDocPos,
           rememberPassword: rememberArchivePassword
         })
-        const keys = carry.buffers.map((b) => b.path.toLowerCase())
-        for (const b of carry.buffers) buffers.current.set(b.path.toLowerCase(), { path: b.path, text: b.text })
+        const keys = adoptCarriedBuffers(buffers.current, carry.buffers)
         if (keys.length) bufferOwners.current.set(id, new Set(keys))
         syncDirty()
         open(payload)
@@ -192,8 +191,7 @@ export function useTabTear({ tabStateNow, setTabState, buffers, bufferOwners, sy
           rememberDocPos,
           rememberPassword: rememberArchivePassword
         })
-        const keys = carry.buffers.map((b) => b.path.toLowerCase())
-        for (const b of carry.buffers) buffers.current.set(b.path.toLowerCase(), { path: b.path, text: b.text })
+        const keys = adoptCarriedBuffers(buffers.current, carry.buffers)
         if (keys.length) bufferOwners.current.set(id, new Set(keys))
         syncDirty()
         if (payload.listing) visitedDirectories.remember(payload.listing)

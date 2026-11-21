@@ -1,8 +1,8 @@
 import { useEffect, useRef, type JSX } from 'react'
 import type { AudioFrame, DrawFn, VizOpts, VizTheme } from '../lib/viz/core'
 import { clamp } from '../lib/clamp'
-import { styleById } from '../lib/viz/styles'
-import { analyzeDrops } from '../lib/viz/drops'
+import { styleById, styleIsBuilt } from '../lib/viz/styles'
+import { analyzeDropsAsync } from '../lib/viz/drops'
 import { watchDrops } from '../lib/viz/dropWatch'
 import { canvasShown, drawLoopRuns, HIDDEN_POLL_MS, idleFrame, wantsResume } from '../lib/viz/vizGuards'
 import { contextAsleep, getAudioContext, mediaGraph } from '../lib/audio'
@@ -109,7 +109,7 @@ export function Visualizer({
         const resp = await fetch(url, { signal })
         const bytes = await resp.arrayBuffer()
         if (signal.aborted) return []
-        return analyzeDrops(await getAudioContext().decodeAudioData(bytes))
+        return analyzeDropsAsync(await getAudioContext().decodeAudioData(bytes), 12, signal)
       },
       (times) => {
         dropTimesRef.current = times
@@ -253,7 +253,7 @@ export function Visualizer({
         const changed =
           Math.round(r.width) !== idleW ||
           Math.round(r.height) !== idleH ||
-          styleRef.current !== builtFor
+          !styleIsBuilt(styleRef.current, builtFor)
         if (idleFrame(idle, stillFrames, SETTLE_FRAMES, changed) === 'park') {
           parked = true
           raf = 0
