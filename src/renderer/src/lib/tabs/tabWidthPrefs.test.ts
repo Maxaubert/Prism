@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { onTabWidthChange, setTabWidth, tabWidth } from './tabWidthPrefs'
+import { onTabWidthChange, setTabWidth, tabWidth, tabWidthClass } from './tabWidthPrefs'
 
 describe('tabWidthPrefs', () => {
   beforeEach(() => localStorage.clear())
@@ -31,5 +31,13 @@ describe('tabWidthPrefs', () => {
     off()
     setTabWidth('dynamic')
     expect(heard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('tabWidthClass (audit #18)', () => {
+  it('both modes keep a 64px floor, so the strip scrolls instead of tabs overlapping', () => {
+    expect(tabWidthClass('dynamic')).toContain('min-w-[64px]')
+    expect(tabWidthClass('dynamic')).not.toContain('min-w-0')
+    expect(tabWidthClass('fixed')).toContain('min-w-[64px]')
   })
 })

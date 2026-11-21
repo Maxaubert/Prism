@@ -79,3 +79,23 @@ export function stepFile(files: ViewerFile[], current: string, dir: 1 | -1): Vie
   if (i < 0) return null
   return files[i + dir] ?? null
 }
+
+/** The crumb row shows the END of its trail: the folder you are in is the
+ *  last name, and on a narrow phone it is the one that falls off the right
+ *  edge (audit #38). The desktop toolbar does the same. */
+export function scrollCrumbsToEnd(nav: { scrollLeft: number; scrollWidth: number } | null): void {
+  if (nav) nav.scrollLeft = nav.scrollWidth
+}
+
+/** A search answer, remembered with the folder it was asked in. */
+export interface FoundAnswer {
+  q: string
+  dir: string
+}
+
+/** The answer that counts for what the field holds NOW: the same query AND
+ *  the same folder (audit #48). An answer for "x" in folder A is not the
+ *  answer for "x" in folder B, and its rows would open files outside B. */
+export function answerFor<T extends FoundAnswer>(found: T | null, query: string, dir: string): T | null {
+  return found && found.q === query && samePath(found.dir, dir) ? found : null
+}

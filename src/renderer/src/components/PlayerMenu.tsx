@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { SWITCH_KNOB_ON, SWITCH_ON, Slider } from 'prism-term-core/renderer/settings/fields'
 import type { MediaControls } from '../hooks/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/prefs/playerPrefs'
 import { useDismiss } from '../hooks/useDismiss'
 import type { SubTrackInfo } from '../hooks/useSubtitles'
 import { Gear, Icon } from './icons/Icon'
+import { menuLimits } from '../lib/menuFit'
 import { MENU_PANEL, MENU_ROW, MENU_ROW_INK, stepRow } from './menuLook'
 
 // The cog at the right of both transports, where the speed button used to be.
@@ -162,6 +163,28 @@ export function PlayerMenu({
   const prefs = usePlayerPrefs()
   const box = useRef<HTMLDivElement>(null)
   const sheet = useRef<HTMLDivElement>(null)
+  // The room the menu has inside the viewer box that clips it (audit #94), measured as it opens.
+  const [limits, setLimits] = useState<{ maxWidth: number; maxHeight: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = sheet.current
+    const host = box.current
+    if (!open || !el || !host) return
+    const win = el.ownerDocument.defaultView ?? window
+    // The phone turns the menu into a fixed bottom sheet of its own: leave that alone.
+    if (win.getComputedStyle(el).position !== 'absolute') return
+    const b = host.getBoundingClientRect()
+    const bounds = { top: 0, left: 0 }
+    for (let n = el.parentElement; n; n = n.parentElement) {
+      const s = win.getComputedStyle(n)
+      if ([s.overflowX, s.overflowY].some((o) => o === 'hidden' || o === 'auto' || o === 'scroll')) {
+        const r = n.getBoundingClientRect()
+        bounds.top = r.top
+        bounds.left = r.left
+        break
+      }
+    }
+    setLimits(menuLimits(b, bounds, win.innerHeight))
+  }, [open])
 
   useEffect(() => {
     onOpenChange?.(open)
@@ -246,6 +269,7 @@ export function PlayerMenu({
           // The phone turns this popover into a bottom sheet from its own
           // stylesheet (#145), keyed on this marker.
           data-player-menu
+          style={limits ?? undefined}
           // max-h + scroll: short windows would otherwise clip the menu against
           // the viewer pane's overflow-hidden with no way to reach the bottom.
           className={`absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto font-normal [scrollbar-width:thin] ${MENU_PANEL}`}

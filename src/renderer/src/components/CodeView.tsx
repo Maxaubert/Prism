@@ -37,6 +37,7 @@ import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/file
 import { inNavSurface, isFormField } from '../lib/focusGuards'
 import { listenOn, ownDocument, useViewerWindows } from '../lib/ownWindow'
 import { yieldsFindToExplorer } from '../lib/previewFind'
+import { CARET_ABOVE, CARET_ABOVE_WIDE, CENTRED_PILL } from '../lib/pillLook'
 import { landSave, saveTarget } from './codeSave'
 
 const TOO_LARGE = 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
@@ -675,6 +676,7 @@ export function CodeView({
       save
     })
 
+  const saveShown = !readOnly && (dirty || !!onClose)
   return (
     <div
       // Only while the caret is actually in the file: App's Escape (close the
@@ -715,12 +717,12 @@ export function CodeView({
       {/* Quiet until there is something to say: the pill appears when the buffer
           differs from disk, or when the pencil put us in a mode to leave. */}
       {tailed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
+        <div className={`pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 ${CENTRED_PILL} rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]`}>
           Showing the end of this file ({formatBytes(tailed.size)} in all), and following it. Read-only.
         </div>
       )}
       {!tailed && following && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
+        <div className={`pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 ${CENTRED_PILL} rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]`}>
           Following this file. Read-only.
         </div>
       )}
@@ -737,15 +739,19 @@ export function CodeView({
           are reading from the sidebar stays chrome-free - the same rule that
           decides who owns the vertical keys. Bottom RIGHT, because the dirty
           and Done pill already owns the centre and two pills at one anchor
-          would sit on top of each other. */}
+          would sit on top of each other. In a viewer too narrow for both side by
+          side (audit #82: the Explorer's preview pane) the caret pill rises above the
+          Save pill. The wrapper is the container the narrowness is measured on: zero
+          tall, so it paints nothing and holds no layout. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-0 @container">
       {editing && (
-        <div className="pointer-events-none absolute bottom-4 right-4 z-10 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-2.5 py-1 text-[11px] tabular-nums text-[var(--p-dim)]">
+        <div className={`pointer-events-none absolute bottom-4 right-4 z-10 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-2.5 py-1 text-[11px] tabular-nums text-[var(--p-dim)] ${saveShown ? (failed ? CARET_ABOVE_WIDE : CARET_ABOVE) : ''}`}>
           Ln {caret.line}, Col {caret.col}
           {caret.sel > 0 && ` (${caret.sel} selected)`}
         </div>
       )}
-      {!readOnly && (dirty || onClose) && (
-        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]">
+      {saveShown && (
+        <div className={`pointer-events-auto absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 ${CENTRED_PILL} items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]`}>
           {failed && (
             <span className="px-2 text-[11.5px] text-[#d97b84]">
               {failed === 'gone'
@@ -779,6 +785,7 @@ export function CodeView({
           </button>
         </div>
       )}
+      </div>
     </div>
   )
 }

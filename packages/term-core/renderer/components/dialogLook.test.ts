@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DIALOG_BOX, dialogBox, dialogButton } from './dialogLook'
+import { DIALOG_BODY, DIALOG_BOX, DIALOG_TITLE, dialogBox, dialogButton } from './dialogLook'
 
 // ONE DIALOG BUTTON, ONE BOX (#514). The update window wrote its own buttons
 // (with focus rings, against #272), the disabled look was 45, 50 or 55 percent,
@@ -42,5 +42,17 @@ describe('dialogButton', () => {
   it('a compact one is the row control', () => {
     expect(dialogButton({ compact: true })).toContain('px-2.5 py-1 leading-none')
     expect(dialogButton({})).toContain('px-3.5 py-1.5')
+  })
+})
+
+describe('a tall or long dialog stays reachable (audit #41, #42)', () => {
+  it('the box is capped to the window and scrolls inside, so its buttons never fall off the screen', () => {
+    expect(dialogBox()).toContain('max-h-[calc(100vh-3rem)]')
+    expect(dialogBox()).toContain('overflow-y-auto')
+    expect(dialogBox({ width: 580, pad: 'roomy' })).toContain('overflow-y-auto')
+  })
+  it('the title and the body break a long name that has no space', () => {
+    expect(DIALOG_TITLE).toContain('break-words')
+    expect(DIALOG_BODY).toContain('break-words')
   })
 })
