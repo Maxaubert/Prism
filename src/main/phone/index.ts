@@ -5,6 +5,7 @@ import { networkInterfaces } from 'os'
 import { localPath } from './phoneAccess'
 import { parsePins, type PhonePin } from './places'
 import { DEFAULT_PORT, PhoneServer } from './server'
+import { oneAtATime } from './oneAtATime'
 import type { HlsJobs } from './jobs'
 import type { Positions } from '../positions'
 import { parseStore, serializeStore, type PhoneStore } from './store'
@@ -72,7 +73,11 @@ export function startPhoneService(opts: {
   ipcMain.on(CALL.phonePins, (_e, raw: unknown) => {
     pins = parsePins(raw)
   })
-  const startPhone = async (): Promise<void> => {
+  // Also waits for a stop still closing the port (audit #73): a wake in that
+  // window used to bind the next port up and save it as the phone's address.
+  let stopping: Promise<void> = Promise.resolve()
+  const startPhone = oneAtATime(async (): Promise<void> => {
+    await stopping
     if (phone) return
     const s = new PhoneServer(
       opts.deps({
@@ -94,11 +99,15 @@ export function startPhoneService(opts: {
     }
     savePhone()
     phoneChanged()
-  }
+  })
   const stopPhone = async (): Promise<void> => {
     const s = phone
     phone = null
-    if (s) await s.stop()
+    if (s) {
+      const done = s.stop()
+      stopping = done.catch(() => undefined)
+      await done
+    }
     phoneChanged()
   }
   // Read once; the switch that was on comes back on. The handlers wait on

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { keyTarget, previewWindowKey, previewWindowStep } from '../../lib/previewWindowKeys'
 import { logNote } from '../../lib/noteLog'
 import { addPageDocument } from '../../lib/pageDocuments'
+import { addTooltipDocument } from 'prism-term-core/renderer/lib/tooltipWindows'
+import { previewClass } from '../../lib/previewWindowLook'
 import './previewWindow.css'
 
 /**
@@ -71,6 +73,8 @@ export function PreviewWindow({
         // Its keys go on BEFORE any viewer is drawn into it (see `ownKeys`).
         const unkey = ownKeys(win, () => close.current(), () => filmStep.current)
         const unpage = addPageDocument(win.document)
+        // Its titles get the app's own tips too (audit #95).
+        const untip = addTooltipDocument(win.document)
         const root = win.document.createElement('div')
         root.className = 'preview-window-host'
         win.document.body.appendChild(root)
@@ -80,6 +84,7 @@ export function PreviewWindow({
             undress()
             unkey()
             unpage()
+            untip()
           }
         }
         // The e2e reads the window's own document (under --e2e only, where
@@ -238,7 +243,7 @@ function dress(win: Window): () => void {
   document.head.childNodes.forEach(copy)
   const mirror = (from: Element, to: Element): void => {
     for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name)
-    for (const a of [...from.attributes]) to.setAttribute(a.name, a.value)
+    for (const a of [...from.attributes]) to.setAttribute(a.name, a.name === 'class' ? previewClass(a.value) : a.value)
   }
   mirror(document.documentElement, doc.documentElement)
   mirror(document.body, doc.body)

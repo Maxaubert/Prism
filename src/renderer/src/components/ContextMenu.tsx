@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from './icons/Icon'
 import { onOverlayScrollbar } from '../lib/overlayScroll'
 import { listenOn, ownDocument, ownWindow, viewerWindows } from '../lib/ownWindow'
-import { MENU_PANEL, MENU_ROW, MENU_ROW_INK } from './menuLook'
+import { MENU_PANEL, MENU_ROW, MENU_ROW_DANGER, MENU_ROW_INK } from './menuLook'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -59,7 +59,7 @@ function Row({
       onPointerEnter={(e) => onHover(e.currentTarget)}
       className={`gap-8 ${MENU_ROW} ${
         it.danger
-          ? 'text-[#d97b84] hover:bg-[#b4353f]/20 hover:text-[#f0a4ab]'
+          ? MENU_ROW_DANGER
           : `${MENU_ROW_INK} ${
               expanded ? 'bg-[var(--p-hover)] text-[var(--p-text)]' : ''
             }`

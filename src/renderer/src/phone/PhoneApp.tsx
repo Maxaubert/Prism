@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { PHONE_PAIR, ROUTE, routePath, type Me } from '@shared/phoneWire'
-import { codeFromLocation, dropLegacyToken, getJson, PhoneError } from './api'
+import { codeFromLocation, dropLegacyToken, getJson, onUnpaired, pairedAnyway, PhoneError } from './api'
 import { Pairing } from './Pairing'
 import { Browser } from './Browser'
 
@@ -59,6 +59,14 @@ export function PhoneApp(): JSX.Element {
           // The last attempt's message stands until this one has an answer.
           if (!r.ok) {
             const j = (await r.json().catch(() => ({}))) as { error?: string }
+            // A spent code does not undo a pairing the phone already has
+            // (audit #54): ask the PC before showing the pairing screen.
+            if ((await pairedAnyway()) === 'paired') {
+              window.history.replaceState(null, '', '/')
+              setError(null)
+              await load()
+              return
+            }
             setError(j.error ?? 'Could not pair')
             setPaired((p) => p ?? false)
             return
@@ -76,6 +84,9 @@ export function PhoneApp(): JSX.Element {
       ),
     [load]
   )
+
+  // The PC forgot this phone while the page was open (audit #53).
+  useEffect(() => onUnpaired(() => setPaired(false)), [])
 
   useEffect(() => {
     dropLegacyToken()

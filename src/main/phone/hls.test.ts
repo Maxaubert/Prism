@@ -85,6 +85,13 @@ describe('hlsArgs', () => {
     const same = hlsArgs({ ...base, plan: { ...plan, height: null }, startSegment: 0, encoder: { video: 'nvenc' } })
     expect(same[same.indexOf('-vf') + 1]).toBe('scale_cuda=iw:ih:format=nv12')
   })
+  it('a portrait film coded upright is scaled on its width, never to 608x1080 (audit #33)', () => {
+    const p = { ...plan, portrait: true }
+    const gpu = hlsArgs({ ...base, plan: p, startSegment: 0, encoder: { video: 'nvenc' } })
+    expect(gpu[gpu.indexOf('-vf') + 1]).toBe('scale_cuda=1080:-2:format=nv12')
+    const cpu = hlsArgs({ ...base, plan: p, startSegment: 0, encoder: { video: 'openh264' } })
+    expect(cpu[cpu.indexOf('-vf') + 1]).toBe('scale=1080:-2,format=yuv420p')
+  })
   it('the software fallback uses openh264 and zscale tone-mapping', () => {
     const a = hlsArgs({ ...base, plan: { ...plan, tonemap: true }, startSegment: 0, encoder: { video: 'openh264' } })
     expect(a).toContain('libopenh264')

@@ -45,3 +45,31 @@ export function zoomPercent(scale: number, base: number): number {
   if (!(base > 0)) return 100
   return Math.round((scale / base) * 100)
 }
+
+/** The page's side gutter at its widest, in px. */
+export const PAD_X_MAX = 48
+/** The lowest scale a FIT may reach. The zoom buttons stop at 0.25, but a fit in a very narrow pane must go lower,
+ *  or the page stays wider than the pane and the opening centre never happens (audit #83). */
+export const FIT_FLOOR = 0.05
+
+/** The side gutter for a scroll box this wide: 48 px, less in a narrow pane, where 96 px of gutter left no room
+ *  for the page (audit #83). A box of 800 px or more keeps 48. */
+export function padXFor(boxW: number): number {
+  return Math.max(8, Math.min(PAD_X_MAX, Math.floor(boxW * 0.06)))
+}
+
+/** The scale that fits the page to the width, or to the whole box, with a pixel of slack (rounding anywhere
+ *  would otherwise show a scrollbar for one pixel of overflow). */
+export function fitScale(
+  mode: 'fit-width' | 'fit-page' | 'manual',
+  box: { w: number; h: number },
+  page: { w: number; h: number },
+  padY: number,
+  min: number,
+  max: number
+): number {
+  const availW = box.w - padXFor(box.w) * 2 - 1
+  const availH = box.h - padY * 2
+  const fit = mode === 'fit-width' ? availW / page.w : Math.min(availW / page.w, availH / page.h)
+  return Math.max(min, Math.min(max, fit))
+}

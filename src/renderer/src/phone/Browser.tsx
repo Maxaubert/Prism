@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import type { StepDir } from '../lib/slideshow'
 import { extOf } from '@shared/path'
-import { THIS_PC, crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
+import { THIS_PC, answerFor, crumbs, fileFromHit, parentOf, samePath, scrollCrumbsToEnd, stepFile } from './browse'
 import { NO_MATCHES } from '../lib/emptyText'
 import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
@@ -104,7 +104,7 @@ export function Browser({
   const [query, setQuery] = useState('')
   // Keyed by the query it answers, exactly as the sidebar's panel keys its
   // own, so a slow walk never draws under a newer search.
-  const [found, setFound] = useState<{ q: string; hits: SearchHit[]; truncated: boolean } | null>(
+  const [found, setFound] = useState<{ q: string; dir: string; hits: SearchHit[]; truncated: boolean } | null>(
     null
   )
   /** The query whose ask has FINISHED, which is not the same as the query
@@ -171,7 +171,7 @@ export function Browser({
             return
           }
         } else {
-          setFound({ q: query, hits: r.hits, truncated: r.truncated })
+          setFound({ q: query, dir, hits: r.hits, truncated: r.truncated })
         }
         setSettled(query)
       })
@@ -182,6 +182,19 @@ export function Browser({
       clearTimeout(t)
     }
   }, [dir, query])
+
+  // The crumb row shows the end of its trail, the folder you are in (audit #38):
+  // on every folder, and when the row's width changes (a turn of the phone).
+  const crumbNav = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const nav = crumbNav.current
+    if (!nav) return
+    scrollCrumbsToEnd(nav)
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => scrollCrumbsToEnd(nav))
+    ro.observe(nav)
+    return () => ro.disconnect()
+  }, [dir, open, searching])
 
   const listing = loaded?.dir === dir ? loaded.listing : undefined
   /** The folder could not be listed: deleted, renamed, a drive pulled. */
@@ -200,7 +213,11 @@ export function Browser({
     if (f) setOpen(f)
   }
 
-  const answer = found?.q === query ? found : null
+  // Keyed by the folder too (audit #48): a walk into another folder leaves
+  // the old answer in state, and it must neither count as this folder's
+  // answer nor be narrowed into its preview.
+  const answer = answerFor(found, query, dir)
+  const foundHere = found && samePath(found.dir, dir) ? found : null
   /** Whether a walk is still out for what the field holds. */
   const pending = !!query && settled !== query
   /**
@@ -210,8 +227,8 @@ export function Browser({
    * is what made a 73-357ms search feel slow (owner, 2026-09-08).
    */
   const rows = useMemo(
-    () => (answer ? answer.hits : narrowHits(found, query)),
-    [answer, found, query]
+    () => (answer ? answer.hits : narrowHits(foundHere, query)),
+    [answer, foundHere, query]
   )
   // What next/previous page while a file is open: the list it was opened
   // FROM. A hit lives anywhere under the folder, so paging the folder's own
@@ -338,6 +355,7 @@ export function Browser({
                 </button>
               )}
               <nav
+                ref={crumbNav}
                 className="flex min-h-[var(--phone-touch)] min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-[15px]"
                 aria-label="Folder"
               >
@@ -635,7 +653,7 @@ function Drawer({
   children: ReactNode
 }): JSX.Element {
   return (
-    <div className="fixed inset-0 z-20 flex" data-phone-drawer>
+    <div className="fixed inset-0 z-20 flex pl-[env(safe-area-inset-left)]" data-phone-drawer>
       {/* The ground. It dismisses, and it is what makes this read as a layer
           over the folder rather than a screen that replaced it. */}
       <button

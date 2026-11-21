@@ -3,6 +3,66 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Phone and layout fixes, wave C (owner, 2026-11-20)
+
+- **A portrait film keeps its size on the phone** (audit #33): the HLS encode ceiling (1080) is the SHORT side
+  of the picture as shown, so a 1080x1920 film with no display matrix is no longer scaled to 608x1080.
+  Held by `src/main/phone/decide.test.ts` and `hls.test.ts`.
+- **A file with no duration is not streamed as one 4-second clip** (audit #74): `/api/play` answers "none"
+  with a reason instead of a one-segment playlist. Held by `server.test.ts`.
+- **The phone server frees its port before it waits on ffmpeg, and starts one at a time** (audit #73): a
+  relaunch from standby while a film streams keeps the saved port. Held by `server.test.ts` (`stop()`) and
+  `oneAtATime.test.ts`.
+- **The phone page goes back to pairing when the PC forgets it** (audit #53): a 401 on any read tells the
+  shell, instead of every folder showing as unreadable. And **a spent code link no longer hides a valid
+  pairing** (audit #54): after a failed pair the page asks `/api/me` and shows the pairing screen only on a
+  401. Held by `src/renderer/src/phone/api.test.ts`.
+- **The phone's crumb row shows the folder you are in** (audit #38): it scrolls to the end of the trail on
+  every folder and when its width changes. Held by `browse.test.ts` (`scrollCrumbsToEnd`) and the phone
+  scenario in `tools/e2e/run.mjs` (the current crumb is inside the row; not run here).
+- **A phone search answer belongs to its folder** (audit #48): an answer for a query in folder A is never
+  drawn as the answer, or narrowed into the preview, in folder B. Held by `browse.test.ts` (`answerFor`).
+- **The phone page keeps clear of a landscape notch** (audit #52): the page root, the drawer and the player's
+  fixed menu pad the left and right with `env(safe-area-inset-*)`. Held by `phone/safeArea.test.ts`.
+- **A long archive name or crumb no longer runs off a phone screen** (audit #90): the name is capped by its
+  column and the crumbs shrink and truncate. Held by `components/archiveNarrow.test.ts` and the phone archive
+  scenario in `tools/e2e/run.mjs` (page not wider than the screen; not run here).
+- **Dynamic tabs keep a 64px floor** (audit #18): the strip scrolls instead of tabs overlapping and a click on one
+  tab's X landing on its neighbour. Held by `lib/tabs/tabWidthPrefs.test.ts` (`tabWidthClass`).
+- **The find bar fits a narrow pane** (audit #84): capped at the pane's width less 24px, the field shrinks. Held by
+  `components/FindBar.test.ts`.
+- **A danger row and the phone error line read on a light theme** (audit #39): the red is mixed with the theme's
+  ink (`DANGER_INK`, `MENU_ROW_DANGER`), like the delete question's outline. And **the title bar's hovers use
+  `--p-hover`** (audit #68), so they show on light themes. Held by `components/menuLook.test.ts`.
+- **A tall dialog scrolls inside the window and a long name wraps** (audit #41, #42): the dialog box is capped
+  to the window height less its margin and scrolls, so Reset, Close and the other buttons stay reachable; the
+  title and body break a name with no spaces. Held by `packages/term-core/renderer/components/dialogLook.test.ts`.
+- **The setup pages scroll in a short window** (audit #40): the step column scrolls, so the footer buttons stay
+  reachable. Held by `components/Onboarding.test.ts` (a source check; no unit test can lay the page out).
+- **A popover in the preview window closes from that window** (audit #43): `useDismiss` listens on the window the
+  popover is drawn in, as well as the Explorer's. Held by `hooks/useDismiss.test.ts`.
+- **The preview window shows its scrollbars and the app's tooltips** (audit #60, #95): the window no longer
+  copies `p-overlay-scrollbars` (nothing drew the overlay bar there), and `Tooltips` listens in every document the
+  host registers (`addTooltipDocument`), drawing the tip in the item's own window. Held by
+  `lib/previewWindowLook.test.ts` and `packages/term-core/renderer/lib/tooltipWindows.test.ts`.
+- **The scrubber's time label stays on the bar and the wave seeks where the pointer is** (audit #69, #70): the
+  label is clamped half its width inside both ends, and the bold wave's side padding moved to a wrapper so the
+  seek maps over the bars. Held by `lib/scrubTip.test.ts` and `components/Transport.test.ts`.
+- **The drive ring's hover scrolls only its legend, and its tip stays in the window** (audit #79, #80): a hovered
+  slice no longer scrolls the dialog under the pointer, and the tip flips or is held inside the window edges.
+  Held by `lib/donut.test.ts` (`legendScrollFor`, `placeDonutTip`).
+- **Centred pills keep their own width, and the editor's two pills do not overlap** (audit #81, #82): the image,
+  PDF, video and code pills use `w-max` with a cap (`CENTRED_PILL`), so they no longer squash to half the pane; in
+  a narrow code viewer the line/column pill rises above Save. A layout bug, held by `lib/pillLook.test.ts` (the
+  classes); the e2e does not measure it.
+- **A PDF fits a narrow pane** (audit #83): the page's side gutter shrinks with the box (48px from 800px wide up)
+  and a fit may go below the 25% zoom floor, so the page is not wider than the pane and opens centred. Held by
+  `lib/pdf/pdfZoom.test.ts` (`padXFor`, `fitScale`).
+- **A settings dropdown opens upward when the pane would clip it** (audit #85): the list is measured as it opens
+  and flips above its button when it does not fit below. Held by `packages/term-core/renderer/lib/listFlip.test.ts`.
+- **The player's cog menu fits a narrow preview pane** (audit #94): its width and height are capped to the room
+  between its button and the edge of the viewer box that clips it (the phone's bottom sheet is left alone). Held by
+  `lib/menuFit.test.ts`.
 ## Audit wave B: behaviour fixes (2026-11-21)
 
 - **A window made from standby takes the kept session entry over** (audit #5). `openAsFirst` hands the
