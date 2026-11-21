@@ -5,6 +5,7 @@ changing a feature: each entry records what the owner decided, why, and what hol
 
 ## Audit splits and leftovers (2026-11-21)
 
+- **App.tsx split (audit #8 and #12, owner "yes to all", 2026-11-21).** No behaviour change: only where the code lives. App.tsx went from 2,141 to about 820 lines. The tabs moved to `hooks/useAppTabs`, the layout and panel state to `useAppLayout`, how tabs arrive to `useAppOpening`, the file on show and stepping to `useAppSelection`, the preview pane and window to `useAppPreviews`, the questions to `useAppDialogs`, and paste, the media deck, paste progress and the window drop to `useAppPaste`, `useAppDeck`, `usePasteProgress` and `useWindowDrop`. The Explorer's menus, rename, properties, bin, quick access and file jobs moved to `components/explorer/useExplorerController`, its surface to `ExplorerHost` and its menus and dialogs to `ExplorerMenus`. The viewer box moved to `components/stage/ViewerStage`. The new components return the same elements in the same order, so the DOM the e2e and the CSS select by is unchanged. `src/renderer/src/appSize.test.ts` holds the size: App.tsx may not grow back past its line count plus 50.
 - **The drop scan runs in a Worker** (audit #61). `lib/viz/dropsOffMain.ts` mixes the decoded track
   to mono and block-averages it to about 2 kHz in slices (the AudioBuffer is free right after),
   then transfers that small array to `lib/viz/dropsWorker.ts`, which runs `analyzeDrops`. Without
