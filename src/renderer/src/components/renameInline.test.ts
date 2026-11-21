@@ -52,7 +52,8 @@ describe('inline rename in the Explorer (#523)', () => {
   })
 
   it('no rename goes through a dialog but the one for a file open full view', () => {
-    const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8')
+    // The menus and dialogs moved out of App.tsx with the Explorer split (audit #8).
+    const app = readFileSync(new URL('./explorer/ExplorerMenus.tsx', import.meta.url), 'utf8')
     expect(app).toContain('browseRename && !browseListShown')
     expect(readFileSync(new URL('./ArchiveView.tsx', import.meta.url), 'utf8')).not.toContain('BrowseRename')
   })

@@ -3,6 +3,10 @@
 The feature history and scope rules, moved verbatim from `CLAUDE.md` on 2026-10-09. Read it before
 changing a feature: each entry records what the owner decided, why, and what holds it.
 
+## Audit splits and leftovers (2026-11-21)
+
+- **App.tsx split (audit #8 and #12, owner "yes to all", 2026-11-21).** No behaviour change: only where the code lives. App.tsx went from 2,141 to about 820 lines. The tabs moved to `hooks/useAppTabs`, the layout and panel state to `useAppLayout`, how tabs arrive to `useAppOpening`, the file on show and stepping to `useAppSelection`, the preview pane and window to `useAppPreviews`, the questions to `useAppDialogs`, and paste, the media deck, paste progress and the window drop to `useAppPaste`, `useAppDeck`, `usePasteProgress` and `useWindowDrop`. The Explorer's menus, rename, properties, bin, quick access and file jobs moved to `components/explorer/useExplorerController`, its surface to `ExplorerHost` and its menus and dialogs to `ExplorerMenus`. The viewer box moved to `components/stage/ViewerStage`. The new components return the same elements in the same order, so the DOM the e2e and the CSS select by is unchanged. `src/renderer/src/appSize.test.ts` holds the size: App.tsx may not grow back past its line count plus 50.
+
 ## Audit wave D: code health (2026-11-21)
 
 - **`src/main/index.ts` may not grow** (audit #7, step 1). The tab tear-off and preview-window IPC
