@@ -8787,7 +8787,24 @@ async function fullscreenBlackScenario(fixtures) {
         const stage = v?.parentElement
         return stage ? getComputedStyle(stage).backgroundColor : null
       })
+    // The box every viewer sits in (image, page, track, film): its ground is
+    // the border round whatever is open (owner, 2026-11-26).
+    const boxBg = () =>
+      win.evaluate(() => {
+        const box = document.querySelector('[data-workspace-viewer]')
+        return box ? getComputedStyle(box).backgroundColor : null
+      })
     const windowed = await stageBg()
+    const boxWindowed = await boxBg()
+    const themeBg = await win.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.backgroundColor = 'var(--p-bg)'
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return c
+    })
+    ok(boxWindowed === themeBg, `windowed, the viewer box wears the theme (${boxWindowed}, --p-bg ${themeBg})`)
     await win.keyboard.press('F11')
     await sleep(900)
     // BORDERLESS, EXACT (2026-09-03): no OS fullscreen (its DWM animation is
@@ -8813,12 +8830,15 @@ async function fullscreenBlackScenario(fixtures) {
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+    const boxFs = await boxBg()
+    ok(boxFs === 'rgb(0, 0, 0)', `and so is the viewer box round any file, whatever the theme (${boxFs})`)
 
     // The `:fullscreen` rule no longer applies - there is no fullscreen element
     // in a borderless window - and the stage's own black above is what matters.
     await win.keyboard.press('F11')
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+    ok((await boxBg()) === boxWindowed, 'the viewer box too')
     const back = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])
       const b = w.getBounds()

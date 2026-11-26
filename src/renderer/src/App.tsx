@@ -664,9 +664,11 @@ export default function App(): JSX.Element {
             // paints nothing of its own (#294; owner, 2026-10-06: "the
             // preview also isn't acrylic"), since a second see-through coat
             // is an opaque pane on glass. A file of its own, or full screen,
-            // has nothing under it and paints the ground itself.
+            // has nothing under it and paints the ground itself. FULL SCREEN
+            // IS BLACK for every file (owner, 2026-11-26): the theme only
+            // windowed, so the borders round a picture or a page are black.
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden ${
-              previewSlide.out && !fullscreen ? '' : `bg-[var(--p-bg)] ${washed ? 'p-wash' : ''}`
+              fullscreen ? 'bg-black' : previewSlide.out ? '' : `bg-[var(--p-bg)] ${washed ? 'p-wash' : ''}`
             } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent-solid)]' : ''} ${
               browsing.folder && !fullscreen && !previewSlide.out ? 'hidden' : ''
             }`}

@@ -4539,6 +4539,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   fullscreen film paints `#000` whatever the theme says: the letterbox is part
   of the picture, so a light theme's paper-white bars or an accent-tinted
   ground are the app leaking into the film. Windowed, the theme is the theme.
+  **Every file, not only films** (owner, 2026-11-26: "when you fullscreen things like
+  audio, video, files whatever make the black bg or borders black, dont follow the
+  theme bg color, only do that in window mode"): the viewer box (`data-workspace-viewer`
+  in `App.tsx`) paints `#000` with no theme wash in fullscreen, so a photo, a page or a
+  track sits on black too. `fullscreenBlack` checks the box: theme windowed, black
+  fullscreen, theme again on the way out.
   And nothing WRITES from a keystroke while fullscreen: Ctrl+Z/Ctrl+Y and the
   archive's F2/Delete are inert there, because the tree, the crumbs and the
   dialogs are off screen and a file change nobody can see is a change nobody
