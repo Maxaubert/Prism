@@ -65,7 +65,7 @@ export default defineConfig({
           name: 'process',
           include: PROCESS_TESTS,
           sequence: { groupOrder: 1 },
-          poolOptions: { forks: { singleFork: true } }
+          maxWorkers: 1
         }
       }
     ],

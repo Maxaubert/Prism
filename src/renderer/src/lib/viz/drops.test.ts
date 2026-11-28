@@ -44,7 +44,7 @@ describe('drop analysis (audit #61)', () => {
     const src = track()
     const sizes: number[] = []
     const Real = Float32Array
-    const spy = vi.spyOn(globalThis, 'Float32Array').mockImplementation(((n: number) => {
+    const spy = vi.spyOn(globalThis, 'Float32Array').mockImplementation((function (n: number) {
       sizes.push(n)
       return new Real(n)
     }) as never)
