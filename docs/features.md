@@ -845,6 +845,16 @@ faster".
   while resting), a window that gave up after repeated crashes, the e2e's quit, and the last window's
   close with **Keep Prism ready** off (Settings > Explorer > When Prism starts, `prism.standby`, on by
   default). There is no Quit menu item; one would be a chrome change to ask about.
+- **A second Prism.exe hands over before it loads the app** (owner, 2026-11-28: "the startup of prism is
+  still slow ... sometimes its fast, but other times, when cold starting its very slow up to like 3-4
+  seconds"; `research/prism/2026-11-28-cold-start-variance.md`). Every launch while Prism rests (a file, the
+  Start menu, a Win+E press with no pipe) starts a second process whose only job is the handover. It used to
+  load all of main (776 KB, the indexer, the preferences) before `requestSingleInstanceLock()`: 150 ms warm,
+  0.5 s and more after a long rest. The entry is now `src/main/boot.ts` (1 KB plus a 9 KB chunk): it takes
+  the lock (`instanceLock.ts`, asked once) and loads `app.js` (`index.ts`) only in the winner, synchronously,
+  so `second-instance` is registered before any can arrive. Measured (e2e `standby`, warm disk): a Win+E
+  press through a second process 429-561 ms to the folder before, 273-299 ms after. Held by
+  `instanceLock.test.ts` and the e2e `standby`, `hotkeyRepeat`, `startupLog` (the loser's `lock-lost`).
 - **The hotkey reaches a running Prism over a pipe** (`src/main/wakePipe.ts`, `PrismShortcut.cs
   Launcher.TryWake`): `\\.\pipe\PrismWake.<sha256 of the profile path, 24 hex>`, one JSON line
   (`{"winE": id, "browse"?: folder}`) answered `ok` or `no`, held to `winERequest`/`browseRequest`. The

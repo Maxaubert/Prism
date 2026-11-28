@@ -69,7 +69,10 @@ export default defineConfig({
         // Electron's unpatched fs, for the user's files (src/main/userFs.ts).
         external: ['original-fs'],
         input: {
-          index: resolve(__dirname, 'src/main/index.ts'),
+          // The entry takes the single-instance lock and loads the app (app.js,
+          // src/main/index.ts) only in the process that won it (boot.ts).
+          index: resolve(__dirname, 'src/main/boot.ts'),
+          app: resolve(__dirname, 'src/main/index.ts'),
           // Forked as a utility process so HEIC decoding never blocks the main one.
           heicWorker: resolve(__dirname, 'src/main/heicWorker.ts'),
           // A worker thread, so documents are converted and their converters
