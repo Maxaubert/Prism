@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type SyntheticEvent } from 'react'
 import { useMediaControls } from '../hooks/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { audioMenu } from '../menus/viewers/audio'
@@ -14,6 +14,7 @@ import { useMediaLook } from '../lib/viz/mediaLook'
 import { useDecodedSource } from '../hooks/useDecodedSource'
 import { startsOnIntent, wasPlaying, whenIntended } from '../lib/playState'
 import { useBackgroundPause } from '../hooks/useBackgroundPause'
+import { tapVerb } from '../lib/tapChrome'
 
 const SYNTH_FAILED = 'Prism could not synthesise this score.'
 
@@ -122,6 +123,21 @@ export function AudioView({
   // The transport never slides away while the settings menu is open: a menu
   // that left the screen would still own the first Escape.
   const menuOpen = useRef(false)
+  /** The transport's box: a click there is the transport's, not the stage's. */
+  const transportRef = useRef<HTMLDivElement>(null)
+  /** The press of this click closed the right-click menu: it pauses nothing. */
+  const pressClosedMenu = useRef(false)
+  /** How the press began: a finger, and whether the controls were up. */
+  const tapDown = useRef({ type: 'mouse', chromeShown: true })
+  const stageClick = (e: MouseEvent<HTMLDivElement>): boolean => {
+    const t = e.target as Node
+    return (
+      !background &&
+      !pressClosedMenu.current &&
+      e.currentTarget.contains(t) &&
+      !transportRef.current?.contains(t)
+    )
+  }
   const showChrome = useCallback(() => {
     setChromeOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -197,6 +213,26 @@ export function AudioView({
         if (background) return
         c.bumpVol(e.deltaY < 0 ? 0.05 : -0.05)
         showChrome()
+      }}
+      // A CLICK PAUSES, A DOUBLE CLICK GOES FULLSCREEN (owner, 2026-11-28: "add
+      // to mp3 files that if you double click it fullscreens it and single
+      // click pauses it"), as on a film. Not on the transport, whose buttons
+      // and bar are clicks of their own. Nor in the right-click menu (a portal:
+      // its clicks bubble here through React but are outside this element), nor
+      // the press that closed it.
+      onPointerDownCapture={(e) => {
+        pressClosedMenu.current = menu !== null
+        tapDown.current = { type: e.pointerType, chromeShown: chromeVisible }
+      }}
+      onClick={(e) => {
+        if (!stageClick(e)) return
+        // A finger on hidden controls brings them back first (lib/tapChrome).
+        if (tapVerb(tapDown.current.type, tapDown.current.chromeShown) === 'reveal') showChrome()
+        else c.togglePlay()
+      }}
+      onDoubleClick={(e) => {
+        if (!stageClick(e)) return
+        onToggleFullscreen()
       }}
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >
@@ -276,6 +312,7 @@ export function AudioView({
               style, its colour + effects from the progress-bar scheme. In
               fullscreen it slides out of view when the chrome hides. */}
           <div
+            ref={transportRef}
             className={`absolute inset-x-0 bottom-0 z-10 transition-transform duration-300 ${
               transportBg ? 'bg-[var(--p-title)]' : ''
             } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
