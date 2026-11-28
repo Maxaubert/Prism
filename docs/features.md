@@ -845,6 +845,16 @@ faster".
   while resting), a window that gave up after repeated crashes, the e2e's quit, and the last window's
   close with **Keep Prism ready** off (Settings > Explorer > When Prism starts, `prism.standby`, on by
   default). There is no Quit menu item; one would be a chrome change to ask about.
+- **A second Prism.exe hands over before it loads the app** (owner, 2026-11-28: "the startup of prism is
+  still slow ... sometimes its fast, but other times, when cold starting its very slow up to like 3-4
+  seconds"; `research/prism/2026-11-28-cold-start-variance.md`). Every launch while Prism rests (a file, the
+  Start menu, a Win+E press with no pipe) starts a second process whose only job is the handover. It used to
+  load all of main (776 KB, the indexer, the preferences) before `requestSingleInstanceLock()`: 150 ms warm,
+  0.5 s and more after a long rest. The entry is now `src/main/boot.ts` (1 KB plus a 9 KB chunk): it takes
+  the lock (`instanceLock.ts`, asked once) and loads `app.js` (`index.ts`) only in the winner, synchronously,
+  so `second-instance` is registered before any can arrive. Measured (e2e `standby`, warm disk): a Win+E
+  press through a second process 429-561 ms to the folder before, 273-299 ms after. Held by
+  `instanceLock.test.ts` and the e2e `standby`, `hotkeyRepeat`, `startupLog` (the loser's `lock-lost`).
 - **The hotkey reaches a running Prism over a pipe** (`src/main/wakePipe.ts`, `PrismShortcut.cs
   Launcher.TryWake`): `\\.\pipe\PrismWake.<sha256 of the profile path, 24 hex>`, one JSON line
   (`{"winE": id, "browse"?: folder}`) answered `ok` or `no`, held to `winERequest`/`browseRequest`. The
@@ -4037,6 +4047,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   film had got to was invisible on the device that most needs it. Measured in the `phone`
   e2e under touch emulation rather than read off the stylesheet, since the numbers meet
   across three files: an explorer row at 56px and a transport button at 44px.
+- **A track answers clicks like a film** (owner, 2026-11-28: "add to mp3 files that if you double
+  click it fullscreens it and single click pauses it"). A click on the audio stage plays or pauses,
+  a double click goes fullscreen and back (`AudioView.tsx`). Not on the transport (its buttons and
+  bar are clicks of their own), not in the right-click menu, not the press that closed that menu,
+  and a finger on hidden controls brings them back first (`lib/tapChrome`, as below). Held by the
+  e2e `audioClicks`.
 - **A TAP IS HOW A PHONE ASKS TO SEE THE CONTROLS** (owner, same session, #107). A MOUSE has
   a pointer on screen: you can see the transport has gone, you click to pause, and that is
   what the desktop has done since the beginning and still does. A FINGER has none, so with
@@ -4539,6 +4555,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   fullscreen film paints `#000` whatever the theme says: the letterbox is part
   of the picture, so a light theme's paper-white bars or an accent-tinted
   ground are the app leaking into the film. Windowed, the theme is the theme.
+  **Every file, not only films** (owner, 2026-11-26: "when you fullscreen things like
+  audio, video, files whatever make the black bg or borders black, dont follow the
+  theme bg color, only do that in window mode"): the viewer box (`data-workspace-viewer`
+  in `App.tsx`) paints `#000` with no theme wash in fullscreen, so a photo, a page or a
+  track sits on black too. `fullscreenBlack` checks the box: theme windowed, black
+  fullscreen, theme again on the way out.
   And nothing WRITES from a keystroke while fullscreen: Ctrl+Z/Ctrl+Y and the
   archive's F2/Delete are inert there, because the tree, the crumbs and the
   dialogs are off screen and a file change nobody can see is a change nobody
