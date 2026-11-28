@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
  * wiring groups (startup/) out; when index.ts shrinks again, lower LINES to
  * the new count.
  */
-const LINES = 1192
+const LINES = 1171
 const SLACK = 50
 
 /** The two big files step 2 made, so they cannot become the next god files. */

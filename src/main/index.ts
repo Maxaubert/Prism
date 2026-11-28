@@ -7,7 +7,6 @@ import { answerE2eClipboard, installFakeClipboard } from './e2eClipboard'
 import { rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { performance } from 'perf_hooks'
-import { appendFile } from 'fs/promises'
 import { initDwmHelper } from './dwmHelper'
 import { pathsFromArgv } from './argv'
 import { WIN_E_FIRST, browseRequest, createWinERequests, shortId, winERequest, winEHostOf } from './winERequests'
@@ -35,6 +34,7 @@ import { Positions } from './positions'
 import { readSessionRaw, type SavedTabs } from './tabs'
 import { savedEntry } from './session'
 import { userPaths } from './paths'
+import { haveInstanceLock } from './instanceLock'
 import { startDiagnostics, type Diagnostics } from 'prism-term-core/main/diagnostics'
 import { withStackPolicy } from 'prism-term-core/main/diagIpc'
 import { LONG_WAIT_CHANNELS } from './diagChannels'
@@ -821,32 +821,11 @@ const ctx: MainCtx = {
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
-// the running window and focuses it, instead of spawning a rival process.
-if (!app.requestSingleInstanceLock()) {
-  /**
-   * A PROCESS THAT LOST THE LOCK SAYS SO (owner, 2026-11-06; the audit could
-   * not tell which of four presses' processes won, nor when). One line in the
-   * winner's log, appended whole (a single small write), then gone; the
-   * handoff itself is the winner's `second-instance`.
-   */
-  const created = bootFields(process.getCreationTime(), Date.now())
-  const lost = JSON.stringify({
-    t: new Date().toISOString(),
-    up: Math.round(performance.now()),
-    src: 'main',
-    k: 'lock-lost',
-    pid: process.pid,
-    ...(created ?? {}),
-    ...(winERequest(process.argv) ? { winE: shortId(winERequest(process.argv)!) } : {}),
-    ...(E2E ? { e2e: true } : {})
-  })
-  const quit = setTimeout(() => app.quit(), 300)
-  void appendFile(join(userPaths.logs(), 'diag.jsonl'), lost + '\n')
-    .catch(() => {})
-    .finally(() => {
-      clearTimeout(quit)
-      app.quit()
-    })
+// the running window and focuses it, instead of spawning a rival process. The
+// lock is taken by boot.ts before this file loads (2026-11-28); a process that
+// lost it never gets here, and boot.ts logs its `lock-lost`.
+if (!haveInstanceLock()) {
+  app.quit()
 } else {
   /**
    * CRASH DUMPS STAY ON THIS MACHINE (#265). The windowless Prism of

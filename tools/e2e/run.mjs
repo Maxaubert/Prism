@@ -8774,6 +8774,81 @@ async function volumeScenario(fixtures) {
   }
 }
 
+// A CLICK PAUSES A TRACK, A DOUBLE CLICK GOES FULLSCREEN (owner, 2026-11-28:
+// "add to mp3 files that if you double click it fullscreens it and single
+// click pauses it"), as on a film. The transport's own clicks stay its own.
+async function audioClicksScenario(fixtures) {
+  console.log('a click on a track pauses it, a double click goes fullscreen')
+  const dir = join(fixtures, 'audioclicks')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  {
+    // Thirty seconds of silence, 8 kHz mono 16-bit: long enough never to end.
+    const n = 8000 * 2 * 30
+    const wav = Buffer.alloc(44 + n)
+    wav.write('RIFF', 0)
+    wav.writeUInt32LE(36 + n, 4)
+    wav.write('WAVEfmt ', 8)
+    wav.writeUInt32LE(16, 16)
+    wav.writeUInt16LE(1, 20)
+    wav.writeUInt16LE(1, 22)
+    wav.writeUInt32LE(8000, 24)
+    wav.writeUInt32LE(16000, 28)
+    wav.writeUInt16LE(2, 32)
+    wav.writeUInt16LE(16, 34)
+    wav.write('data', 36)
+    wav.writeUInt32LE(n, 40)
+    writeFileSync(join(dir, 'tone.wav'), wav)
+  }
+  const { app, win } = await launch(join(dir, 'tone.wav'))
+  try {
+    await win.waitForSelector('audio', { state: 'attached', timeout: 15000 })
+    await until(() => win.evaluate(() => (document.querySelector('audio')?.readyState ?? 0) >= 1), 10000)
+    const paused = () => win.evaluate(() => document.querySelector('audio')?.paused)
+    // The middle of the stage, well above the transport.
+    const box = await win.locator('[data-workspace-viewer]').boundingBox()
+    const at = { x: box.x + box.width / 2, y: box.y + box.height * 0.35 }
+    ok((await paused()) === true, 'a track opens paused')
+    await win.mouse.click(at.x, at.y)
+    ok(await until(async () => (await paused()) === false, 3000), 'one click on the stage plays it')
+    await sleep(500) // past the double-click time, so the next is a click of its own
+    await win.mouse.click(at.x, at.y)
+    ok(await until(async () => (await paused()) === true, 3000), 'and the next pauses it')
+    await sleep(500)
+
+    // The transport is not the stage: a press on its play button toggles once.
+    const play = win.locator('button[title^="Play"]').first()
+    await play.click()
+    ok(await until(async () => (await paused()) === false, 3000), 'the play button plays it')
+    await sleep(500)
+    ok((await paused()) === false, 'and the stage did not toggle it back')
+    // Away and back, past the double-click time: a second press on the same
+    // spot within it is not delivered to the button's handler (measured).
+    await win.mouse.move(5, 5)
+    await sleep(1500)
+    await play.click()
+    ok(await until(async () => (await paused()) === true, 3000), 'the pause button pauses it')
+    await sleep(500)
+
+    const covers = () =>
+      app.evaluate(({ BrowserWindow, screen }) => {
+        const w = globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0]
+        const b = w.getBounds()
+        const d = screen.getDisplayMatching(b).bounds
+        return b.width >= d.width && b.height >= d.height
+      })
+    ok((await covers()) === false, 'windowed to begin with')
+    await win.mouse.dblclick(at.x, at.y)
+    ok(await until(covers, 4000), 'a double click on the stage goes fullscreen')
+    await sleep(900)
+    const fsBox = await win.locator('[data-workspace-viewer]').boundingBox()
+    await win.mouse.dblclick(fsBox.x + fsBox.width / 2, fsBox.y + fsBox.height * 0.35)
+    ok(await until(async () => (await covers()) === false, 4000), 'and another comes back to the window')
+  } finally {
+    await app.close()
+  }
+}
+
 async function fullscreenBlackScenario(fixtures) {
   console.log('fullscreen is black')
   const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
@@ -8787,7 +8862,24 @@ async function fullscreenBlackScenario(fixtures) {
         const stage = v?.parentElement
         return stage ? getComputedStyle(stage).backgroundColor : null
       })
+    // The box every viewer sits in (image, page, track, film): its ground is
+    // the border round whatever is open (owner, 2026-11-26).
+    const boxBg = () =>
+      win.evaluate(() => {
+        const box = document.querySelector('[data-workspace-viewer]')
+        return box ? getComputedStyle(box).backgroundColor : null
+      })
     const windowed = await stageBg()
+    const boxWindowed = await boxBg()
+    const themeBg = await win.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.backgroundColor = 'var(--p-bg)'
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return c
+    })
+    ok(boxWindowed === themeBg, `windowed, the viewer box wears the theme (${boxWindowed}, --p-bg ${themeBg})`)
     await win.keyboard.press('F11')
     await sleep(900)
     // BORDERLESS, EXACT (2026-09-03): no OS fullscreen (its DWM animation is
@@ -8813,12 +8905,15 @@ async function fullscreenBlackScenario(fixtures) {
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+    const boxFs = await boxBg()
+    ok(boxFs === 'rgb(0, 0, 0)', `and so is the viewer box round any file, whatever the theme (${boxFs})`)
 
     // The `:fullscreen` rule no longer applies - there is no fullscreen element
     // in a borderless window - and the stage's own black above is what matters.
     await win.keyboard.press('F11')
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+    ok((await boxBg()) === boxWindowed, 'the viewer box too')
     const back = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = (globalThis.__e2eMainWindow?.() ?? BrowserWindow.getAllWindows()[0])
       const b = w.getBounds()
@@ -30798,6 +30893,7 @@ await run(pauseScenario)
 await run(playOnOpenScenario)
 await run(volumeScenario)
 await run(fullscreenBlackScenario)
+await run(audioClicksScenario)
 await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
