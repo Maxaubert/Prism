@@ -4047,6 +4047,12 @@ or project settings is HISTORY, kept for its measurements; none of it ships.
   film had got to was invisible on the device that most needs it. Measured in the `phone`
   e2e under touch emulation rather than read off the stylesheet, since the numbers meet
   across three files: an explorer row at 56px and a transport button at 44px.
+- **A track answers clicks like a film** (owner, 2026-11-28: "add to mp3 files that if you double
+  click it fullscreens it and single click pauses it"). A click on the audio stage plays or pauses,
+  a double click goes fullscreen and back (`AudioView.tsx`). Not on the transport (its buttons and
+  bar are clicks of their own), not in the right-click menu, not the press that closed that menu,
+  and a finger on hidden controls brings them back first (`lib/tapChrome`, as below). Held by the
+  e2e `audioClicks`.
 - **A TAP IS HOW A PHONE ASKS TO SEE THE CONTROLS** (owner, same session, #107). A MOUSE has
   a pointer on screen: you can see the transport has gone, you click to pause, and that is
   what the desktop has done since the beginning and still does. A FINGER has none, so with
