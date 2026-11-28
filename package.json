@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.138.25",
+  "version": "0.138.26",
   "private": true,
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
@@ -97,7 +97,7 @@
     "eslint-plugin-react-refresh": "^0.5.8",
     "globals": "^17.14.0",
     "hls.js": "^1.7.4",
-    "lucide-static": "1.73.0",
+    "lucide-static": "1.78.0",
     "node-gyp": "^13.1.0",
     "pdfjs-dist": "^6.5.438",
     "playwright-core": "^1.62.1",

@@ -19,11 +19,12 @@ function parses(d: string): boolean {
   return true
 }
 
-// The icons Lucide draws with filled dots (spec, counted 2026-10-31).
+// The icons Lucide draws with filled dots (spec, counted 2026-11-28, Lucide 1.78).
 const FILLED = [
   'brain-circuit',
   'chart-quadrant',
   'chart-scatter',
+  'circle-person-arms-spread',
   'galaxy',
   'images',
   'key-round',
@@ -39,9 +40,9 @@ describe('the built-in folder icon set', () => {
   const set = buildFolderIconSet(LUCIDE)
 
   it('is every Lucide icon, well over the 300 asked for', () => {
-    expect(LUCIDE_VERSION).toBe('1.66.0')
-    expect(LUCIDE.length).toBe(2015)
-    expect(set.icons.length).toBe(2015 + PRISM_ICONS.length)
+    expect(LUCIDE_VERSION).toBe('1.78.0')
+    expect(LUCIDE.length).toBe(2102)
+    expect(set.icons.length).toBe(2102 + PRISM_ICONS.length)
   })
 
   it("Prism's own nine glyphs come first", () => {
